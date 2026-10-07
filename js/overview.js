@@ -118,7 +118,7 @@ function renderAiRecipeCard() {
     if (item && item.name) catalogMap[item.name.trim()] = item;
   });
 
-  // Сортировка от свежих к старым
+  // 1. Сортируем сеты хронологически от свежих к старым
   const sortedSets = [...sets].sort((a, b) => {
     const da = normalizeDate(a.date);
     const db = normalizeDate(b.date);
@@ -128,34 +128,30 @@ function renderAiRecipeCard() {
   const latestSet = sortedSets[0];
   const fallbackParsed = extractPeriodization(latestSet.workout);
   
-  // Определяем фактические параметры последней сессии
   let currentWeek = parseInt(latestSet.cycleWeek || fallbackParsed.cycleWeek, 10) || 1;
   let currentMode = latestSet.cycleMode || fallbackParsed.cycleMode || 'Сила';
   let currentSplit = (latestSet.splitDay || fallbackParsed.splitDay || 'А').toUpperCase();
   let currentWave = String(latestSet.waveIndex || fallbackParsed.waveIndex || '1');
   const currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-1';
 
-  // Проверка на русские синонимы разгрузки в названии тренировки
   const lastWorkoutTitle = String(latestSet.workout || '').toLowerCase();
   if (lastWorkoutTitle.includes('разгруз') || lastWorkoutTitle.includes('делоад') || lastWorkoutTitle.includes('deload')) {
     currentMode = 'Делоад';
     currentWeek = 5;
   }
 
+  // Определение следующей тренировки
   let nextSplit = (currentSplit === 'А' || currentSplit === 'A') ? 'Б' : 'А';
   let nextWeek = currentWeek;
   let nextMode = currentMode;
   let nextWave = currentWave;
 
-  // ЛОГИКА ПЕРЕХОДА:
   if (currentSplit === 'А' || currentSplit === 'A') {
-    // В рамках одной недели: День Б повторяет режим Дня А (Сила, Объем или Делоад)
     nextSplit = 'Б';
     nextWeek = currentWeek;
     nextMode = currentMode;
     nextWave = currentWave;
   } else {
-    // Переход на новую неделю (после Дня Б)
     nextSplit = 'А';
     nextWeek = currentWeek >= 5 ? 1 : currentWeek + 1;
     if (nextWeek === 1) { nextMode = 'Сила'; nextWave = '1'; }
@@ -172,35 +168,32 @@ function renderAiRecipeCard() {
   if (cycleBadge) cycleBadge.innerText = currentCycleId;
   if (nextTag) nextTag.innerText = nextTitle;
 
-  const prevSplitSets = sets.filter(s => {
+  // 2. ИЩЕМ СТРОГО ПОСЛЕДНЮЮ СЕССИЮ НУЖНОГО СПЛИТА (без свалки из истории)
+  const prevSplitSets = sortedSets.filter(s => {
     const sSplit = (s.splitDay || extractPeriodization(s.workout).splitDay || '').toUpperCase();
     return sSplit === nextSplit;
   });
 
-  const uniqueExerciseOrder = [];
-  const latestSplitDate = prevSplitSets.length > 0 ? prevSplitSets[0].date : null;
-  const latestSessionSets = prevSplitSets.filter(s => s.date === latestSplitDate);
-  
-  latestSessionSets.forEach(s => {
-    if (s.exercise && !uniqueExerciseOrder.includes(s.exercise)) {
-      uniqueExerciseOrder.push(s.exercise);
-    }
-  });
-
-  prevSplitSets.forEach(s => {
-    if (s.exercise && !uniqueExerciseOrder.includes(s.exercise)) {
-      uniqueExerciseOrder.push(s.exercise);
-    }
-  });
-
-  if (uniqueExerciseOrder.length === 0) {
+  if (prevSplitSets.length === 0) {
     if (adviceText) adviceText.innerText = `Нет исторических данных для формирования плана Дня ${nextSplit}.`;
     recipeBox.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8;">Выполните и синхронизируйте тренировку ${nextSplit}.</div>`;
     return;
   }
 
+  // Берем дату самой последней завершенной тренировки этого сплита
+  const latestSplitDate = prevSplitSets[0].date;
+  const targetSessionSets = prevSplitSets.filter(s => s.date === latestSplitDate);
+
+  // Собираем список упражнений ТОЛЬКО из этой конкретной сессии в строгом порядке
+  const targetExercises = [];
+  targetSessionSets.forEach(s => {
+    if (s.exercise && !targetExercises.includes(s.exercise)) {
+      targetExercises.push(s.exercise);
+    }
+  });
+
   const targetMusclesList = [];
-  uniqueExerciseOrder.forEach(exName => {
+  targetExercises.forEach(exName => {
     const catItem = catalogMap[exName.trim()];
     if (catItem && catItem.primaryMuscle && !targetMusclesList.includes(catItem.primaryMuscle)) {
       targetMusclesList.push(catItem.primaryMuscle);
@@ -221,7 +214,8 @@ function renderAiRecipeCard() {
     adviceText.innerText = `Целевые группы: ${musclesStr || 'Верх тела'}. ${modeAdvice}`;
   }
 
-  uniqueExerciseOrder.forEach(ex => {
+  // Отрисовка карточек СТРОГО для упражнений этой сессии
+  targetExercises.forEach(ex => {
     const history = prevSplitSets.filter(s => s.exercise === ex && (s.category === 'Рабочий' || s.effort !== 'Размин.'));
     let maxWeight = 0;
     let best1RM = 0;
