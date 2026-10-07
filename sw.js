@@ -13,8 +13,6 @@ const STATIC_ASSETS = [
   '/gym-hub/js/analytics.js',
   '/gym-hub/js/parser.js',
   '/gym-hub/js/sync.js',
-  '/gym-hub/icons/icon-192.png',
-  '/gym-hub/icons/icon-512.png'
 ];
 
 // Установка: предварительное кэширование локальных файлов
