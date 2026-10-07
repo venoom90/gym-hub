@@ -7,6 +7,14 @@ export function renderOverviewModule() {
   renderMuscleMannequin();
 }
 
+/**
+ * Округление расчетного веса до шага тренажеров и дисков
+ */
+function roundToGymStep(weight) {
+  if (!weight || weight <= 0) return 0;
+  return Math.round(weight / 2.5) * 2.5;
+}
+
 function renderCalendarStrip() {
   const container = document.getElementById('calendarStripContainer');
   const rangeLabel = document.getElementById('calendarWeekRange');
@@ -118,7 +126,6 @@ function renderAiRecipeCard() {
     if (item && item.name) catalogMap[item.name.trim()] = item;
   });
 
-  // 1. Сортируем сеты хронологически от свежих к старым
   const sortedSets = [...sets].sort((a, b) => {
     const da = normalizeDate(a.date);
     const db = normalizeDate(b.date);
@@ -127,12 +134,12 @@ function renderAiRecipeCard() {
 
   const latestSet = sortedSets[0];
   const fallbackParsed = extractPeriodization(latestSet.workout);
-  
+
   let currentWeek = parseInt(latestSet.cycleWeek || fallbackParsed.cycleWeek, 10) || 1;
   let currentMode = latestSet.cycleMode || fallbackParsed.cycleMode || 'Сила';
   let currentSplit = (latestSet.splitDay || fallbackParsed.splitDay || 'А').toUpperCase();
   let currentWave = String(latestSet.waveIndex || fallbackParsed.waveIndex || '1');
-  const currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-1';
+  let currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-1';
 
   const lastWorkoutTitle = String(latestSet.workout || '').toLowerCase();
   if (lastWorkoutTitle.includes('разгруз') || lastWorkoutTitle.includes('делоад') || lastWorkoutTitle.includes('deload')) {
@@ -140,35 +147,53 @@ function renderAiRecipeCard() {
     currentWeek = 5;
   }
 
-  // Определение следующей тренировки
-  let nextSplit = (currentSplit === 'А' || currentSplit === 'A') ? 'Б' : 'А';
-  let nextWeek = currentWeek;
-  let nextMode = currentMode;
-  let nextWave = currentWave;
+  let nextSplit = 'А';
+  let nextWeek = 1;
+  let nextMode = 'Сила';
+  let nextWave = '1';
+  let nextCycleId = currentCycleId;
+  let isNewCycleTransition = false;
 
+  // ЛОГИКА ПЕРЕХОДОВ ДНЕЙ И МЕЗОЦИКЛОВ
   if (currentSplit === 'А' || currentSplit === 'A') {
+    // В рамках текущей недели: День Б повторяет режим Дня А
     nextSplit = 'Б';
     nextWeek = currentWeek;
     nextMode = currentMode;
     nextWave = currentWave;
+    nextCycleId = currentCycleId;
   } else {
-    nextSplit = 'А';
-    nextWeek = currentWeek >= 5 ? 1 : currentWeek + 1;
-    if (nextWeek === 1) { nextMode = 'Сила'; nextWave = '1'; }
-    else if (nextWeek === 2) { nextMode = 'Объем'; nextWave = '1'; }
-    else if (nextWeek === 3) { nextMode = 'Сила'; nextWave = '2'; }
-    else if (nextWeek === 4) { nextMode = 'Объем'; nextWave = '2'; }
-    else if (nextWeek >= 5) { nextMode = 'Делоад'; nextWave = 'Делоад'; }
+    // Переход после завершения Дня Б
+    if (currentMode === 'Делоад' || currentWeek >= 5) {
+      // Полное завершение мезоцикла: переход на C-(X+1)
+      nextSplit = 'А';
+      nextWeek = 1;
+      nextMode = 'Сила';
+      nextWave = '1';
+      isNewCycleTransition = true;
+
+      const cycleNumMatch = currentCycleId.match(/\d+/);
+      const nextNum = cycleNumMatch ? (parseInt(cycleNumMatch[0], 10) + 1) : 2;
+      nextCycleId = `C-${nextNum}`;
+    } else {
+      nextSplit = 'А';
+      nextWeek = currentWeek + 1;
+      nextCycleId = currentCycleId;
+      if (nextWeek === 2) { nextMode = 'Объем'; nextWave = '1'; }
+      else if (nextWeek === 3) { nextMode = 'Сила'; nextWave = '2'; }
+      else if (nextWeek === 4) { nextMode = 'Объем'; nextWave = '2'; }
+      else if (nextWeek >= 5) { nextMode = 'Делоад'; nextWave = 'Делоад'; }
+    }
   }
 
   const nextTitle = (nextMode === 'Делоад' || nextMode === 'Разгрузка')
-    ? `Тренировка ${nextSplit} Разгрузка (Делоад)` 
+    ? `Тренировка ${nextSplit} Разгрузка (Делоад)`
     : `Тренировка ${nextSplit}${nextWave} ${nextMode}`;
 
-  if (cycleBadge) cycleBadge.innerText = currentCycleId;
+  if (cycleBadge) cycleBadge.innerText = nextCycleId;
   if (nextTag) nextTag.innerText = nextTitle;
 
-  // 2. ИЩЕМ СТРОГО ПОСЛЕДНЮЮ СЕССИЮ НУЖНОГО СПЛИТА (без свалки из истории)
+  // Ищем строго последнюю выполненную сессию нужного сплита
   const prevSplitSets = sortedSets.filter(s => {
     const sSplit = (s.splitDay || extractPeriodization(s.workout).splitDay || '').toUpperCase();
     return sSplit === nextSplit;
@@ -180,11 +205,10 @@ function renderAiRecipeCard() {
     return;
   }
 
-  // Берем дату самой последней завершенной тренировки этого сплита
   const latestSplitDate = prevSplitSets[0].date;
   const targetSessionSets = prevSplitSets.filter(s => s.date === latestSplitDate);
 
-  // Собираем список упражнений ТОЛЬКО из этой конкретной сессии в строгом порядке
+  // Сбор упражнений только этой сессии
   const targetExercises = [];
   targetSessionSets.forEach(s => {
     if (s.exercise && !targetExercises.includes(s.exercise)) {
@@ -201,12 +225,14 @@ function renderAiRecipeCard() {
   });
 
   let modeAdvice = '';
-  if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
-    modeAdvice = 'Разгрузочная тренировка (RIR +4..+5). Сниженный рабочий вес (~65–70%), отсутствие мышечного отказа, восстановление ЦНС и связок перед новым мезоциклом.';
+  if (isNewCycleTransition) {
+    modeAdvice = `Старт нового мезоцикла ${nextCycleId}! Силовой режим с плановой перегрузкой (+2.5% к 1ПМ) после суперкомпенсации разгрузочной недели.`;
+  } else if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
+    modeAdvice = 'Разгрузочная тренировка (RIR +4..+5). Сниженный вес (~65%), работа без мышечного отказа для восстановления ЦНС и суставов.';
   } else if (nextMode === 'Сила') {
     modeAdvice = 'Тяжелый силовой режим (RIR +1..+2). Максимальная взрывная концентрация в позитивной фазе.';
   } else {
-    modeAdvice = 'Многоповторный объемный режим (RIR +2..+3). Фокус на кровенаполнение и постоянное натяжение.';
+    modeAdvice = 'Многоповторный объемный режим (RIR +2..+3). Фокус на постоянное натяжение и памп.';
   }
 
   if (adviceText) {
@@ -214,7 +240,6 @@ function renderAiRecipeCard() {
     adviceText.innerText = `Целевые группы: ${musclesStr || 'Верх тела'}. ${modeAdvice}`;
   }
 
-  // Отрисовка карточек СТРОГО для упражнений этой сессии
   targetExercises.forEach(ex => {
     const history = prevSplitSets.filter(s => s.exercise === ex && (s.category === 'Рабочий' || s.effort !== 'Размин.'));
     let maxWeight = 0;
@@ -229,29 +254,35 @@ function renderAiRecipeCard() {
     });
 
     let targetReps = '12–15x';
-    let targetLoad = Math.round(maxWeight * 0.95);
+    let rawTargetLoad = 0;
     let warmUpText = 'Не требуется';
 
     if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
       targetReps = '8–10x (Легко, RIR +4..+5)';
-      targetLoad = maxWeight > 0 ? Math.round(maxWeight * 0.65) : 0;
-      warmUpText = `1 легкий подход на 40–50%`;
+      rawTargetLoad = maxWeight > 0 ? (maxWeight * 0.65) : 0;
+      const roundedDeload = roundToGymStep(rawTargetLoad);
+      warmUpText = `1 легкий подход на ${roundToGymStep(roundedDeload * 0.5)} кг`;
     } else if (nextMode === 'Сила') {
       targetReps = '4–6x (RIR +1..+2)';
-      targetLoad = maxWeight > 0 ? Math.round(best1RM * 0.82) : 0;
-      warmUpText = `1 подход × ${Math.round(targetLoad * 0.5)} кг`;
+      const progressionMultiplier = isNewCycleTransition ? 1.025 : 1.0;
+      rawTargetLoad = maxWeight > 0 ? (best1RM * 0.82 * progressionMultiplier) : 0;
+      const roundedStrength = roundToGymStep(rawTargetLoad);
+      warmUpText = `1 подход × ${roundToGymStep(roundedStrength * 0.5)} кг`;
     } else {
       targetReps = '12–16x (RIR +2..+3)';
-      targetLoad = maxWeight > 0 ? Math.round(best1RM * 0.65) : 0;
-      warmUpText = `1 подход × ${Math.round(targetLoad * 0.45)} кг`;
+      rawTargetLoad = maxWeight > 0 ? (best1RM * 0.65) : 0;
+      const roundedVolume = roundToGymStep(rawTargetLoad);
+      warmUpText = `1 подход × ${roundToGymStep(roundedVolume * 0.45)} кг`;
     }
+
+    const finalTargetLoad = roundToGymStep(rawTargetLoad);
 
     const step = document.createElement('div');
     step.className = 'recipe-step';
     step.innerHTML = `
       <div style="font-weight: 600; color: var(--md-sys-color-primary); font-size: 0.9rem;">${ex}</div>
       <div style="font-size: 0.82rem; margin-top: 4px;">
-        Цель: 2–3 сета × <b>${targetLoad > 0 ? targetLoad + ' кг' : 'легкий вес'}</b> на <b>${targetReps}</b>
+        Цель: 2–3 сета × <b>${finalTargetLoad > 0 ? finalTargetLoad + ' кг' : 'рабочий вес'}</b> на <b>${targetReps}</b>
       </div>
       <div style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">
         Разминка: ${warmUpText}
