@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#111318">
+  <meta name="mobile-web-app-capable" content="yes">
+  
+  <title>Gym Analytics Hub</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="module" src="https://esm.sh/@material/web@1.5.1/all.js?bundle"></script>
+
+  <style>
+    :root {
+      --md-sys-color-background: #111318;
+      --md-sys-color-on-background: #e2e2e9;
+      --md-sys-color-surface: #111318;
+      --md-sys-color-surface-container: #1d2024;
+      --md-sys-color-surface-container-high: #282a2f;
+      --md-sys-color-surface-container-highest: #33353a;
+      --md-sys-color-on-surface: #e2e2e9;
+      --md-sys-color-on-surface-variant: #c4c6d0;
+      --md-sys-color-primary: #a8c8ff;
+      --md-sys-color-primary-container: #00468b;
+      --md-sys-color-on-primary-container: #d6e3ff;
+      --md-sys-color-secondary-container: #3d4758;
+      --md-sys-color-on-secondary-container: #d9e3f9;
+      --md-sys-color-outline-variant: #44474f;
+      --md-sys-color-error: #ffb4ab;
+      --md-sys-color-error-container: #93000a;
+      --md-sys-color-on-error-container: #ffdad6;
+      --md-sys-color-success: #78dc9c;
+      --md-sys-color-warning: #facc15;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background: var(--md-sys-color-background);
+      color: var(--md-sys-color-on-background);
+      font-family: 'Roboto', sans-serif;
+      min-height: 100vh;
+      padding-bottom: 96px;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      height: 64px;
+      background: var(--md-sys-color-surface);
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    }
+
+    .top-bar h1 {
+      font-size: 1.25rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--md-sys-color-success);
+      display: inline-block;
+      transition: background-color 0.3s ease;
+    }
+    .status-dot.offline {
+      background-color: var(--md-sys-color-warning);
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 16px auto;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 16px; }
+
+    .m3-card {
+      background: var(--md-sys-color-surface-container);
+      border-radius: 20px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: var(--md-sys-color-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Календарь-стрип недели */
+    .calendar-strip {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+
+    .calendar-day-card {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 12px;
+      padding: 8px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+    }
+
+    .calendar-day-card.today {
+      border-color: var(--md-sys-color-primary);
+      background: var(--md-sys-color-surface-container-highest);
+    }
+
+    .cal-day-name { font-size: 0.7rem; color: var(--md-sys-color-on-surface-variant); }
+    .cal-day-num { font-size: 0.95rem; font-weight: 700; color: var(--md-sys-color-on-surface); }
+    .cal-badge {
+      width: 22px;
+      height: 22px;
+      border-radius: 11px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    .badge-split-a { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+    .badge-split-b { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+    .badge-rest { width: 6px; height: 6px; border-radius: 3px; background: var(--md-sys-color-outline-variant); margin-top: 10px; }
+
+    /* Анатомический манекен */
+    .mannequin-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .mannequin-views-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      width: 100%;
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 16px;
+      padding: 12px 6px;
+    }
+
+    .mannequin-figure {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      width: 48%;
+    }
+
+    .mannequin-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--md-sys-color-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .mannequin-svg {
+      width: 100%;
+      max-height: 250px;
+    }
+
+    @keyframes neonPulse {
+      0% {
+        stroke: #ffffff;
+        stroke-width: 2px;
+        filter: drop-shadow(0 0 3px #a8c8ff);
+      }
+      50% {
+        stroke: #a8c8ff;
+        stroke-width: 3px;
+        filter: drop-shadow(0 0 8px #a8c8ff);
+      }
+      100% {
+        stroke: #ffffff;
+        stroke-width: 2px;
+        filter: drop-shadow(0 0 3px #a8c8ff);
+      }
+    }
+
+    .muscle-path {
+      cursor: pointer;
+      transition: fill 0.25s ease, stroke 0.2s ease, filter 0.2s ease;
+    }
+
+    .muscle-path.selected {
+      animation: neonPulse 1.8s infinite ease-in-out;
+    }
+
+    .body-silhouette {
+      fill: #22252a;
+      stroke: #33363d;
+      stroke-width: 1.5px;
+    }
+
+    .muscle-info-card {
+      width: 100%;
+      background: var(--md-sys-color-surface-container-highest);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 14px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: all 0.3s ease;
+    }
+
+    .muscle-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 6px;
+    }
+
+    .muscle-card-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+    }
+
+    .muscle-card-status-badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--md-sys-color-surface-container);
+    }
+
+    .muscle-card-details {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.82rem;
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.4;
+    }
+
+    .muscle-card-details b {
+      color: var(--md-sys-color-on-surface);
+    }
+
+    /* Аналитика */
+    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .kpi-card {
+      background: var(--md-sys-color-surface-container-high);
+      padding: 12px;
+      border-radius: 14px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .kpi-value { font-size: 1.25rem; font-weight: 700; color: var(--md-sys-color-on-surface); }
+    .kpi-label { font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant); }
+
+    select.m3-select, input.m3-input {
+      width: 100%;
+      background: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    .chart-container { position: relative; height: 240px; width: 100%; }
+
+    .volume-list { display: flex; flex-direction: column; gap: 12px; }
+    .volume-item { display: flex; flex-direction: column; gap: 4px; }
+    .volume-header { display: flex; justify-content: space-between; font-size: 0.85rem; }
+    .volume-progress-bg {
+      height: 10px;
+      background: var(--md-sys-color-surface-container-highest);
+      border-radius: 5px;
+      overflow: hidden;
+      display: flex;
+    }
+    .volume-progress-bar { height: 100%; transition: width 0.4s ease; }
+    .zone-maint { background-color: #64748b; }
+    .zone-mev { background-color: var(--md-sys-color-success); }
+    .zone-mav { background-color: var(--md-sys-color-primary); }
+    .zone-mrv { background-color: var(--md-sys-color-warning); }
+
+    /* Синхронизация */
+    .file-drop-zone {
+      border: 2px dashed var(--md-sys-color-outline-variant);
+      border-radius: 20px;
+      padding: 24px;
+      text-align: center;
+      background: var(--md-sys-color-surface-container);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      transition: border-color 0.2s;
+    }
+    .file-drop-zone.active { border-color: var(--md-sys-color-primary); }
+    .file-drop-zone input[type="file"] { display: none; }
+
+    .exercise-card {
+      background: var(--md-sys-color-surface-container);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .exercise-header { font-size: 1.05rem; font-weight: 600; color: var(--md-sys-color-primary); }
+    .set-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--md-sys-color-surface-container-high);
+      font-size: 0.85rem;
+      gap: 8px;
+    }
+    .set-details { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+    .set-chips { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
+    .badge-chip { background: var(--md-sys-color-surface-container-highest); padding: 2px 6px; border-radius: 4px; }
+    
+    .status-indicator { display: flex; align-items: center; gap: 6px; }
+    .status-icon { font-size: 1.25rem; }
+    .status-synced { color: var(--md-sys-color-success); }
+    .status-pending { color: var(--md-sys-color-outline-variant); }
+    .status-error { color: var(--md-sys-color-error); }
+
+    .navigation-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 80px;
+      background: var(--md-sys-color-surface-container);
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      border-top: 1px solid var(--md-sys-color-outline-variant);
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .nav-pill {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 64px;
+      height: 32px;
+      border-radius: 16px;
+      transition: background-color 0.2s ease;
+    }
+
+    .nav-item.active { color: var(--md-sys-color-on-surface); }
+    .nav-item.active .nav-pill {
+      background-color: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+    }
+
+    .recipe-step {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 8px;
+    }
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      background: var(--md-sys-color-surface-container);
+      border-radius: 24px;
+      padding: 24px;
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .ai-bubble {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 16px;
+      padding: 16px;
+      line-height: 1.5;
+      font-size: 0.9rem;
+      white-space: pre-wrap;
+    }
+    #installAppBtn { display: none; }
+  </style>
+</head>
+<body>
+
+  <header class="top-bar">
+    <h1>
+      <span class="material-symbols-outlined" style="color: var(--md-sys-color-primary);">fitness_center</span>
+      Gym Analytics
+      <span id="networkStatusDot" class="status-dot" title="Сетевой статус: Онлайн"></span>
+    </h1>
+    <div style="display: flex; gap: 8px;">
+      <md-filled-button id="installAppBtn">
+        <span class="material-symbols-outlined" slot="icon">download</span>
+        Установить
+      </md-filled-button>
+      <md-icon-button id="openSettingsBtn" title="Настройки API">
+        <span class="material-symbols-outlined">settings</span>
+      </md-icon-button>
+      <md-icon-button id="refreshDataBtn" title="Обновить аналитику">
+        <span class="material-symbols-outlined">sync</span>
+      </md-icon-button>
+    </div>
+  </header>
+
+  <main class="container">
+    
+    <!-- МОДУЛЬ 1: ОБЗОР (ГЛАВНЫЙ ЭКРАН) -->
+    <div id="tab-overview" class="tab-content active">
+      
+      <!-- 1. Календарь-стрип недели -->
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">calendar_month</span>
+            Текущая неделя
+          </span>
+          <span id="calendarWeekRange" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);"></span>
+        </div>
+        <div id="calendarStripContainer" class="calendar-strip"></div>
+      </div>
+
+      <!-- 2. Совет ИИ: План на сегодня -->
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">event_upcoming</span>
+            План тренировки
+          </span>
+          <div style="display: flex; gap: 6px;">
+            <span id="overviewCycleBadge" class="badge-chip" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); font-weight: 700;">C-1</span>
+            <span id="overviewNextTag" class="badge-chip" style="background: var(--md-sys-color-secondary-container); font-weight: 600;">...</span>
+          </div>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);" id="overviewAiAdviceText">
+          Загрузка актуального плана мезоцикла...
+        </div>
+        <div id="overviewRecipeContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+
+      <!-- 3. Анатомический манекен мышечной нагрузки -->
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">accessibility_new</span>
+            Мышечная готовность
+          </span>
+          <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Интерактивная карта</span>
+        </div>
+        
+        <div class="mannequin-container">
+          <div class="mannequin-views-row">
+            <!-- Вид спереди -->
+            <div class="mannequin-figure">
+              <span class="mannequin-label">Спереди</span>
+              <svg id="mannequinFront" class="mannequin-svg" viewBox="0 0 100 210">
+                <circle cx="50" cy="14" r="10" class="body-silhouette" />
+                <path d="M46 24 L54 24 L54 30 L46 30 Z" class="body-silhouette" />
+                
+                <path id="front-shoulders-left" class="muscle-path" data-muscle="Средняя дельта" d="M30 32 C26 34, 23 42, 24 50 C28 48, 32 44, 33 36 Z" fill="#33353a" />
+                <path id="front-shoulders-right" class="muscle-path" data-muscle="Средняя дельта" d="M70 32 C74 34, 77 42, 76 50 C72 48, 68 44, 67 36 Z" fill="#33353a" />
+
+                <path id="front-chest-left" class="muscle-path" data-muscle="Грудь" d="M34 33 C42 33, 49 35, 49 48 C42 51, 33 48, 32 38 Z" fill="#33353a" />
+                <path id="front-chest-right" class="muscle-path" data-muscle="Грудь" d="M66 33 C58 33, 51 35, 51 48 C58 51, 67 48, 68 38 Z" fill="#33353a" />
+
+                <path id="front-biceps-left" class="muscle-path" data-muscle="Руки" d="M23 52 C21 58, 20 66, 23 72 C26 70, 28 62, 27 54 Z" fill="#33353a" />
+                <path id="front-biceps-right" class="muscle-path" data-muscle="Руки" d="M77 52 C79 58, 80 66, 77 72 C74 70, 72 62, 73 54 Z" fill="#33353a" />
+                <path d="M22 74 L19 96 L16 100 L20 102 L25 80 Z" class="body-silhouette" />
+                <path d="M78 74 L81 96 L84 100 L80 102 L75 80 Z" class="body-silhouette" />
+
+                <path id="front-abs" class="muscle-path" data-muscle="Кор" d="M42 51 L58 51 L56 78 L44 78 Z" fill="#33353a" />
+
+                <path id="front-quads-left" class="muscle-path" data-muscle="Квадрицепс" d="M36 82 C34 94, 34 118, 38 135 C43 135, 47 115, 47 88 Z" fill="#33353a" />
+                <path id="front-quads-right" class="muscle-path" data-muscle="Квадрицепс" d="M64 82 C66 94, 66 118, 62 135 C57 135, 53 115, 53 88 Z" fill="#33353a" />
+
+                <path d="M37 138 C35 155, 36 178, 38 190 L34 196 L44 196 L43 140 Z" class="body-silhouette" />
+                <path d="M63 138 C65 155, 64 178, 62 190 L66 196 L56 196 L57 140 Z" class="body-silhouette" />
+              </svg>
+            </div>
+
+            <!-- Вид сзади -->
+            <div class="mannequin-figure">
+              <span class="mannequin-label">Сзади</span>
+              <svg id="mannequinBack" class="mannequin-svg" viewBox="0 0 100 210">
+                <circle cx="50" cy="14" r="10" class="body-silhouette" />
+                
+                <path id="back-upper" class="muscle-path" data-muscle="Верх спины" d="M44 24 L56 24 L66 34 L50 46 L34 34 Z" fill="#33353a" />
+
+                <path id="back-lats-left" class="muscle-path" data-muscle="Широчайшие" d="M34 36 C38 48, 41 62, 47 70 C41 68, 36 56, 33 46 Z" fill="#33353a" />
+                <path id="back-lats-right" class="muscle-path" data-muscle="Широчайшие" d="M66 36 C62 48, 59 62, 53 70 C59 68, 64 56, 67 46 Z" fill="#33353a" />
+
+                <path id="back-triceps-left" class="muscle-path" data-muscle="Руки" d="M24 38 C22 46, 20 58, 22 68 C25 66, 27 58, 27 46 Z" fill="#33353a" />
+                <path id="back-triceps-right" class="muscle-path" data-muscle="Руки" d="M76 38 C78 46, 80 58, 78 68 C75 66, 73 58, 73 46 Z" fill="#33353a" />
+                <path d="M22 70 L17 96 L21 100 L26 78 Z" class="body-silhouette" />
+                <path d="M78 70 L83 96 L79 100 L74 78 Z" class="body-silhouette" />
+
+                <path d="M37 72 C43 72, 49 75, 49 85 C42 88, 36 84, 36 76 Z" class="body-silhouette" />
+                <path d="M63 72 C57 72, 51 75, 51 85 C58 88, 64 84, 64 76 Z" class="body-silhouette" />
+
+                <path id="back-hamstrings-left" class="muscle-path" data-muscle="Бицепс бедра" d="M36 88 C35 102, 36 118, 39 135 C44 135, 48 116, 48 88 Z" fill="#33353a" />
+                <path id="back-hamstrings-right" class="muscle-path" data-muscle="Бицепс бедра" d="M64 88 C65 102, 64 118, 61 135 C56 135, 52 116, 52 88 Z" fill="#33353a" />
+
+                <path id="back-calves-left" class="muscle-path" data-muscle="Икры" d="M38 140 C34 152, 35 172, 39 188 C44 186, 45 168, 44 140 Z" fill="#33353a" />
+                <path id="back-calves-right" class="muscle-path" data-muscle="Икры" d="M62 140 C66 152, 65 172, 61 188 C56 186, 55 168, 56 140 Z" fill="#33353a" />
+              </svg>
+            </div>
+          </div>
+
+          <div id="mannequinInfoCard" class="muscle-info-card">
+            <div class="muscle-card-header">
+              <span id="mannequinMuscleName" class="muscle-card-title">Выберите мышцу</span>
+              <span id="mannequinMuscleBadge" class="muscle-card-status-badge" style="color: var(--md-sys-color-primary);">Интерактив</span>
+            </div>
+            <div id="mannequinMuscleDetails" class="muscle-card-details">
+              Нажмите на любую мышечную группу на манекене для просмотра упражнения, объема и статуса восстановления.
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- МОДУЛЬ 2: АНАЛИТИКА -->
+    <div id="tab-analytics" class="tab-content">
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">filter_alt</span>
+            Выбор мезоцикла
+          </span>
+        </div>
+        <select id="cycleSelector" class="m3-select">
+          <option value="ALL">Все циклы за все время</option>
+        </select>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-value" id="kpiTotalTonnage">0 т</span>
+          <span class="kpi-label">Тоннаж цикла</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value" id="kpiWorkSets">0</span>
+          <span class="kpi-label">Рабочих сетов</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kpi-value" id="kpiAvgEffort">0%</span>
+          <span class="kpi-label">Высокое усилие</span>
+        </div>
+      </div>
+
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">network_intelligence</span>
+            <span id="volumeTitle">Объем по мышцам</span>
+          </span>
+          <span id="unmappedWarning" style="display: none; font-size: 0.75rem; color: var(--md-sys-color-warning);">
+            ⚠ Есть новые упражнения
+          </span>
+        </div>
+        <div id="muscleVolumeContainer" class="volume-list">
+          <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Загрузка данных...</div>
+        </div>
+      </div>
+
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">stacked_bar_chart</span>
+            Динамика тоннажа (тонны)
+          </span>
+        </div>
+        <div class="chart-container">
+          <canvas id="tonnageChart"></canvas>
+        </div>
+      </div>
+
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">trending_up</span>
+            Прогресс в упражнении (1ПМ)
+          </span>
+        </div>
+        <select id="exerciseSelector" class="m3-select">
+          <option value="" disabled selected>Загрузка списка упражнений...</option>
+        </select>
+        <div class="chart-container">
+          <canvas id="exerciseChart"></canvas>
+        </div>
+      </div>
+
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">smart_toy</span>
+            Спортивный аудит Gemini
+          </span>
+          <md-filled-button id="runAiAuditBtn">Анализ цикла</md-filled-button>
+        </div>
+        <div id="aiAuditResult" class="ai-bubble" style="display: none;"></div>
+      </div>
+    </div>
+
+    <!-- МОДУЛЬ 3: СИНХРОНИЗАЦИЯ -->
+    <div id="tab-sync" class="tab-content">
+      <div class="file-drop-zone" id="dropZone">
+        <span class="material-symbols-outlined" style="font-size: 40px; color: var(--md-sys-color-primary);">upload_file</span>
+        <div>
+          <b>Выберите отчет GymUp</b> или перетащите файл сюда
+          <p style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 4px;">
+            Поддерживаются файлы отчетов .txt и прием через системную шторку «Поделиться»
+          </p>
+        </div>
+        <input type="file" id="fileInput" accept=".txt">
+      </div>
+
+      <div id="summaryCard" style="display: none; justify-content: space-between; align-items: center; padding: 14px 18px; background: var(--md-sys-color-surface-container); border-radius: 16px;">
+        <div>
+          <div id="workoutSummaryTitle" style="font-weight: 500; font-size: 1rem;"></div>
+          <div id="workoutSummaryDate" style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;"></div>
+        </div>
+        <md-filled-button id="syncAllBtn">Синхронизировать</md-filled-button>
+      </div>
+
+      <div id="parsedContent" style="display: flex; flex-direction: column; gap: 12px;"></div>
+    </div>
+
+  </main>
+
+  <div id="daySummaryModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span id="modalDayDate">Тренировка</span>
+        <md-icon-button id="closeDayModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+      <div id="modalDayContent" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;"></div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span>Настройки Gemini API</span>
+        <md-icon-button id="closeSettingsBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+      <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
+        Ключ API сохраняется строго в локальной памяти вашего браузера (localStorage) и не передается третьим лицам.
+      </div>
+      <input type="password" id="geminiApiKeyInput" class="m3-input" placeholder="AIzaSy...">
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+        <md-filled-button id="saveApiKeyBtn">Сохранить ключ</md-filled-button>
+      </div>
+    </div>
+  </div>
+
+  <nav class="navigation-bar" id="bottomNav">
+    <div class="nav-item active" data-tab="overview">
+      <div class="nav-pill">
+        <span class="material-symbols-outlined">dashboard</span>
+      </div>
+      <span>Обзор</span>
+    </div>
+    <div class="nav-item" data-tab="analytics">
+      <div class="nav-pill">
+        <span class="material-symbols-outlined">insights</span>
+      </div>
+      <span>Аналитика</span>
+    </div>
+    <div class="nav-item" data-tab="sync">
+      <div class="nav-pill">
+        <span class="material-symbols-outlined">sync_saved_locally</span>
+      </div>
+      <span>Синхронизация</span>
+    </div>
+  </nav>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
