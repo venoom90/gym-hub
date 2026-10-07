@@ -1,154 +1,134 @@
-export function extractPeriodization(title) {
-  let clean = String(title || '').trim();
-  clean = clean.replace(/^тренировка\s*/i, '').trim();
+/**
+ * Парсер отчетов GymUp и периодизации тренировочной программы
+ */
 
+export function extractPeriodization(workoutTitle) {
+  const t = String(workoutTitle || '').toLowerCase();
+
+  // 1. Определение сплита (А или Б)
   let splitDay = 'А';
+  if (t.includes('б') || t.includes('b')) {
+    splitDay = 'Б';
+  }
+
+  // 2. Режим тренировки (с поддержкой русских терминов разгрузки)
   let cycleMode = 'Сила';
-  let waveIndex = '1';
-  let cycleWeek = 1;
-  let targetRepsRange = '4-6';
-
-  const codeMatch = clean.match(/([АБAB])\s*([12])?/i);
-  if (codeMatch) {
-    let day = codeMatch[1].toUpperCase();
-    if (day === 'A') day = 'А';
-    if (day === 'B') day = 'Б';
-    splitDay = day;
-    waveIndex = codeMatch[2] || '1';
-  }
-
-  const lower = clean.toLowerCase();
-  if (lower.includes('делоад') || lower.includes('разгруз') || lower.includes('восст')) {
+  if (t.includes('делоад') || t.includes('deload') || t.includes('разгруз')) {
     cycleMode = 'Делоад';
-    waveIndex = 'Делоад';
-    cycleWeek = 5;
-    targetRepsRange = '8-10';
-  } else if (lower.includes('объем') || lower.includes('об')) {
+  } else if (t.includes('объем') || t.includes('volume')) {
     cycleMode = 'Объем';
-    targetRepsRange = '12-16';
-    cycleWeek = (waveIndex === '2') ? 4 : 2;
-  } else {
-    cycleMode = 'Сила';
-    targetRepsRange = '4-6';
-    cycleWeek = (waveIndex === '2') ? 3 : 1;
   }
 
-  return { splitDay, cycleMode, waveIndex, cycleWeek, targetRepsRange };
-}
+  // 3. Номер волны
+  let waveIndex = '1';
+  const waveMatch = t.match(/[абab](\d+)/i) || t.match(/волна\s*(\d+)/i);
+  if (waveMatch) {
+    waveIndex = waveMatch[1];
+  } else if (t.includes('2')) {
+    waveIndex = '2';
+  }
 
-export function determineSetCategory(effort, method) {
-  const m = String(method || '').toLowerCase();
-  const e = String(effort || '').toLowerCase();
-  if (m.includes('подвод')) return 'Подводка';
-  if (e.includes('размин') || m.includes('размин')) return 'Разминка';
-  return 'Рабочий';
-}
+  // 4. Неделя цикла (1..5)
+  let cycleWeek = 1;
+  if (cycleMode === 'Делоад') {
+    cycleWeek = 5;
+    waveIndex = 'Делоад';
+  } else if (waveIndex === '1' && cycleMode === 'Сила') {
+    cycleWeek = 1;
+  } else if (waveIndex === '1' && cycleMode === 'Объем') {
+    cycleWeek = 2;
+  } else if (waveIndex === '2' && cycleMode === 'Сила') {
+    cycleWeek = 3;
+  } else if (waveIndex === '2' && cycleMode === 'Объем') {
+    cycleWeek = 4;
+  }
 
-export function calculateEpley1RM(weight, reps, category) {
-  if (category !== 'Рабочий' || !weight || weight <= 0 || !reps || reps <= 0) return 0;
-  if (reps === 1) return weight;
-  return parseFloat((weight * (1 + reps / 30)).toFixed(1));
+  return { splitDay, cycleMode, waveIndex, cycleWeek };
 }
 
 export function parseGymUpReport(text) {
-  const lines = text.split(/\r?\n/);
-  const result = {
-    title: '',
-    date: '',
-    startTime: '',
-    sets: [],
-    allExercises: []
-  };
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  
+  let title = 'Тренировка';
+  let date = '';
+  let startTime = '';
+  const sets = [];
+  const allExercises = [];
 
   let currentExercise = '';
-  let setId = 0;
+  let setCounter = 1;
 
   for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
+    const line = lines[i];
 
-    if (/^\d{2}\.\d{2}\.\d{4}/.test(trimmed)) {
-      const parts = trimmed.split(',');
-      result.date = parts[0].trim();
-      result.startTime = parts[1] ? parts[1].trim() : '';
-      if (i + 1 < lines.length) {
-        result.title = lines[i + 1].trim();
-        i++;
+    if (i === 0 && line.includes('—')) {
+      const parts = line.split('—').map(p => p.trim());
+      title = parts[0] || 'Тренировка';
+      const dtParts = (parts[1] || '').split(' ');
+      date = dtParts[0] || '';
+      startTime = dtParts[1] || '';
+      continue;
+    }
+
+    if (!line.startsWith('#') && !line.match(/^\d+[\s\t]+x[\s\t]+\d+/i) && !line.includes('кг x')) {
+      if (line.length > 2 && !line.toLowerCase().includes('тренировка завершена')) {
+        currentExercise = line;
+        if (!allExercises.includes(currentExercise)) {
+          allExercises.push(currentExercise);
+        }
+        setCounter = 1;
+        continue;
       }
-      continue;
     }
 
-    if (/^\d{2}:\d{2}\/\d{2}:\d{2}\/\d{2}:\d{2}/.test(trimmed) || trimmed === '0 / 0') {
-      continue;
-    }
-
-    if (trimmed.includes('•') && (trimmed.includes(' т ') || trimmed.includes('%') || /^\d{2}:\d{2}:\d{2}/.test(trimmed))) {
-      continue;
-    }
-
-    const setRegex = /^\s*(\d+)\.\s+(\d+(?:\.\d+)?)\s*кг\s*•\s*(\d+)\s*x(?:\s*•\s*([^•]+))?(?:\s*•\s*(.*))?$/i;
-    const setMatch = trimmed.match(setRegex);
-
+    const setMatch = line.match(/^(\d+[\.,]?\d*)\s*(?:кг)?\s*[xх]\s*(\d+)(.*)$/i);
     if (setMatch && currentExercise) {
-      const setNum = setMatch[1];
-      const weight = setMatch[2];
-      const reps = setMatch[3];
-      let effort = (setMatch[4] || '').trim();
-      let rawComment = (setMatch[5] || '').trim();
+      const weight = parseFloat(setMatch[1].replace(',', '.'));
+      const reps = parseInt(setMatch[2], 10);
+      const metaPart = setMatch[3] || '';
 
-      let reserve = '', method = '', equipment = '', positioning = '';
+      let effort = 'Среднее';
+      let reserve = '';
+      let method = '';
+      let equipment = '';
+      let positioning = '';
 
-      if (/^[+-]\d+$/.test(effort)) {
-        reserve = effort;
-        effort = 'Без оценки';
+      if (metaPart.includes('(')) {
+        const metaClean = metaPart.replace(/[()]/g, '').trim();
+        const tags = metaClean.split(',').map(t => t.trim());
+
+        tags.forEach(tag => {
+          if (tag.startsWith('+')) {
+            reserve = tag;
+          } else if (['Максим.', 'Высокое', 'Среднее', 'Низкое', 'Размин.'].includes(tag)) {
+            effort = tag;
+          } else if (tag.includes('высота') || tag.includes('наклон')) {
+            equipment = tag;
+          } else if (tag.toLowerCase().includes('сидя') || tag.toLowerCase().includes('стоя')) {
+            positioning = tag;
+          } else {
+            method = tag;
+          }
+        });
       }
 
-      if (rawComment) {
-        const resMatch = rawComment.match(/([+-]\d+)/);
-        if (resMatch) {
-          reserve = resMatch[1];
-          rawComment = rawComment.replace(resMatch[0], '').trim();
-        }
+      const period = extractPeriodization(title);
+      const category = (effort === 'Размин.' || method.toLowerCase().includes('размин') || method.toLowerCase().includes('подвод')) 
+        ? 'Разминка' 
+        : 'Рабочий';
 
-        const lower = rawComment.toLowerCase();
-        if (lower.includes('кластер')) {
-          const cm = rawComment.match(/(кластер\s*\d*[^.А-Яа-я]*)/i);
-          method = cm ? cm[0].trim() : 'Кластер';
-          rawComment = rawComment.replace(/кластер\s*\d*/ig, '').trim();
-        } else if (lower.includes('дроп')) {
-          method = 'Дропсет';
-          rawComment = rawComment.replace(/дропсет|дроп/ig, '').trim();
-        } else if (lower.includes('подвод')) {
-          method = 'Подводка';
-          rawComment = rawComment.replace(/подводящий|подводка|подвод/ig, '').trim();
-        } else if (lower.includes('замин')) {
-          method = 'Заминка';
-          rawComment = rawComment.replace(/заминочный|заминка|замин/ig, '').trim();
-        }
+      const tonnage = parseFloat((weight * reps).toFixed(1));
+      const e1rm = category === 'Рабочий' && reps > 0 
+        ? parseFloat((weight * (1 + reps / 30)).toFixed(1)) 
+        : 0.0;
 
-        if (rawComment.toLowerCase().includes('высот')) {
-          const hm = rawComment.match(/(высота\s*\d+|\d+\s*высота)/i);
-          equipment = hm ? hm[0].trim() : '';
-          if (hm) rawComment = rawComment.replace(hm[0], '').trim();
-        }
-        positioning = rawComment.replace(/^[.,\s]+|[.,\s]+$/g, '').trim();
-      }
-
-      const period = extractPeriodization(result.title);
-      const weightNum = parseFloat(weight) || 0;
-      const repsNum = parseInt(reps, 10) || 0;
-      const category = determineSetCategory(effort, method);
-      const tonnage = Math.round(weightNum * repsNum);
-      const e1rm = calculateEpley1RM(weightNum, repsNum, category);
-
-      result.sets.push({
-        id: ++setId,
-        date: result.date,
-        startTime: result.startTime,
-        title: result.title,
+      sets.push({
+        id: `set_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        date: date,
+        startTime: startTime,
+        title: title,
         exercise: currentExercise,
-        setNum: setNum,
+        setNum: setCounter++,
         weight: weight,
         reps: reps,
         effort: effort,
@@ -160,23 +140,13 @@ export function parseGymUpReport(text) {
         cycleMode: period.cycleMode,
         waveIndex: period.waveIndex,
         cycleWeek: period.cycleWeek,
-        targetRepsRange: period.targetRepsRange,
         category: category,
         tonnage: tonnage,
         e1rm: e1rm,
         syncStatus: 'pending'
       });
-      continue;
-    }
-
-    const exMatch = trimmed.match(/^\d+\.\s+([^•]+)$/);
-    if (exMatch && !trimmed.includes('кг')) {
-      currentExercise = exMatch[1].trim();
-      if (!result.allExercises.includes(currentExercise)) {
-        result.allExercises.push(currentExercise);
-      }
     }
   }
 
-  return result;
+  return { title, date, startTime, sets, allExercises };
 }
