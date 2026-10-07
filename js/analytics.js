@@ -128,11 +128,22 @@ function renderMuscleVolumes(sets) {
 
   sortedMuscles.forEach(m => {
     const val = weeklyMuscleVolumes[m];
+    const isLegMuscle = (m === 'Квадрицепс' || m === 'Бицепс бедра' || m === 'Икры');
+
     let zoneClass = 'zone-maint';
     let zoneLabel = 'Maintenance';
-    if (val >= 6 && val < 12) { zoneClass = 'zone-mev'; zoneLabel = 'MEV'; }
-    else if (val >= 12 && val <= 18) { zoneClass = 'zone-mav'; zoneLabel = 'MAV'; }
-    else if (val > 18) { zoneClass = 'zone-mrv'; zoneLabel = 'MRV ⚠️'; }
+
+    if (isLegMuscle) {
+      // Адаптивная шкала поддержания для ног
+      if (val >= 2 && val < 5) { zoneClass = 'zone-mev'; zoneLabel = 'Maintenance'; }
+      else if (val >= 5 && val <= 10) { zoneClass = 'zone-mav'; zoneLabel = 'MEV/MAV'; }
+      else if (val > 10) { zoneClass = 'zone-mrv'; zoneLabel = 'Высокий объем'; }
+    } else {
+      // Специализированная шкала гипертрофии верха тела
+      if (val >= 6 && val < 12) { zoneClass = 'zone-mev'; zoneLabel = 'MEV'; }
+      else if (val >= 12 && val <= 18) { zoneClass = 'zone-mav'; zoneLabel = 'MAV'; }
+      else if (val > 18) { zoneClass = 'zone-mrv'; zoneLabel = 'MRV ⚠️'; }
+    }
 
     const maxScale = Math.max(20, val);
     const percent = Math.min(100, Math.round((val / maxScale) * 100));
@@ -293,7 +304,7 @@ export async function runGeminiCycleAudit() {
   auditBox.style.display = 'block';
   auditBox.innerText = '🤖 Gemini анализирует адаптацию и объем мезоцикла...';
 
-  const sets = getFilteredSets().slice(-25).map(s => 
+  const sets = getFilteredSets().slice(-25).map(s =>
     `${s.date} [${s.workout}] ${s.exercise}: ${s.weight}кг x ${s.reps} (${s.category}, Тоннаж: ${s.tonnage}кг, 1ПМ: ${s.e1rm}кг, Запас: ${s.reserve})`
   ).join('\n');
 
