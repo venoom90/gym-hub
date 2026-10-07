@@ -1,6 +1,15 @@
 /**
  * Парсер отчетов GymUp и периодизации тренировочной программы
+ * Поддержка составных повторений (дроп-сеты/кластеры), нормализация строк и русских терминов
  */
+
+export function normalizeExerciseName(rawName) {
+  if (!rawName) return '';
+  return String(rawName)
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export function extractPeriodization(workoutTitle) {
   const t = String(workoutTitle || '').toLowerCase();
@@ -48,7 +57,7 @@ export function extractPeriodization(workoutTitle) {
 
 export function parseGymUpReport(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  
+
   let title = 'Тренировка';
   let date = '';
   let startTime = '';
@@ -61,6 +70,7 @@ export function parseGymUpReport(text) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
+    // Парсинг заголовка и даты
     if (i === 0 && line.includes('—')) {
       const parts = line.split('—').map(p => p.trim());
       title = parts[0] || 'Тренировка';
@@ -70,9 +80,10 @@ export function parseGymUpReport(text) {
       continue;
     }
 
-    if (!line.startsWith('#') && !line.match(/^\d+[\s\t]+x[\s\t]+\d+/i) && !line.includes('кг x')) {
+    // Определение строки с наименованием упражнения
+    if (!line.startsWith('#') && !line.match(/^\d+[\s\t]+x[\s\t]+\d+/i) && !line.includes('кг x') && !line.includes('кг х')) {
       if (line.length > 2 && !line.toLowerCase().includes('тренировка завершена')) {
-        currentExercise = line;
+        currentExercise = normalizeExerciseName(line);
         if (!allExercises.includes(currentExercise)) {
           allExercises.push(currentExercise);
         }
@@ -81,10 +92,20 @@ export function parseGymUpReport(text) {
       }
     }
 
-    const setMatch = line.match(/^(\d+[\.,]?\d*)\s*(?:кг)?\s*[xх]\s*(\d+)(.*)$/i);
+    // Парсинг строки подхода с поддержкой составных повторений: 100 кг x 6+4 или 80 кг x 12 (Среднее, +2)
+    const setMatch = line.match(/^(\d+[\.,]?\d*)\s*(?:кг)?\s*[xх]\s*([\d\+]+)(.*)$/i);
     if (setMatch && currentExercise) {
       const weight = parseFloat(setMatch[1].replace(',', '.'));
-      const reps = parseInt(setMatch[2], 10);
+      const repsRaw = setMatch[2];
+
+      // Суммирование составных повторений (кластеры, дроп-сеты)
+      let reps = 0;
+      if (repsRaw.includes('+')) {
+        reps = repsRaw.split('+').reduce((acc, val) => acc + (parseInt(val, 10) || 0), 0);
+      } else {
+        reps = parseInt(repsRaw, 10) || 0;
+      }
+
       const metaPart = setMatch[3] || '';
 
       let effort = 'Среднее';
@@ -113,13 +134,13 @@ export function parseGymUpReport(text) {
       }
 
       const period = extractPeriodization(title);
-      const category = (effort === 'Размин.' || method.toLowerCase().includes('размин') || method.toLowerCase().includes('подвод')) 
-        ? 'Разминка' 
+      const category = (effort === 'Размин.' || method.toLowerCase().includes('размин') || method.toLowerCase().includes('подвод'))
+        ? 'Разминка'
         : 'Рабочий';
 
       const tonnage = parseFloat((weight * reps).toFixed(1));
-      const e1rm = category === 'Рабочий' && reps > 0 
-        ? parseFloat((weight * (1 + reps / 30)).toFixed(1)) 
+      const e1rm = category === 'Рабочий' && reps > 0
+        ? parseFloat((weight * (1 + reps / 30)).toFixed(1))
         : 0.0;
 
       sets.push({
