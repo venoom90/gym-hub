@@ -1,4 +1,4 @@
-import { setDbData } from '/js/state.js';
+import { setDbData } from './state.js';
 
 export const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxTZcV-jwhBx-iw9k4As42hNIyALSHfpERMter6CZ00NjzOPCo5AribVNHTT2RMqmRV/exec";
 
@@ -23,14 +23,13 @@ export async function syncSetsToSheets(payload) {
   });
 }
 
-// Каскадный вызов Gemini API с перебором моделей и обработкой перегрузки (HTTP 503 / 429)
+// Каскадный вызов Gemini API с перебором моделей
 export async function requestGeminiAudit(promptText) {
   const apiKey = localStorage.getItem('gemini_api_key');
   if (!apiKey) {
     throw new Error('Ключ Gemini API не настроен в приложении');
   }
 
-  // Приоритетная цепочка моделей
   const modelChain = [
     'gemini-2.5-flash',
     'gemini-1.5-flash',
@@ -58,15 +57,13 @@ export async function requestGeminiAudit(promptText) {
 
       if (data.error) {
         lastErrorMessage = data.error.message || `Ошибка кода ${data.error.code}`;
-        // Проверяем статус перегрузки серверов Google
         const isDemandIssue = data.error.code === 503 ||
                               data.error.code === 429 ||
                               lastErrorMessage.toLowerCase().includes('demand') ||
                               lastErrorMessage.toLowerCase().includes('overloaded');
 
         if (isDemandIssue) {
-          console.warn(`[Gemini API] Модель ${model} перегружена (${lastErrorMessage}). Переключение на следующую модель...`);
-          // Микро-пауза перед повтором к следующей модели
+          console.warn(`[Gemini API] Модель ${model} перегружена (${lastErrorMessage}). Переключение...`);
           await new Promise(resolve => setTimeout(resolve, 1000));
           continue;
         }
@@ -75,11 +72,9 @@ export async function requestGeminiAudit(promptText) {
       }
     } catch (err) {
       lastErrorMessage = err.message;
-      console.warn(`[Gemini API] Сбой обращения к модели ${model}:`, err.message);
-      // Если сетевая ошибка или ошибка CORS/доступа - пробуем альтернативу
       continue;
     }
   }
 
-  throw new Error(`Все модели Gemini временно недоступны или перегружены. Последний ответ: ${lastErrorMessage}`);
+  throw new Error(`Все модели Gemini временно недоступны. Ответ: ${lastErrorMessage}`);
 }
