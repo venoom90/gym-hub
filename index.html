@@ -100,6 +100,7 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
+      position: relative;
     }
 
     .card-title {
@@ -113,7 +114,28 @@
       gap: 8px;
     }
 
-    /* Календарь-стрип недели с touch target >= 48px по канону M3 */
+    /* Интерактивная иконка помощи с областью нажатия >= 48px */
+    .help-trigger-btn {
+      width: 48px;
+      height: 48px;
+      margin: -12px -12px -12px 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      color: var(--md-sys-color-on-surface-variant);
+      transition: color 0.2s ease;
+    }
+    .help-trigger-btn:hover {
+      color: var(--md-sys-color-primary);
+    }
+    .help-trigger-btn .material-symbols-outlined {
+      font-size: 18px;
+    }
+
+    /* Календарь-стрип недели */
     .calendar-strip {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
@@ -413,19 +435,83 @@
       transition: width 0.3s ease;
     }
 
-    /* Аналитика */
+    /* Аналитика: KPI Триада */
     .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi-card {
       background: var(--md-sys-color-surface-container-high);
-      padding: 12px;
-      border-radius: 14px;
-      text-align: center;
+      padding: 12px 10px;
+      border-radius: 16px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      justify-content: space-between;
+      position: relative;
+      min-height: 98px;
     }
-    .kpi-value { font-size: 1.25rem; font-weight: 700; color: var(--md-sys-color-on-surface); }
-    .kpi-label { font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant); }
+    .kpi-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .kpi-label {
+      font-size: 0.7rem;
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.2;
+      font-weight: 500;
+    }
+    .kpi-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+      margin-top: 4px;
+    }
+    .kpi-subtext {
+      font-size: 0.68rem;
+      color: var(--md-sys-color-on-surface-variant);
+      margin-top: 2px;
+    }
+
+    /* Виджет баланса антагонистов */
+    .balance-card-content {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .balance-header-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+    }
+    .balance-ratio-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: var(--md-sys-color-surface-container-highest);
+    }
+    .balance-bar-container {
+      height: 12px;
+      background: var(--md-sys-color-surface-container-highest);
+      border-radius: 6px;
+      display: flex;
+      overflow: hidden;
+      width: 100%;
+    }
+    .balance-fill-push {
+      background-color: var(--md-sys-color-primary);
+      transition: width 0.4s ease;
+      height: 100%;
+    }
+    .balance-fill-pull {
+      background-color: var(--md-sys-color-success);
+      transition: width 0.4s ease;
+      height: 100%;
+    }
+    .balance-legend-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.72rem;
+      color: var(--md-sys-color-on-surface-variant);
+    }
 
     select.m3-select, input.m3-input {
       width: 100%;
@@ -455,6 +541,20 @@
     .zone-mev { background-color: var(--md-sys-color-success); }
     .zone-mav { background-color: var(--md-sys-color-primary); }
     .zone-mrv { background-color: var(--md-sys-color-warning); }
+
+    /* PR бейдж на графике */
+    .pr-pill {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--md-sys-color-warning);
+      background: rgba(250, 204, 21, 0.12);
+      border: 1px solid rgba(250, 204, 21, 0.3);
+      padding: 3px 8px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
 
     /* Синхронизация */
     .file-drop-zone {
@@ -715,66 +815,140 @@
 
     <!-- МОДУЛЬ 2: АНАЛИТИКА -->
     <div id="tab-analytics" class="tab-content">
+      
+      <!-- Селектор мезоцикла -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined">filter_alt</span>
             Выбор мезоцикла
           </span>
+          <button class="help-trigger-btn" data-help-id="help-cycle" title="Справка по мезоциклам">
+            <span class="material-symbols-outlined">help_outline</span>
+          </button>
         </div>
         <select id="cycleSelector" class="m3-select">
           <option value="ALL">Все циклы за все время</option>
         </select>
       </div>
 
+      <!-- Прикладная KPI-триада -->
       <div class="kpi-grid">
         <div class="kpi-card">
-          <span class="kpi-value" id="kpiTotalTonnage">0 т</span>
-          <span class="kpi-label">Тоннаж цикла</span>
+          <div class="kpi-top-row">
+            <span class="kpi-label">Hard Sets</span>
+            <button class="help-trigger-btn" data-help-id="help-hardsets" title="Что такое Hard Sets?">
+              <span class="material-symbols-outlined">help_outline</span>
+            </button>
+          </div>
+          <span class="kpi-value" id="kpiHardSets">0</span>
+          <span class="kpi-subtext" id="kpiHardSetsSub">Стимул роста</span>
         </div>
+
         <div class="kpi-card">
-          <span class="kpi-value" id="kpiWorkSets">0</span>
-          <span class="kpi-label">Рабочих сетов</span>
+          <div class="kpi-top-row">
+            <span class="kpi-label">Push / Pull</span>
+            <button class="help-trigger-btn" data-help-id="help-pushpull" title="Что такое Push / Pull?">
+              <span class="material-symbols-outlined">help_outline</span>
+            </button>
+          </div>
+          <span class="kpi-value" id="kpiPushPull">1.0</span>
+          <span class="kpi-subtext" id="kpiPushPullSub">Баланс плеча</span>
         </div>
+
         <div class="kpi-card">
-          <span class="kpi-value" id="kpiAvgEffort">0%</span>
-          <span class="kpi-label">Высокое усилие</span>
+          <div class="kpi-top-row">
+            <span class="kpi-label">Адаптация</span>
+            <button class="help-trigger-btn" data-help-id="help-deload" title="Что такое Deload Detector?">
+              <span class="material-symbols-outlined">help_outline</span>
+            </button>
+          </div>
+          <span class="kpi-value" id="kpiAdaptationStatus" style="font-size: 1.05rem;">Свеж</span>
+          <span class="kpi-subtext" id="kpiAdaptationSub">Сигнал к разгрузке</span>
         </div>
       </div>
 
+      <!-- Виджет баланса мышечных антагонистов -->
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">balance</span>
+            Баланс плечевого пояса (Push / Pull)
+          </span>
+          <button class="help-trigger-btn" data-help-id="help-pushpull" title="Подробнее о балансе">
+            <span class="material-symbols-outlined">help_outline</span>
+          </button>
+        </div>
+        <div class="balance-card-content">
+          <div class="balance-header-row">
+            <span>Жимовые (Push): <b id="balancePushCount">0</b></span>
+            <span class="balance-ratio-badge" id="balanceRatioBadge">1 : 1.0</span>
+            <span>Тяговые (Pull): <b id="balancePullCount">0</b></span>
+          </div>
+          <div class="balance-bar-container">
+            <div id="balanceFillPush" class="balance-fill-push" style="width: 50%;"></div>
+            <div id="balanceFillPull" class="balance-fill-pull" style="width: 50%;"></div>
+          </div>
+          <div class="balance-legend-row">
+            <span id="balanceVerdictText">Баланс оптимален для здоровья суставов</span>
+            <span>Цель: 1.0 – 1.2 в пользу тяг</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Объем по мышцам (Volume Landmarks) -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined">network_intelligence</span>
             <span id="volumeTitle">Объем по мышцам</span>
           </span>
-          <span id="unmappedWarning" style="display: none; font-size: 0.75rem; color: var(--md-sys-color-warning);">
-            ⚠ Есть новые упражнения
-          </span>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <span id="unmappedWarning" style="display: none; font-size: 0.75rem; color: var(--md-sys-color-warning);">
+              ⚠ Есть новые
+            </span>
+            <button class="help-trigger-btn" data-help-id="help-volume" title="Что такое Volume Landmarks?">
+              <span class="material-symbols-outlined">help_outline</span>
+            </button>
+          </div>
         </div>
         <div id="muscleVolumeContainer" class="volume-list">
           <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Загрузка данных...</div>
         </div>
       </div>
 
+      <!-- График динамики тоннажа -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined">stacked_bar_chart</span>
             Динамика тоннажа (тонны)
           </span>
+          <button class="help-trigger-btn" data-help-id="help-tonnage" title="Как читать тоннаж?">
+            <span class="material-symbols-outlined">help_outline</span>
+          </button>
         </div>
         <div class="chart-container">
           <canvas id="tonnageChart"></canvas>
         </div>
       </div>
 
+      <!-- График 1ПМ (e1RM) и личные рекорды (PR) -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined">trending_up</span>
-            Прогресс в упражнении (1ПМ)
+            Прогресс в движении (1ПМ)
           </span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div id="exercisePrBadge" class="pr-pill" style="display: none;">
+              <span class="material-symbols-outlined" style="font-size: 14px;">emoji_events</span>
+              <span id="exercisePrValue">0 кг</span>
+            </div>
+            <button class="help-trigger-btn" data-help-id="help-1rm" title="Что такое 1ПМ?">
+              <span class="material-symbols-outlined">help_outline</span>
+            </button>
+          </div>
         </div>
         <select id="exerciseSelector" class="m3-select">
           <option value="" disabled selected>Загрузка списка упражнений...</option>
@@ -784,6 +958,7 @@
         </div>
       </div>
 
+      <!-- Спортивный аудит Gemini -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -821,6 +996,17 @@
     </div>
 
   </main>
+
+  <!-- Модальное окно: Справка по метрикам для новичка -->
+  <div id="metricHelpModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span id="helpModalTitle" style="color: var(--md-sys-color-primary);">Справка</span>
+        <md-icon-button id="closeHelpModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+      <div id="helpModalContent" style="font-size: 0.9rem; line-height: 1.5; color: var(--md-sys-color-on-surface-variant); white-space: pre-line;"></div>
+    </div>
+  </div>
 
   <div id="daySummaryModal" class="modal-overlay">
     <div class="modal-card">
