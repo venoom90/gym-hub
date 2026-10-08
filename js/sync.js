@@ -1,4 +1,4 @@
-import { state, setParsedWorkout } from './state.js';
+import { state, setParsedWorkout, getDateKey } from './state.js';
 import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 
@@ -130,6 +130,14 @@ async function executeSync(onSyncSuccess) {
 
   syncBtn.disabled = true;
 
+  // Индикация процесса отправки
+  workout.sets.forEach(s => {
+    const box = document.getElementById(`status-box-${s.id}`);
+    if (box) {
+      box.innerHTML = `<span class="material-symbols-outlined status-icon status-pending" style="animation: spin 1s infinite linear;">sync</span>`;
+    }
+  });
+
   try {
     const payload = {
       action: 'sync_sets',
@@ -140,15 +148,29 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
+    // 1. Отправка POST в Google Apps Script с таймаутом
     await syncSetsToSheets(payload);
 
+    // 2. Двухэтапная верификация: подтверждение вычиткой из базы
+    const fetchResult = await fetchAnalyticsData();
+    if (!fetchResult.success) {
+      throw new Error('Данные отправлены, но не удалось подтвердить запись из Google Таблиц.');
+    }
+
+    // Проверяем, что в обновленном стейте действительно присутствуют подходы за эту дату
+    const targetKey = getDateKey(workout.date);
+    const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
+
+    if (verifiedSets.length === 0) {
+      throw new Error('Сервер не вернул сохраненные подходы. Возможно, сработала блокировка таблицы.');
+    }
+
+    // 3. Статус успеха выставляется строго после фактической верификации
     workout.sets.forEach(s => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`status-box-${s.id}`);
       if (box) box.innerHTML = `<span class="material-symbols-outlined status-icon status-synced">check_circle</span>`;
     });
-
-    await fetchAnalyticsData();
 
     if (state.dbData && (state.dbData.sets || []).length > 0) {
       localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
@@ -156,6 +178,11 @@ async function executeSync(onSyncSuccess) {
 
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
   } catch (err) {
+    workout.sets.forEach(s => {
+      s.syncStatus = 'error';
+      const box = document.getElementById(`status-box-${s.id}`);
+      if (box) box.innerHTML = `<span class="material-symbols-outlined status-icon status-error" title="${err.message}">error</span>`;
+    });
     alert('Ошибка при синхронизации: ' + err.message);
   } finally {
     syncBtn.disabled = false;

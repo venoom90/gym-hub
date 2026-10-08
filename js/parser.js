@@ -1,6 +1,6 @@
 /**
  * Парсер отчетов GymUp и периодизации тренировочной программы
- * Поддержка составных повторений (дроп-сеты/кластеры), нормализация строк и русских терминов
+ * Поддержка составных повторений (дроп-сеты/кластеры), сдвоенных весов, нормализация строк
  */
 
 export function normalizeExerciseName(rawName) {
@@ -92,13 +92,18 @@ export function parseGymUpReport(text) {
       }
     }
 
-    // Парсинг строки подхода с поддержкой составных повторений: 100 кг x 6+4 или 80 кг x 12 (Среднее, +2)
-    const setMatch = line.match(/^(\d+[\.,]?\d*)\s*(?:кг)?\s*[xх]\s*([\d\+]+)(.*)$/i);
+    // Парсинг строки подхода с поддержкой:
+    // 1) Стандартный: 100 кг x 10
+    // 2) Составные повторения (кластер): 100 кг x 6+4
+    // 3) Дроп-сет со сбросом веса: 100/80 кг x 6+6
+    const setMatch = line.match(/^([\d\.,\/]+)\s*(?:кг)?\s*[xх]\s*([\d\+]+)(.*)$/i);
     if (setMatch && currentExercise) {
-      const weight = parseFloat(setMatch[1].replace(',', '.'));
+      const rawWeightStr = setMatch[1].replace(',', '.');
+      // Если вес составной (через слэш), берем базовый стартовый вес снаряда
+      const weight = parseFloat(rawWeightStr.split('/')[0]) || 0;
       const repsRaw = setMatch[2];
 
-      // Суммирование составных повторений (кластеры, дроп-сеты)
+      // Суммирование составных повторений
       let reps = 0;
       if (repsRaw.includes('+')) {
         reps = repsRaw.split('+').reduce((acc, val) => acc + (parseInt(val, 10) || 0), 0);

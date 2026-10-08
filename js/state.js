@@ -64,7 +64,7 @@ export function getDateKey(val) {
 
   const str = String(val).trim();
 
-  // 1. Формат ДД.ММ.ГГГГ (из отчетов GymUp и обновленного Apps Script)
+  // 1. Формат ДД.ММ.ГГГГ
   const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (ruMatch) {
     const y = ruMatch[3];
@@ -73,7 +73,7 @@ export function getDateKey(val) {
     return `${y}-${m}-${d}`;
   }
 
-  // 2. Если пришла ISO-строка с таймзоной (UTC): создаем Date и берем ЛОКАЛЬНЫЕ компоненты
+  // 2. ISO-строка с таймзоной (UTC)
   if (str.includes('T') || str.includes('Z')) {
     const dObj = new Date(str);
     if (!isNaN(dObj.getTime())) {
@@ -104,7 +104,7 @@ export function getDateKey(val) {
   return '';
 }
 
-// Нормализация на локальный полдень (12:00) без сдвигов
+// Нормализация на локальный полдень (12:00) без сдвигов часовых поясов
 export function normalizeDate(val) {
   const key = getDateKey(val);
   if (!key) return null;
