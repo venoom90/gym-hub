@@ -109,6 +109,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     /* Календарь-стрип недели с touch target >= 48px по канону M3 */
@@ -155,6 +157,121 @@
     .badge-split-a { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
     .badge-split-b { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
     .badge-rest { width: 6px; height: 6px; border-radius: 3px; background: var(--md-sys-color-outline-variant); margin-top: 10px; }
+
+    /* Бейджи плана тренировки */
+    .plan-header-badges {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .plan-cycle-chip {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .plan-mode-chip {
+      background: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+
+    .muscle-tags-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+
+    .muscle-tag {
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface);
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Рецепт упражнений */
+    .recipe-step {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .recipe-step-header {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.25;
+    }
+
+    .recipe-metrics-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .recipe-sets-count {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+
+    .recipe-weight-highlight {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--md-sys-color-primary);
+      letter-spacing: -0.5px;
+    }
+
+    .recipe-reps-chip {
+      background: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .recipe-rir-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+      letter-spacing: 0.3px;
+    }
+
+    .recipe-warmup-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+
+    .recipe-warmup-row .material-symbols-outlined {
+      font-size: 14px;
+      color: var(--md-sys-color-outline-variant);
+    }
 
     /* Анатомический манекен */
     .mannequin-container {
@@ -236,7 +353,7 @@
       padding: 14px 16px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
       transition: all 0.3s ease;
     }
 
@@ -245,7 +362,7 @@
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 6px;
+      padding-bottom: 8px;
     }
 
     .muscle-card-title {
@@ -265,7 +382,7 @@
     .muscle-card-details {
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 6px;
       font-size: 0.82rem;
       color: var(--md-sys-color-on-surface-variant);
       line-height: 1.4;
@@ -273,6 +390,27 @@
 
     .muscle-card-details b {
       color: var(--md-sys-color-on-surface);
+    }
+
+    .mini-volume-bar-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .mini-volume-bar-bg {
+      height: 6px;
+      background: var(--md-sys-color-surface-container);
+      border-radius: 3px;
+      overflow: hidden;
+      display: flex;
+    }
+
+    .mini-volume-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s ease;
     }
 
     /* Аналитика */
@@ -404,12 +542,6 @@
       color: var(--md-sys-color-on-secondary-container);
     }
 
-    .recipe-step {
-      background: var(--md-sys-color-surface-container-high);
-      border-radius: 12px;
-      padding: 12px;
-      margin-top: 8px;
-    }
     .modal-overlay {
       display: none;
       position: fixed;
@@ -487,15 +619,16 @@
             <span class="material-symbols-outlined">event_upcoming</span>
             План тренировки
           </span>
-          <div style="display: flex; gap: 6px;">
-            <span id="overviewCycleBadge" class="badge-chip" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); font-weight: 700;">C-1</span>
-            <span id="overviewNextTag" class="badge-chip" style="background: var(--md-sys-color-secondary-container); font-weight: 600;">...</span>
+          <div class="plan-header-badges">
+            <span id="overviewCycleBadge" class="plan-cycle-chip">C-1</span>
+            <span id="overviewNextTag" class="plan-mode-chip">...</span>
           </div>
         </div>
-        <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);" id="overviewAiAdviceText">
+        <div id="overviewMuscleTagsRow" class="muscle-tags-row"></div>
+        <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4;" id="overviewAiAdviceText">
           Загрузка актуального плана мезоцикла...
         </div>
-        <div id="overviewRecipeContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        <div id="overviewRecipeContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
       </div>
 
       <!-- 3. Анатомический манекен мышечной нагрузки -->
