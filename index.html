@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   
   <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/fitness_center/default/48px.svg" type="image/svg+xml">
   <meta name="theme-color" content="#111318">
   <meta name="mobile-web-app-capable" content="yes">
-  <link rel="icon" href="https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/fitness_center/default/48px.svg" type="image/svg+xml">
   
   <title>Gym Analytics Hub</title>
   
@@ -111,7 +111,7 @@
       justify-content: space-between;
     }
 
-    /* Календарь-стрип недели */
+    /* Календарь-стрип недели с touch target >= 48px по канону M3 */
     .calendar-strip {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
@@ -121,14 +121,17 @@
     .calendar-day-card {
       background: var(--md-sys-color-surface-container-high);
       border-radius: 12px;
-      padding: 8px 4px;
+      padding: 8px 2px;
+      min-height: 56px;
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
       gap: 4px;
       cursor: pointer;
       border: 1px solid transparent;
       transition: all 0.2s ease;
+      user-select: none;
     }
 
     .calendar-day-card.today {
