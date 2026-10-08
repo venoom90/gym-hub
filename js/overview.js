@@ -111,10 +111,12 @@ function renderAiRecipeCard() {
   const catalog = state.dbData.catalog || [];
   const recipeBox = document.getElementById('overviewRecipeContainer');
   const adviceText = document.getElementById('overviewAiAdviceText');
+  const muscleTagsRow = document.getElementById('overviewMuscleTagsRow');
   const cycleBadge = document.getElementById('overviewCycleBadge');
   const nextTag = document.getElementById('overviewNextTag');
   if (!recipeBox) return;
   recipeBox.innerHTML = '';
+  if (muscleTagsRow) muscleTagsRow.innerHTML = '';
 
   if (sets.length === 0) {
     if (adviceText) adviceText.innerText = 'Загрузите историю тренировок для формирования рецепта.';
@@ -224,6 +226,15 @@ function renderAiRecipeCard() {
     }
   });
 
+  if (muscleTagsRow && targetMusclesList.length > 0) {
+    targetMusclesList.forEach(m => {
+      const chip = document.createElement('span');
+      chip.className = 'muscle-tag';
+      chip.innerText = m;
+      muscleTagsRow.appendChild(chip);
+    });
+  }
+
   let modeAdvice = '';
   if (isNewCycleTransition) {
     modeAdvice = `Старт нового мезоцикла ${nextCycleId}! Силовой режим с плановой перегрузкой (+2.5% к 1ПМ) после суперкомпенсации разгрузочной недели.`;
@@ -236,8 +247,7 @@ function renderAiRecipeCard() {
   }
 
   if (adviceText) {
-    const musclesStr = targetMusclesList.slice(0, 4).join(', ');
-    adviceText.innerText = `Целевые группы: ${musclesStr || 'Верх тела'}. ${modeAdvice}`;
+    adviceText.innerText = modeAdvice;
   }
 
   targetExercises.forEach(ex => {
@@ -253,23 +263,27 @@ function renderAiRecipeCard() {
       if (e1rm > best1RM) best1RM = e1rm;
     });
 
-    let targetReps = '12–15x';
+    let targetRepsBadge = '12–15 повт.';
+    let rirBadgeText = 'RIR 2–3';
     let rawTargetLoad = 0;
     let warmUpText = 'Не требуется';
 
     if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
-      targetReps = '8–10x (Легко, RIR +4..+5)';
+      targetRepsBadge = '8–10 повт.';
+      rirBadgeText = 'RIR 4–5 (Делоад)';
       rawTargetLoad = maxWeight > 0 ? (maxWeight * 0.65) : 0;
       const roundedDeload = roundToGymStep(rawTargetLoad);
       warmUpText = `1 легкий подход на ${roundToGymStep(roundedDeload * 0.5)} кг`;
     } else if (nextMode === 'Сила') {
-      targetReps = '4–6x (RIR +1..+2)';
+      targetRepsBadge = '4–6 повт.';
+      rirBadgeText = 'RIR 1–2 (Сила)';
       const progressionMultiplier = isNewCycleTransition ? 1.025 : 1.0;
       rawTargetLoad = maxWeight > 0 ? (best1RM * 0.82 * progressionMultiplier) : 0;
       const roundedStrength = roundToGymStep(rawTargetLoad);
       warmUpText = `1 подход × ${roundToGymStep(roundedStrength * 0.5)} кг`;
     } else {
-      targetReps = '12–16x (RIR +2..+3)';
+      targetRepsBadge = '12–16 повт.';
+      rirBadgeText = 'RIR 2–3 (Объем)';
       rawTargetLoad = maxWeight > 0 ? (best1RM * 0.65) : 0;
       const roundedVolume = roundToGymStep(rawTargetLoad);
       warmUpText = `1 подход × ${roundToGymStep(roundedVolume * 0.45)} кг`;
@@ -280,12 +294,16 @@ function renderAiRecipeCard() {
     const step = document.createElement('div');
     step.className = 'recipe-step';
     step.innerHTML = `
-      <div style="font-weight: 600; color: var(--md-sys-color-primary); font-size: 0.9rem;">${ex}</div>
-      <div style="font-size: 0.82rem; margin-top: 4px;">
-        Цель: 2–3 сета × <b>${finalTargetLoad > 0 ? finalTargetLoad + ' кг' : 'рабочий вес'}</b> на <b>${targetReps}</b>
+      <div class="recipe-step-header">${ex}</div>
+      <div class="recipe-metrics-row">
+        <span class="recipe-sets-count">2–3 сета ×</span>
+        <span class="recipe-weight-highlight">${finalTargetLoad > 0 ? finalTargetLoad + ' кг' : 'рабочий вес'}</span>
+        <span class="recipe-reps-chip">${targetRepsBadge}</span>
+        <span class="recipe-rir-badge">${rirBadgeText}</span>
       </div>
-      <div style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">
-        Разминка: ${warmUpText}
+      <div class="recipe-warmup-row">
+        <span class="material-symbols-outlined">restart_alt</span>
+        <span>Разминка: ${warmUpText}</span>
       </div>
     `;
     recipeBox.appendChild(step);
@@ -390,16 +408,22 @@ function renderMuscleMannequin() {
 
     const vol = parseFloat(info.weeklyVolume.toFixed(1));
     let zone = 'Maintenance';
-    if (vol >= 6 && vol < 12) zone = 'MEV';
-    else if (vol >= 12 && vol <= 18) zone = 'MAV';
-    else if (vol > 18) zone = 'MRV ⚠️';
+    let barColor = '#64748b';
+    if (vol >= 6 && vol < 12) { zone = 'MEV'; barColor = '#78dc9c'; }
+    else if (vol >= 12 && vol <= 18) { zone = 'MAV'; barColor = '#a8c8ff'; }
+    else if (vol > 18) { zone = 'MRV ⚠️'; barColor = '#facc15'; }
+
+    // Процент шкалы до MRV (20 сетов max)
+    const barWidthPercent = Math.min(Math.round((vol / 20) * 100), 100);
 
     muscleStatusData[muscle] = {
       color,
       label,
       timeAgoText,
       lastExercise: info.lastExercise || 'Базовые тяги/жимы',
-      volumeText: `${vol} сетов (${zone})`
+      volumeText: `${vol} сетов (${zone})`,
+      barColor,
+      barWidthPercent
     };
   });
 
@@ -432,7 +456,11 @@ function renderMuscleMannequin() {
         detailsBox.innerHTML = `
           <div>• Последняя тренировка: <b>${data.timeAgoText}</b> (${data.lastExercise})</div>
           <div>• Объем за неделю: <b>${data.volumeText}</b></div>
-          <div>• Статус: <b style="color: ${data.color};">${data.label}</b></div>
+          <div class="mini-volume-bar-wrap">
+            <div class="mini-volume-bar-bg">
+              <div class="mini-volume-bar-fill" style="width: ${data.barWidthPercent}%; background-color: ${data.barColor};"></div>
+            </div>
+          </div>
         `;
       }
     };
