@@ -26,11 +26,14 @@ export async function syncSetsToSheets(payload) {
   const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
 
   try {
+    // Отправка через URLSearchParams (Simple Request) - гарантированно доходит до Apps Script без preflight-блокировок
+    const bodyData = new URLSearchParams();
+    bodyData.append('postData', JSON.stringify(payload));
+
     const response = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: bodyData,
       signal: controller.signal
     });
     clearTimeout(timeoutId);
