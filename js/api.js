@@ -3,12 +3,19 @@ import { setDbData } from './state.js';
 export const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxTZcV-jwhBx-iw9k4As42hNIyALSHfpERMter6CZ00NjzOPCo5AribVNHTT2RMqmRV/exec";
 
 export async function fetchAnalyticsData() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
+
   try {
-    const res = await fetch(`${APPS_SCRIPT_URL}?action=get_analytics`);
+    const res = await fetch(`${APPS_SCRIPT_URL}?action=get_analytics`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
     const data = await res.json();
     setDbData(data);
     return { success: true, data };
   } catch (err) {
+    clearTimeout(timeoutId);
     console.error('Ошибка загрузки данных Apps Script:', err);
     return { success: false, error: err.message };
   }
@@ -16,7 +23,7 @@ export async function fetchAnalyticsData() {
 
 export async function syncSetsToSheets(payload) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 секунд таймаут
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
 
   try {
     const response = await fetch(APPS_SCRIPT_URL, {
@@ -31,7 +38,7 @@ export async function syncSetsToSheets(payload) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания ответа сервера (15 сек). Проверьте интернет-соединение.');
+      throw new Error('Превышено время ожидания ответа сервера (20 сек). Проверьте интернет-соединение.');
     }
     throw err;
   }

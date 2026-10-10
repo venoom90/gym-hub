@@ -1,4 +1,4 @@
-import { state, setParsedWorkout, getDateKey } from './state.js';
+import { state, setParsedWorkout, getDateKey, normalizeDate } from './state.js';
 import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 
@@ -120,6 +120,26 @@ function renderParsedWorkoutView() {
   }
 }
 
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function matchesTargetDate(itemDate, targetDateStr) {
+  if (!itemDate || !targetDateStr) return false;
+  const key1 = getDateKey(itemDate);
+  const key2 = getDateKey(targetDateStr);
+  if (key1 && key2 && key1 === key2) return true;
+
+  const d1 = normalizeDate(itemDate);
+  const d2 = normalizeDate(targetDateStr);
+  if (d1 && d2) {
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  }
+  return String(itemDate).trim().startsWith(String(targetDateStr).trim());
+}
+
 async function executeSync(onSyncSuccess) {
   const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
@@ -130,7 +150,7 @@ async function executeSync(onSyncSuccess) {
 
   syncBtn.disabled = true;
 
-  // Индикация процесса отправки
+  // Индикация старта отправки
   workout.sets.forEach(s => {
     const box = document.getElementById(`status-box-${s.id}`);
     if (box) {
@@ -148,24 +168,32 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
-    // 1. Отправка POST в Google Apps Script с таймаутом
+    // 1. Отправка POST в Google Apps Script
     await syncSetsToSheets(payload);
 
-    // 2. Двухэтапная верификация: подтверждение вычиткой из базы
-    const fetchResult = await fetchAnalyticsData();
-    if (!fetchResult.success) {
-      throw new Error('Данные отправлены, но не удалось подтвердить запись из Google Таблиц.');
+    // 2. Двухэтапная верификация с паузой и retry для исключения Race Condition в LockService
+    let isVerified = false;
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // Пауза перед опросом сервера: 2с на первой попытке, затем 2.5с
+      await delay(attempt === 1 ? 2000 : 2500);
+
+      const fetchResult = await fetchAnalyticsData();
+      if (fetchResult && fetchResult.success) {
+        const verifiedSets = (state.dbData.sets || []).filter(s => matchesTargetDate(s.date, workout.date));
+        if (verifiedSets.length > 0) {
+          isVerified = true;
+          break;
+        }
+      }
     }
 
-    // Проверяем, что в обновленном стейте действительно присутствуют подходы за эту дату
-    const targetKey = getDateKey(workout.date);
-    const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
-
-    if (verifiedSets.length === 0) {
-      throw new Error('Сервер не вернул сохраненные подходы. Возможно, сработала блокировка таблицы.');
+    if (!isVerified) {
+      throw new Error('Данные отправлены, но сервер Google Таблиц еще не зафиксировал строки. Повторите проверку через пару секунд.');
     }
 
-    // 3. Статус успеха выставляется строго после фактической верификации
+    // 3. Успешный статус выставляется строго после верификации
     workout.sets.forEach(s => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`status-box-${s.id}`);
