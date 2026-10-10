@@ -1,5 +1,5 @@
-const CACHE_NAME = 'gym-hub-gh-cache-v23';
-const SHARE_CACHE_NAME = 'gym-share-temp-v23';
+const CACHE_NAME = 'gym-hub-gh-cache-v24';
+const SHARE_CACHE_NAME = 'gym-share-temp-v24';
 
 // Полный перечень реальных локальных ассетов без фиктивных путей
 const STATIC_ASSETS = [
