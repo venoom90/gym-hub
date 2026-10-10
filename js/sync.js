@@ -1,11 +1,8 @@
-import { state, setParsedWorkout, getDateKey, normalizeDate } from './state.js';
+import { state, setParsedWorkout, getDateKey } from './state.js';
 import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 
-let syncCallback = null;
-
 export function initSyncModule(onSyncSuccess) {
-  syncCallback = onSyncSuccess;
   const fileInput = document.getElementById('fileInput');
   const dropZone = document.getElementById('dropZone');
   const syncBtn = document.getElementById('syncAllBtn');
@@ -37,9 +34,9 @@ export function initSyncModule(onSyncSuccess) {
   }
 
   if (syncBtn) {
-    syncBtn.onclick = async () => {
-      await executeSync(syncCallback);
-    };
+    syncBtn.addEventListener('click', async () => {
+      await executeSync(onSyncSuccess);
+    });
   }
 }
 
@@ -63,7 +60,6 @@ export function handleIncomingReportText(text) {
 function renderParsedWorkoutView() {
   const summaryCard = document.getElementById('summaryCard');
   const container = document.getElementById('parsedContent');
-  const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
 
   if (!workout.sets || workout.sets.length === 0) {
@@ -73,29 +69,8 @@ function renderParsedWorkoutView() {
 
   if (summaryCard) {
     summaryCard.style.display = 'flex';
-    const titleEl = document.getElementById('workoutSummaryTitle');
-    const dateEl = document.getElementById('workoutSummaryDate');
-    if (titleEl) titleEl.innerText = workout.title || 'Тренировка GymUp';
-    if (dateEl) dateEl.innerText = `${workout.date} в ${workout.startTime} (${workout.sets.length} подходов)`;
-  }
-
-  // Принудительное восстановление внешнего вида и кликабельности кнопки синхронизации
-  if (syncBtn) {
-    syncBtn.disabled = false;
-    syncBtn.style.pointerEvents = 'auto';
-    syncBtn.style.cursor = 'pointer';
-    syncBtn.style.display = 'inline-flex';
-    syncBtn.style.alignItems = 'center';
-    syncBtn.style.justifyContent = 'center';
-    syncBtn.style.padding = '8px 16px';
-    syncBtn.style.borderRadius = '20px';
-    syncBtn.style.background = 'var(--md-sys-color-primary, #a8c7fa)';
-    syncBtn.style.color = 'var(--md-sys-color-on-primary, #04315a)';
-    syncBtn.style.fontWeight = '600';
-    syncBtn.innerText = 'Синхронизировать';
-    syncBtn.onclick = async () => {
-      await executeSync(syncCallback);
-    };
+    document.getElementById('workoutSummaryTitle').innerText = workout.title || 'Тренировка GymUp';
+    document.getElementById('workoutSummaryDate').innerText = `${workout.date} в ${workout.startTime} (${workout.sets.length} подходов)`;
   }
 
   if (!container) return;
@@ -145,10 +120,6 @@ function renderParsedWorkoutView() {
   }
 }
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 async function executeSync(onSyncSuccess) {
   const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
@@ -157,12 +128,9 @@ async function executeSync(onSyncSuccess) {
     return;
   }
 
-  if (syncBtn) {
-    syncBtn.disabled = true;
-    syncBtn.innerText = 'Запись...';
-  }
+  syncBtn.disabled = true;
 
-  // Индикация начала отправки на всех сетах
+  // Индикация процесса отправки
   workout.sets.forEach(s => {
     const box = document.getElementById(`status-box-${s.id}`);
     if (box) {
@@ -180,48 +148,43 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
-    // 1. Отправка в Apps Script через подтвержденный рабочий канал
-    const syncRes = await syncSetsToSheets(payload);
+    // 1. Отправка POST в Google Apps Script с таймаутом
+    await syncSetsToSheets(payload);
 
-    if (!syncRes || !syncRes.success) {
-      throw new Error((syncRes && syncRes.error) || 'Ошибка записи на стороне сервера');
+    // 2. Двухэтапная верификация: подтверждение вычиткой из базы
+    const fetchResult = await fetchAnalyticsData();
+    if (!fetchResult.success) {
+      throw new Error('Данные отправлены, но не удалось подтвердить запись из Google Таблиц.');
     }
 
-    // 2. Зеленые галочки успеха на карточках сетов
+    // Проверяем, что в обновленном стейте действительно присутствуют подходы за эту дату
+    const targetKey = getDateKey(workout.date);
+    const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
+
+    if (verifiedSets.length === 0) {
+      throw new Error('Сервер не вернул сохраненные подходы. Возможно, сработала блокировка таблицы.');
+    }
+
+    // 3. Статус успеха выставляется строго после фактической верификации
     workout.sets.forEach(s => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`status-box-${s.id}`);
-      if (box) {
-        box.innerHTML = `<span class="material-symbols-outlined status-icon status-synced">check_circle</span>`;
-      }
+      if (box) box.innerHTML = `<span class="material-symbols-outlined status-icon status-synced">check_circle</span>`;
     });
 
-    // 3. Фоновое обновление локальной аналитики
-    try {
-      await delay(1000);
-      await fetchAnalyticsData();
-      if (state.dbData && (state.dbData.sets || []).length > 0) {
-        localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
-      }
-    } catch (fetchErr) {
-      console.warn('Локальный кэш обновится при следующем открытии:', fetchErr);
+    if (state.dbData && (state.dbData.sets || []).length > 0) {
+      localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
     }
 
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
-    alert(`✅ Синхронизировано успешно! Сохранено подходов: ${syncRes.count || workout.sets.length}`);
   } catch (err) {
     workout.sets.forEach(s => {
       s.syncStatus = 'error';
       const box = document.getElementById(`status-box-${s.id}`);
-      if (box) {
-        box.innerHTML = `<span class="material-symbols-outlined status-icon status-error" title="${err.message}">error</span>`;
-      }
+      if (box) box.innerHTML = `<span class="material-symbols-outlined status-icon status-error" title="${err.message}">error</span>`;
     });
     alert('Ошибка при синхронизации: ' + err.message);
   } finally {
-    if (syncBtn) {
-      syncBtn.disabled = false;
-      syncBtn.innerText = 'Синхронизировать';
-    }
+    syncBtn.disabled = false;
   }
 }
