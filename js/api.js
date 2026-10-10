@@ -4,7 +4,7 @@ export const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxTZcV-j
 
 export async function fetchAnalyticsData() {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
     const res = await fetch(`${APPS_SCRIPT_URL}?action=get_analytics`, {
@@ -23,43 +23,67 @@ export async function fetchAnalyticsData() {
 
 export async function syncSetsToSheets(payload) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 секунд таймаут
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
 
   try {
-    // Отправка через URLSearchParams (Simple Request) - гарантированно доходит до Apps Script без preflight-блокировок
-    const bodyData = new URLSearchParams();
-    bodyData.append('postData', JSON.stringify(payload));
+    // Очищаем payload от лишних полей перед отправкой через GET, чтобы уложиться в лимит URL
+    const compactSets = (payload.sets || []).map(s => ({
+      date: s.date,
+      startTime: s.startTime,
+      title: s.title,
+      exercise: s.exercise,
+      setNum: s.setNum,
+      weight: s.weight,
+      reps: s.reps,
+      effort: s.effort || '',
+      reserve: s.reserve || '',
+      method: s.method || '',
+      equipment: s.equipment || '',
+      positioning: s.positioning || '',
+      splitDay: s.splitDay || '',
+      cycleMode: s.cycleMode || '',
+      waveIndex: s.waveIndex || '',
+      cycleWeek: s.cycleWeek || 1,
+      category: s.category || 'Рабочий',
+      tonnage: s.tonnage || 0,
+      e1rm: s.e1rm || 0
+    }));
 
-    const response = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      body: bodyData,
-      signal: controller.signal
-    });
+    const compactPayload = {
+      action: 'sync_sets',
+      overwrite: payload.overwrite,
+      date: payload.date,
+      startTime: payload.startTime,
+      sets: compactSets
+    };
+
+    const encodedData = encodeURIComponent(JSON.stringify(compactPayload));
+    const url = `${APPS_SCRIPT_URL}?action=sync_sets_get&data=${encodedData}`;
+
+    const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
-    return response;
+    
+    const result = await res.json();
+
+    if (!result || result.success !== true) {
+      const errMsg = (result && result.error) ? result.error : JSON.stringify(result);
+      throw new Error(errMsg);
+    }
+    return result;
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания ответа сервера (20 сек). Проверьте интернет-соединение.');
+      throw new Error('Превышено время ожидания сервера (25 сек).');
     }
     throw err;
   }
 }
 
-// Каскадный вызов Gemini API с перебором моделей
 export async function requestGeminiAudit(promptText) {
   const apiKey = localStorage.getItem('gemini_api_key');
-  if (!apiKey) {
-    throw new Error('Ключ Gemini API не настроен в приложении');
-  }
+  if (!apiKey) throw new Error('Ключ Gemini API не настроен');
 
-  const modelChain = [
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
-    'gemini-2.0-flash'
-  ];
-
+  const modelChain = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
   let lastErrorMessage = '';
 
   for (const model of modelChain) {
@@ -68,37 +92,20 @@ export async function requestGeminiAudit(promptText) {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }]
-        })
+        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
       });
 
       const data = await response.json();
-
-      if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts[0].text) {
+      if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
         return data.candidates[0].content.parts[0].text;
       }
-
       if (data.error) {
-        lastErrorMessage = data.error.message || `Ошибка кода ${data.error.code}`;
-        const isDemandIssue = data.error.code === 503 ||
-                              data.error.code === 429 ||
-                              lastErrorMessage.toLowerCase().includes('demand') ||
-                              lastErrorMessage.toLowerCase().includes('overloaded');
-
-        if (isDemandIssue) {
-          console.warn(`[Gemini API] Модель ${model} перегружена (${lastErrorMessage}). Переключение...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          continue;
-        }
-
-        throw new Error(lastErrorMessage);
+        lastErrorMessage = data.error.message || `Ошибка ${data.error.code}`;
+        await new Promise(r => setTimeout(r, 1000));
       }
     } catch (err) {
       lastErrorMessage = err.message;
-      continue;
     }
   }
-
-  throw new Error(`Все модели Gemini временно недоступны. Ответ: ${lastErrorMessage}`);
+  throw new Error(`Модели Gemini недоступны: ${lastErrorMessage}`);
 }
