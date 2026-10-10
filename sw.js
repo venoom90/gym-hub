@@ -1,7 +1,6 @@
-const CACHE_NAME = 'gym-hub-gh-cache-v24';
-const SHARE_CACHE_NAME = 'gym-share-temp-v24';
+const CACHE_NAME = 'gym-hub-gh-cache-v27';
+const SHARE_CACHE_NAME = 'gym-share-temp-v27';
 
-// Полный перечень реальных локальных ассетов без фиктивных путей
 const STATIC_ASSETS = [
   '/gym-hub/',
   '/gym-hub/index.html',
@@ -15,7 +14,6 @@ const STATIC_ASSETS = [
   '/gym-hub/js/sync.js'
 ];
 
-// Установка: предварительное кэширование локальных файлов
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
@@ -23,7 +21,7 @@ self.addEventListener('install', (event) => {
       return Promise.allSettled(
         STATIC_ASSETS.map((asset) =>
           cache.add(asset).catch((err) => {
-            console.warn(`[SW v23] Не удалось закэшировать локальный ресурс: ${asset}`, err);
+            console.warn(`[SW v27] Ошибка кэширования: ${asset}`, err);
           })
         )
       );
@@ -31,14 +29,12 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Активация: удаление устаревших версий кэша
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME && key !== SHARE_CACHE_NAME) {
-            console.log(`[SW v23] Очистка устаревшего кэша: ${key}`);
             return caches.delete(key);
           }
         })
@@ -47,28 +43,24 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Перехват сетевых запросов
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. ОБРАБОТКА WEB SHARE TARGET (POST-запрос из шторки GymUp)
+  // Web Share Target
   if (event.request.method === 'POST') {
     event.respondWith((async () => {
       let sharedText = '';
       try {
         const formData = await event.request.formData();
-
         for (const [, value] of formData.entries()) {
           if (value && typeof value === 'object' && typeof value.text === 'function') {
             sharedText = await value.text();
             break;
           }
         }
-
         if (!sharedText) {
           sharedText = formData.get('text') || formData.get('title') || '';
         }
-
         if (sharedText) {
           const shareCache = await caches.open(SHARE_CACHE_NAME);
           await shareCache.put(
@@ -77,26 +69,20 @@ self.addEventListener('fetch', (event) => {
               headers: { 'Content-Type': 'application/json' }
             })
           );
-
           const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
           for (const client of windowClients) {
-            client.postMessage({
-              type: 'SHARED_WORKOUT_TEXT',
-              text: sharedText
-            });
+            client.postMessage({ type: 'SHARED_WORKOUT_TEXT', text: sharedText });
           }
         }
       } catch (err) {
-        console.error('[SW v23] Ошибка при перехвате Share Target:', err);
+        console.error('[SW v27] Ошибка Share Target:', err);
       }
-
-      // Перенаправляем на главную страницу приложения на GitHub Pages
       return Response.redirect('/gym-hub/?shared=1', 303);
     })());
     return;
   }
 
-  // 2. Внешние динамические API и внешние CDN пропускаем напрямую в сеть
+  // Внешние запросы к API Google и CDN
   const isExternalRequest = url.origin !== self.location.origin;
   if (
     isExternalRequest ||
@@ -108,44 +94,35 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Навигационные запросы страниц: приоритет сети с мягким откатом в кэш
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone);
-            });
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
           }
           return networkResponse;
         })
         .catch(async () => {
           const cache = await caches.open(CACHE_NAME);
-          const cachedPage = (await cache.match(event.request)) || (await cache.match('/gym-hub/')) || (await cache.match('/gym-hub/index.html'));
-          return cachedPage;
+          return (await cache.match(event.request)) || (await cache.match('/gym-hub/')) || (await cache.match('/gym-hub/index.html'));
         })
     );
     return;
   }
 
-  // 4. Локальные статические ассеты приложения (Stale-While-Revalidate)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
             const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
           }
           return networkResponse;
         })
-        .catch(() => {
-          return cachedResponse;
-        });
+        .catch(() => cachedResponse);
 
       return cachedResponse || fetchPromise;
     })
