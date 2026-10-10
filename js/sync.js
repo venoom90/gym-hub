@@ -124,20 +124,39 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function matchesTargetDate(itemDate, targetDateStr) {
-  if (!itemDate || !targetDateStr) return false;
-  const key1 = getDateKey(itemDate);
-  const key2 = getDateKey(targetDateStr);
-  if (key1 && key2 && key1 === key2) return true;
+function isSessionPresentInDb(dbSets, workout) {
+  if (!dbSets || dbSets.length === 0 || !workout || !workout.date) return false;
 
-  const d1 = normalizeDate(itemDate);
-  const d2 = normalizeDate(targetDateStr);
-  if (d1 && d2) {
-    return d1.getFullYear() === d2.getFullYear() &&
-           d1.getMonth() === d2.getMonth() &&
-           d1.getDate() === d2.getDate();
+  const targetDateKey = getDateKey(workout.date);
+  const targetExercises = (workout.sets || []).map(s => (s.exercise || '').trim()).filter(Boolean);
+
+  // 1. Поиск по нормализованному ключу даты
+  const byDate = dbSets.filter(s => {
+    const sKey = getDateKey(s.date);
+    if (sKey && targetDateKey && sKey === targetDateKey) return true;
+    const d1 = normalizeDate(s.date);
+    const d2 = normalizeDate(workout.date);
+    if (d1 && d2) {
+      return d1.getFullYear() === d2.getFullYear() &&
+             d1.getMonth() === d2.getMonth() &&
+             d1.getDate() === d2.getDate();
+    }
+    return String(s.date || '').trim().startsWith(String(workout.date).trim());
+  });
+
+  if (byDate.length > 0) return true;
+
+  // 2. Fallback: поиск по совпадению времени и упражнений
+  if (workout.startTime && targetExercises.length > 0) {
+    const byExerciseAndTime = dbSets.filter(s => {
+      const matchEx = targetExercises.includes((s.exercise || '').trim());
+      const matchTime = s.startTime && s.startTime === workout.startTime;
+      return matchEx && matchTime;
+    });
+    if (byExerciseAndTime.length > 0) return true;
   }
-  return String(itemDate).trim().startsWith(String(targetDateStr).trim());
+
+  return false;
 }
 
 async function executeSync(onSyncSuccess) {
@@ -150,7 +169,7 @@ async function executeSync(onSyncSuccess) {
 
   syncBtn.disabled = true;
 
-  // Индикация старта отправки
+  // Индикация начала отправки на всех карточках сетов
   workout.sets.forEach(s => {
     const box = document.getElementById(`status-box-${s.id}`);
     if (box) {
@@ -171,18 +190,16 @@ async function executeSync(onSyncSuccess) {
     // 1. Отправка POST в Google Apps Script
     await syncSetsToSheets(payload);
 
-    // 2. Двухэтапная верификация с паузой и retry для исключения Race Condition в LockService
+    // 2. Двухэтапная верификация с надежным ожиданием записи на сервере
     let isVerified = false;
     const maxRetries = 3;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      // Пауза перед опросом сервера: 2с на первой попытке, затем 2.5с
-      await delay(attempt === 1 ? 2000 : 2500);
+      await delay(attempt === 1 ? 2500 : 2000);
 
       const fetchResult = await fetchAnalyticsData();
       if (fetchResult && fetchResult.success) {
-        const verifiedSets = (state.dbData.sets || []).filter(s => matchesTargetDate(s.date, workout.date));
-        if (verifiedSets.length > 0) {
+        if (isSessionPresentInDb(state.dbData.sets || [], workout)) {
           isVerified = true;
           break;
         }
@@ -190,10 +207,10 @@ async function executeSync(onSyncSuccess) {
     }
 
     if (!isVerified) {
-      throw new Error('Данные отправлены, но сервер Google Таблиц еще не зафиксировал строки. Повторите проверку через пару секунд.');
+      throw new Error('Данные отправлены, но сервер Google Таблиц еще не зафиксировал строки. Обновите аналитику кнопкой 🔄 через 5 секунд.');
     }
 
-    // 3. Успешный статус выставляется строго после верификации
+    // 3. Успешный статус выставляется строго после фактической верификации
     workout.sets.forEach(s => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`status-box-${s.id}`);
@@ -206,6 +223,7 @@ async function executeSync(onSyncSuccess) {
 
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
   } catch (err) {
+    // Снятие зависания: при ошибке спиннеры сбрасываются на значок ошибки с подсказкой
     workout.sets.forEach(s => {
       s.syncStatus = 'error';
       const box = document.getElementById(`status-box-${s.id}`);
