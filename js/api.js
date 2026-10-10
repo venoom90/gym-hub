@@ -16,9 +16,10 @@ export async function fetchAnalyticsData() {
 
 export async function syncSetsToSheets(payload) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 секунд таймаут
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
+    // В бэкапе использовалась надежная отправка через no-cors POST text/plain
     const response = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       mode: 'no-cors',
@@ -31,7 +32,7 @@ export async function syncSetsToSheets(payload) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания ответа сервера (15 сек). Проверьте интернет-соединение.');
+      throw new Error('Превышено время ожидания ответа сервера (20 сек).');
     }
     throw err;
   }
