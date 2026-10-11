@@ -481,7 +481,7 @@
       color: var(--md-sys-color-on-surface-variant);
     }
 
-    select.m3-select, input.m3-input {
+    select.m3-select, input.m3-input, textarea.m3-input {
       width: 100%;
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
@@ -489,7 +489,13 @@
       padding: 12px 16px;
       border-radius: 12px;
       font-size: 0.95rem;
+      font-family: inherit;
       outline: none;
+      resize: vertical;
+    }
+
+    select.m3-select:focus, input.m3-input:focus, textarea.m3-input:focus {
+      border-color: var(--md-sys-color-primary);
     }
 
     .chart-container { position: relative; height: 240px; width: 100%; }
@@ -951,14 +957,32 @@
         </div>
       </div>
 
+      <!-- КАРТОЧКА НАСТРОЙКИ ЦЕЛЕЙ И AI-АУДИТА GEMINI -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined">smart_toy</span>
-            Спортивный аудит Gemini
+            Спортивный ИИ-аудит и План цикла
           </span>
-          <md-filled-button id="runAiAuditBtn">Анализ цикла</md-filled-button>
         </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <label for="aiBlockIntent" style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-primary);">
+            Ваши цели и акценты на цикл (Full-Body / DUP):
+          </label>
+          <textarea id="aiBlockIntent" class="m3-input" rows="3" placeholder="Например: фулбоди, ноги в поддержке (середина тренировки), акцент на средние дельты и икры, выровнять трицепс во 2-й тренировке, кластеры 4+3+2 в силе, дропы -25% в объеме..."></textarea>
+          <span style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">
+            Цели сохраняются в браузере и передаются Gemini для оптимизации биомеханического порядка упражнений, шага весов (+2.5 кг) и распределения стимула.
+          </span>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
+          <md-filled-button id="runAiAuditBtn">
+            <span class="material-symbols-outlined" slot="icon">auto_awesome</span>
+            Сформировать план и аудит
+          </md-filled-button>
+        </div>
+
         <div id="aiAuditResult" class="ai-bubble" style="display: none;"></div>
       </div>
     </div>
