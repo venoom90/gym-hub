@@ -40,7 +40,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. КРИТИЧЕСКИЙ ПРОПУСК: Внешние API (Apps Script, Gemini, CDN) пускаем напрямую в сеть без перехвата
+  // 1. Пропуск внешних API напрямую в сеть
   const isExternalRequest = url.origin !== self.location.origin;
   if (
     isExternalRequest ||
@@ -52,7 +52,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. ОБРАБОТКА WEB SHARE TARGET: Только локальные POST-запросы из системной шторки к нашему приложению
+  // 2. Обработка Web Share Target для локальных POST-запросов
   if (event.request.method === 'POST' && url.origin === self.location.origin && url.pathname.includes('/gym-hub/')) {
     event.respondWith((async () => {
       let sharedText = '';
@@ -91,13 +91,13 @@ self.addEventListener('fetch', (event) => {
         console.error('[SW v31] Ошибка при перехвате Share Target:', err);
       }
 
-      // Перенаправляем на главную страницу с флагом ожидания шэринга
-      return Response.redirect('/gym-hub/?shared=1', 303);
+      const redirectTarget = new URL('./?shared=1', self.location.href).href;
+      return Response.redirect(redirectTarget, 303);
     })());
     return;
   }
 
-  // 3. Локальные статические ресурсы приложения (Cache First с фоновым обновлением)
+  // 3. Статические ресурсы приложения
   if (event.request.method === 'GET') {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
