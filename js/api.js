@@ -1,6 +1,5 @@
 import { state } from './state.js';
 
-// URL Google Apps Script Web App
 export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwXyqZlDsl3L8P2aX4j1h4F-6B2iP9C3K7N/exec';
 
 /**
@@ -27,6 +26,32 @@ export async function fetchAnalyticsData() {
     clearTimeout(timeoutId);
     console.warn('[API] Ошибка сети при получении данных:', err);
     return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Получение серверных логов с листа Debug_Log (GET)
+ */
+export async function fetchServerDebugLogs() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const res = await fetch(`${GAS_API_URL}?action=get_debug_log`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`HTTP Error ${res.status}`);
+    }
+
+    const json = await res.json();
+    return json.logs || [];
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw new Error(`Ошибка чтения логов с сервера: ${err.message}`);
   }
 }
 

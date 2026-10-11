@@ -1,11 +1,16 @@
 import { state, setParsedWorkout, getDateKey } from './state.js';
 import { parseGymUpReport } from './parser.js';
-import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
+import { syncSetsToSheets, fetchAnalyticsData, fetchServerDebugLogs } from './api.js';
+
+let terminalLogsBuffer = [];
 
 export function initSyncModule(onSyncSuccess) {
   const fileInput = document.getElementById('fileInput');
   const dropZone = document.getElementById('dropZone');
   const syncBtn = document.getElementById('syncAllBtn');
+  const copyLogBtn = document.getElementById('copySyncLogBtn');
+  const fetchServerLogsBtn = document.getElementById('fetchServerLogsBtn');
+  const clearLogBtn = document.getElementById('clearSyncLogBtn');
 
   if (dropZone && fileInput) {
     dropZone.addEventListener('click', () => fileInput.click());
@@ -38,22 +43,84 @@ export function initSyncModule(onSyncSuccess) {
       await executeSync(onSyncSuccess);
     });
   }
+
+  if (copyLogBtn) {
+    copyLogBtn.addEventListener('click', () => {
+      const text = terminalLogsBuffer.join('\n');
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Лог синхронизации скопирован в буфер обмена!');
+      }).catch(() => {
+        alert('Не удалось скопировать лог.');
+      });
+    });
+  }
+
+  if (fetchServerLogsBtn) {
+    fetchServerLogsBtn.addEventListener('click', async () => {
+      await loadServerLogsToTerminal();
+    });
+  }
+
+  if (clearLogBtn) {
+    clearLogBtn.addEventListener('click', () => {
+      terminalLogsBuffer = [];
+      const box = document.getElementById('syncTerminalLogs');
+      if (box) box.innerText = 'Терминал очищен.';
+    });
+  }
+}
+
+function logToTerminal(stage, message, level = 'info') {
+  const time = new Date().toLocaleTimeString('ru-RU', { hour12: false }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+  const icon = level === 'error' ? '❌' : (level === 'success' ? '✅' : 'ℹ️');
+  const line = `[${time}] ${icon} [${stage}] ${message}`;
+  
+  terminalLogsBuffer.push(line);
+  if (terminalLogsBuffer.length > 100) terminalLogsBuffer.shift();
+
+  const box = document.getElementById('syncTerminalLogs');
+  if (box) {
+    box.innerText = terminalLogsBuffer.join('\n');
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+async function loadServerLogsToTerminal() {
+  logToTerminal('SERVER_FETCH', 'Запрос логов с листа Debug_Log...', 'info');
+  try {
+    const logs = await fetchServerDebugLogs();
+    if (!logs || logs.length === 0) {
+      logToTerminal('SERVER_EMPTY', 'На сервере пока нет записей логов.', 'info');
+      return;
+    }
+    logToTerminal('SERVER_LOGS', `Получено ${logs.length} серверных событий:`, 'info');
+    logs.forEach(item => {
+      const extra = item.details ? ` (${item.details})` : '';
+      logToTerminal('REMOTE', `${item.time} | ${item.stage} | ${item.message}${extra}`, 'info');
+    });
+  } catch (err) {
+    logToTerminal('SERVER_ERROR', err.message, 'error');
+  }
 }
 
 function readAndHandleFile(file) {
+  logToTerminal('FILE_READ', `Чтение файла: ${file.name} (${file.size} байт)`, 'info');
   const reader = new FileReader();
   reader.onload = (e) => {
     handleIncomingReportText(e.target.result);
   };
   reader.onerror = (err) => {
+    logToTerminal('FILE_ERROR', 'Ошибка чтения файла: ' + err, 'error');
     alert('Ошибка чтения файла: ' + err);
   };
   reader.readAsText(file);
 }
 
 export function handleIncomingReportText(text) {
+  logToTerminal('PARSE_START', `Парсинг текста отчета (${text.length} символов)...`, 'info');
   const parsed = parseGymUpReport(text);
   setParsedWorkout(parsed);
+  logToTerminal('PARSE_END', `Распознано: ${parsed.sets ? parsed.sets.length : 0} сетов, дата: "${parsed.date}", время: "${parsed.startTime}", упражнений: ${parsed.allExercises ? parsed.allExercises.length : 0}`, 'info');
   renderParsedWorkoutView();
 }
 
@@ -63,6 +130,7 @@ function renderParsedWorkoutView() {
   const workout = state.parsedWorkout;
 
   if (!workout.sets || workout.sets.length === 0) {
+    logToTerminal('VALIDATION', 'Отчет пуст или не содержит выполненных сетов!', 'error');
     alert('В отчете не найдено выполненных рабочих сетов!');
     return;
   }
@@ -124,13 +192,14 @@ async function executeSync(onSyncSuccess) {
   const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
   if (!workout.sets || workout.sets.length === 0) {
+    logToTerminal('SYNC_ABORT', 'Нет данных для синхронизации', 'error');
     alert('Нет данных для синхронизации!');
     return;
   }
 
   syncBtn.disabled = true;
+  logToTerminal('SYNC_START', `Запуск синхронизации: ${workout.sets.length} сетов за ${workout.date}`, 'info');
 
-  // Индикация процесса отправки
   workout.sets.forEach(s => {
     const box = document.getElementById(`status-box-${s.id}`);
     if (box) {
@@ -148,24 +217,37 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
-    // 1. Отправка POST в Google Apps Script с таймаутом
+    // 1. Отправка POST в Google Apps Script
+    const t0 = performance.now();
+    logToTerminal('STEP_1_POST', `Отправка POST no-cors в Apps Script...`, 'info');
     await syncSetsToSheets(payload);
+    const postDuration = Math.round(performance.now() - t0);
+    logToTerminal('STEP_1_OK', `POST-пакет передан за ${postDuration} мс. Пауза 1000 мс перед вычиткой...`, 'success');
 
-    // 2. Двухэтапная верификация: подтверждение вычиткой из базы
+    // 2. Техническая пауза для завершения скрипта на сервере Google
+    await new Promise(r => setTimeout(r, 1000));
+
+    // 3. Обратная проверка (Reverse Verification)
+    logToTerminal('STEP_2_VERIFY', `Запрос GET get_all_data для подтверждения физической записи...`, 'info');
     const fetchResult = await fetchAnalyticsData();
     if (!fetchResult.success) {
-      throw new Error('Данные отправлены, но не удалось подтвердить запись из Google Таблиц.');
+      throw new Error(`Не удалось связаться с сервером для подтверждения: ${fetchResult.error}`);
     }
 
-    // Проверяем, что в обновленном стейте действительно присутствуют подходы за эту дату
     const targetKey = getDateKey(workout.date);
-    const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
+    const serverSets = (state.dbData.sets || []);
+    logToTerminal('STEP_2_DATA', `Сервер вернул базу: ${serverSets.length} сетов. Поиск ключа "${targetKey}"...`, 'info');
+
+    const verifiedSets = serverSets.filter(s => getDateKey(s.date) === targetKey);
 
     if (verifiedSets.length === 0) {
+      logToTerminal('VERIFY_FAIL', `Ключ "${targetKey}" не найден среди записей сервера! Возможно, сработала блокировка таблицы или не завершилась запись.`, 'error');
       throw new Error('Сервер не вернул сохраненные подходы. Возможно, сработала блокировка таблицы.');
     }
 
-    // 3. Статус успеха выставляется строго после фактической верификации
+    logToTerminal('VERIFY_SUCCESS', `Успешно верифицировано ${verifiedSets.length} подходов в базе!`, 'success');
+
+    // 4. Выставление статуса успеха
     workout.sets.forEach(s => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`status-box-${s.id}`);
@@ -178,6 +260,7 @@ async function executeSync(onSyncSuccess) {
 
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
   } catch (err) {
+    logToTerminal('SYNC_ERROR', `Сбой синхронизации: ${err.message}`, 'error');
     workout.sets.forEach(s => {
       s.syncStatus = 'error';
       const box = document.getElementById(`status-box-${s.id}`);
