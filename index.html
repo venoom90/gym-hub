@@ -114,7 +114,6 @@
       gap: 8px;
     }
 
-    /* Интерактивная иконка помощи с областью нажатия >= 48px */
     .help-trigger-btn {
       width: 48px;
       height: 48px;
@@ -180,7 +179,6 @@
     .badge-split-b { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
     .badge-rest { width: 6px; height: 6px; border-radius: 3px; background: var(--md-sys-color-outline-variant); margin-top: 10px; }
 
-    /* Бейджи плана тренировки */
     .plan-header-badges {
       display: flex;
       align-items: center;
@@ -225,7 +223,6 @@
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    /* Рецепт упражнений */
     .recipe-step {
       background: var(--md-sys-color-surface-container-high);
       border-radius: 14px;
@@ -295,7 +292,7 @@
       color: var(--md-sys-color-outline-variant);
     }
 
-    /* Анатомический манекен */
+    /* Манекен */
     .mannequin-container {
       display: flex;
       flex-direction: column;
@@ -335,21 +332,9 @@
     }
 
     @keyframes neonPulse {
-      0% {
-        stroke: #ffffff;
-        stroke-width: 2px;
-        filter: drop-shadow(0 0 3px #a8c8ff);
-      }
-      50% {
-        stroke: #a8c8ff;
-        stroke-width: 3px;
-        filter: drop-shadow(0 0 8px #a8c8ff);
-      }
-      100% {
-        stroke: #ffffff;
-        stroke-width: 2px;
-        filter: drop-shadow(0 0 3px #a8c8ff);
-      }
+      0% { stroke: #ffffff; stroke-width: 2px; filter: drop-shadow(0 0 3px #a8c8ff); }
+      50% { stroke: #a8c8ff; stroke-width: 3px; filter: drop-shadow(0 0 8px #a8c8ff); }
+      100% { stroke: #ffffff; stroke-width: 2px; filter: drop-shadow(0 0 3px #a8c8ff); }
     }
 
     .muscle-path {
@@ -435,7 +420,7 @@
       transition: width 0.3s ease;
     }
 
-    /* Аналитика: KPI Триада */
+    /* KPI */
     .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi-card {
       background: var(--md-sys-color-surface-container-high);
@@ -470,17 +455,8 @@
       margin-top: 2px;
     }
 
-    /* Виджет баланса антагонистов */
-    .balance-card-content {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .balance-header-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.85rem;
-    }
+    .balance-card-content { display: flex; flex-direction: column; gap: 10px; }
+    .balance-header-row { display: flex; justify-content: space-between; font-size: 0.85rem; }
     .balance-ratio-badge {
       font-size: 0.75rem;
       font-weight: 700;
@@ -496,16 +472,8 @@
       overflow: hidden;
       width: 100%;
     }
-    .balance-fill-push {
-      background-color: var(--md-sys-color-primary);
-      transition: width 0.4s ease;
-      height: 100%;
-    }
-    .balance-fill-pull {
-      background-color: var(--md-sys-color-success);
-      transition: width 0.4s ease;
-      height: 100%;
-    }
+    .balance-fill-push { background-color: var(--md-sys-color-primary); transition: width 0.4s ease; height: 100%; }
+    .balance-fill-pull { background-color: var(--md-sys-color-success); transition: width 0.4s ease; height: 100%; }
     .balance-legend-row {
       display: flex;
       justify-content: space-between;
@@ -542,7 +510,6 @@
     .zone-mav { background-color: var(--md-sys-color-primary); }
     .zone-mrv { background-color: var(--md-sys-color-warning); }
 
-    /* PR бейдж на графике */
     .pr-pill {
       font-size: 0.75rem;
       font-weight: 700;
@@ -601,6 +568,43 @@
     .status-synced { color: var(--md-sys-color-success); }
     .status-pending { color: var(--md-sys-color-outline-variant); }
     .status-error { color: var(--md-sys-color-error); }
+
+    /* Терминал отладки синхронизации */
+    .sync-terminal {
+      background: #0d1117;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 16px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .terminal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--md-sys-color-primary);
+    }
+    .terminal-body {
+      background: #05070a;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 0.75rem;
+      line-height: 1.4;
+      color: #7ee787;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .terminal-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
 
     .navigation-bar {
       position: fixed;
@@ -697,10 +701,9 @@
 
   <main class="container">
     
-    <!-- МОДУЛЬ 1: ОБЗОР (ГЛАВНЫЙ ЭКРАН) -->
+    <!-- МОДУЛЬ 1: ОБЗОР -->
     <div id="tab-overview" class="tab-content active">
       
-      <!-- 1. Календарь-стрип недели -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -712,7 +715,6 @@
         <div id="calendarStripContainer" class="calendar-strip"></div>
       </div>
 
-      <!-- 2. Совет ИИ: План на сегодня -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -731,7 +733,6 @@
         <div id="overviewRecipeContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
       </div>
 
-      <!-- 3. Анатомический манекен мышечной нагрузки -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -743,7 +744,6 @@
         
         <div class="mannequin-container">
           <div class="mannequin-views-row">
-            <!-- Вид спереди -->
             <div class="mannequin-figure">
               <span class="mannequin-label">Спереди</span>
               <svg id="mannequinFront" class="mannequin-svg" viewBox="0 0 100 210">
@@ -771,7 +771,6 @@
               </svg>
             </div>
 
-            <!-- Вид сзади -->
             <div class="mannequin-figure">
               <span class="mannequin-label">Сзади</span>
               <svg id="mannequinBack" class="mannequin-svg" viewBox="0 0 100 210">
@@ -816,7 +815,6 @@
     <!-- МОДУЛЬ 2: АНАЛИТИКА -->
     <div id="tab-analytics" class="tab-content">
       
-      <!-- Селектор мезоцикла -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -832,7 +830,6 @@
         </select>
       </div>
 
-      <!-- Прикладная KPI-триада -->
       <div class="kpi-grid">
         <div class="kpi-card">
           <div class="kpi-top-row">
@@ -868,7 +865,6 @@
         </div>
       </div>
 
-      <!-- Виджет баланса мышечных антагонистов -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -896,7 +892,6 @@
         </div>
       </div>
 
-      <!-- Объем по мышцам (Volume Landmarks) -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -917,7 +912,6 @@
         </div>
       </div>
 
-      <!-- График динамики тоннажа -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -933,7 +927,6 @@
         </div>
       </div>
 
-      <!-- График 1ПМ (e1RM) и личные рекорды (PR) -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -958,7 +951,6 @@
         </div>
       </div>
 
-      <!-- Спортивный аудит Gemini -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -993,11 +985,35 @@
       </div>
 
       <div id="parsedContent" style="display: flex; flex-direction: column; gap: 12px;"></div>
+
+      <!-- Терминал отладки -->
+      <div class="sync-terminal">
+        <div class="terminal-header">
+          <span style="display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-outlined" style="font-size: 16px;">terminal</span>
+            Терминал диагностики синхронизации
+          </span>
+        </div>
+        <div class="terminal-body" id="syncTerminalLogs">Готов к приему данных отчета...</div>
+        <div class="terminal-actions">
+          <md-outlined-button id="copySyncLogBtn">
+            <span class="material-symbols-outlined" slot="icon">content_copy</span>
+            Скопировать лог
+          </md-outlined-button>
+          <md-outlined-button id="fetchServerLogsBtn">
+            <span class="material-symbols-outlined" slot="icon">cloud_download</span>
+            Логи сервера
+          </md-outlined-button>
+          <md-outlined-button id="clearSyncLogBtn">
+            <span class="material-symbols-outlined" slot="icon">clear_all</span>
+            Очистить
+          </md-outlined-button>
+        </div>
+      </div>
     </div>
 
   </main>
 
-  <!-- Модальное окно: Справка по метрикам для новичка -->
   <div id="metricHelpModal" class="modal-overlay">
     <div class="modal-card">
       <div class="card-title">
