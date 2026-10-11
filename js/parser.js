@@ -110,7 +110,6 @@ export function parseGymUpReport(text) {
     }
 
     // 3. Распознавание строки с названием упражнения
-    // Обычно начинается с "1. ", "2. " либо просто текст без веса/повторов
     const isExerciseHeader = line.match(/^\d+\.\s+([^\d•].+)$/) || 
       (!line.match(/^\d+\./) && !line.includes('кг') && !line.match(/[xхXХ]/) && !line.includes('•') && line.length > 2);
 
@@ -124,18 +123,12 @@ export function parseGymUpReport(text) {
     }
 
     // 4. Парсинг строки подхода
-    // Поддержка:
-    // "1. 40кг • 20x • Размин. • +5"
-    // "3. 120кг • 15x • Высокое • +3 высота 4"
-    // "4. 100/80кг • 6+6x • Высокое"
-    // "100 кг x 10 (Высокое, +2)"
     const setRegex = /^(?:\d+\.\s*)?([\d\.,\/]+)\s*(?:кг)?\s*[•\s]*\s*([0-9\+]+)\s*[xхXХ](.*)$/i;
     const match = line.match(setRegex);
 
     if (match && currentExercise) {
       const rawWeightStr = match[1].replace(',', '.');
       const isDropByWeight = rawWeightStr.includes('/');
-      // Базовый стартовый вес
       const weight = parseFloat(rawWeightStr.split('/')[0]) || 0;
       const repsRaw = match[2];
 
@@ -149,7 +142,6 @@ export function parseGymUpReport(text) {
       }
 
       const metaRaw = match[3] || '';
-      // Токенизация: разделение по буллетам "•" или запятым в скобках
       const metaTokens = metaRaw
         .replace(/[()]/g, '')
         .split(/[•,]/)
@@ -167,25 +159,49 @@ export function parseGymUpReport(text) {
       metaTokens.forEach(token => {
         const lower = token.toLowerCase();
 
-        if (token.startsWith('+') && !isNaN(parseInt(token.replace('+', ''), 10))) {
-          reserve = token;
-        } else if (['максим.', 'максим', 'высокое', 'среднее', 'низкое', 'размин.', 'размин'].includes(lower)) {
+        // 1. Извлечение запаса RIR и отделение склеенных заметок (например "+10 Высота 4")
+        const rirMatch = token.match(/^\+(\d+)(?:\s+(.*))?$/);
+        if (rirMatch) {
+          reserve = `+${rirMatch[1]}`;
+          if (rirMatch[2] && rirMatch[2].trim()) {
+            notesArr.push(rirMatch[2].trim());
+          }
+          return;
+        }
+
+        // 2. Оценка усилия
+        if (['максим.', 'максим', 'высокое', 'среднее', 'низкое', 'размин.', 'размин'].includes(lower)) {
           if (lower.startsWith('размин')) effort = 'Размин.';
           else if (lower.startsWith('максим')) effort = 'Максим.';
           else if (lower.startsWith('высок')) effort = 'Высокое';
           else if (lower.startsWith('средн')) effort = 'Среднее';
           else if (lower.startsWith('низк')) effort = 'Низкое';
-        } else if (lower.includes('кластер') || lower.includes('cluster')) {
-          method = token; // например, "кластер 1/3" или "кластер 1"
-        } else if (lower.includes('дроп') || lower.includes('drop')) {
-          method = token; // например, "дроп-сет 1/2"
-        } else if (lower.includes('высота') || lower.includes('наклон') || lower.includes('постановка')) {
-          equipment = token;
-        } else if (lower.includes('сидя') || lower.includes('стоя') || lower.includes('лежа') || lower.includes('лёжа')) {
-          positioning = token;
-        } else {
-          notesArr.push(token);
+          return;
         }
+
+        // 3. Методы (кластер / дроп-сет)
+        if (lower.includes('кластер') || lower.includes('cluster')) {
+          method = token;
+          return;
+        }
+        if (lower.includes('дроп') || lower.includes('drop')) {
+          method = token;
+          return;
+        }
+
+        // 4. Оборудование и высота
+        if (lower.includes('высота') || lower.includes('наклон') || lower.includes('постановка')) {
+          equipment = token;
+          return;
+        }
+
+        // 5. Положение тела
+        if (lower.includes('сидя') || lower.includes('стоя') || lower.includes('лежа') || lower.includes('лёжа')) {
+          positioning = token;
+          return;
+        }
+
+        notesArr.push(token);
       });
 
       // Автоматическое выставление метода для инлайн-записей
@@ -198,6 +214,8 @@ export function parseGymUpReport(text) {
 
       if (notesArr.length > 0 && !equipment) {
         equipment = notesArr.join('; ');
+      } else if (notesArr.length > 0 && equipment) {
+        equipment = `${equipment}; ${notesArr.join('; ')}`;
       }
 
       const period = extractPeriodization(title);
@@ -209,13 +227,17 @@ export function parseGymUpReport(text) {
         ? parseFloat((weight * (1 + reps / 30)).toFixed(1))
         : 0.0;
 
+      const currentSetNum = setCounter++;
+      // Каноничный составной ID: ДАТА_ВРЕМЯ_УПРАЖНЕНИЕ_setX
+      const setId = `${date}_${startTime}_${currentExercise}_set${currentSetNum}`;
+
       sets.push({
-        id: `set_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: setId,
         date: date,
         startTime: startTime,
         title: title,
         exercise: currentExercise,
-        setNum: setCounter++,
+        setNum: currentSetNum,
         weight: weight,
         reps: reps,
         effort: effort,

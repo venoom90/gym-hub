@@ -5,14 +5,17 @@ export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydM_23SpEHm
 
 /**
  * Получение всех данных аналитики, каталога и циклов (GET)
+ * Использование cache-busting таймстема (&_t=...) исключает чтение старого ответа браузером
  */
 export async function fetchAnalyticsData() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const res = await fetch(`${GAS_API_URL}?action=get_all_data`, {
+    const timestamp = Date.now();
+    const res = await fetch(`${GAS_API_URL}?action=get_all_data&_t=${timestamp}`, {
       method: 'GET',
+      cache: 'no-store',
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -38,8 +41,10 @@ export async function fetchServerDebugLogs() {
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const res = await fetch(`${GAS_API_URL}?action=get_debug_log`, {
+    const timestamp = Date.now();
+    const res = await fetch(`${GAS_API_URL}?action=get_debug_log&_t=${timestamp}`, {
       method: 'GET',
+      cache: 'no-store',
       signal: controller.signal
     });
     clearTimeout(timeoutId);
