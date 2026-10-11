@@ -1,12 +1,7 @@
 import { state } from './state.js';
 
-// Актуальный боевой URL Google Apps Script Web App
 export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydM_23SpEHmQyKmveDgw9vc_0_TRASZA-M444YPXcGffdDowR5RWaryrrgNg_YflNv/exec';
 
-/**
- * Получение всех данных аналитики, каталога и циклов (GET)
- * Использование cache-busting таймстема (&_t=...) исключает чтение старого ответа браузером
- */
 export async function fetchAnalyticsData() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -20,10 +15,7 @@ export async function fetchAnalyticsData() {
     });
     clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      throw new Error(`HTTP Error ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const data = await res.json();
     return { success: true, data };
   } catch (err) {
@@ -33,9 +25,6 @@ export async function fetchAnalyticsData() {
   }
 }
 
-/**
- * Получение серверных логов с листа Debug_Log (GET)
- */
 export async function fetchServerDebugLogs() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -49,10 +38,7 @@ export async function fetchServerDebugLogs() {
     });
     clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      throw new Error(`HTTP Error ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const json = await res.json();
     return json.logs || [];
   } catch (err) {
@@ -61,9 +47,6 @@ export async function fetchServerDebugLogs() {
   }
 }
 
-/**
- * Отправка распарсенных сетов тренировки в Google Таблицы (POST no-cors)
- */
 export async function syncSetsToSheets(payload) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -72,9 +55,7 @@ export async function syncSetsToSheets(payload) {
     await fetch(GAS_API_URL, {
       method: 'POST',
       mode: 'no-cors',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8'
-      },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -86,22 +67,20 @@ export async function syncSetsToSheets(payload) {
   }
 }
 
-/**
- * Каскадный вызов моделей Gemini для спортивного аудита
- */
 export async function requestGeminiAudit(promptText) {
   const apiKey = state.geminiApiKey || localStorage.getItem('gym_gemini_api_key');
   if (!apiKey) {
-    throw new Error('API ключ Gemini не задан. Перейдите в настройки (шестеренка вверху) и укажите ключ.');
+    throw new Error('API ключ Gemini не задан в настройках.');
   }
 
+  // Актуальный каскад моделей Google Generative AI с поддержкой v1beta
   const models = [
     'gemini-2.5-flash',
-    'gemini-1.5-flash',
-    'gemini-2.0-flash'
+    'gemini-2.5-pro',
+    'gemini-flash-latest'
   ];
-
-  let lastError = null;
+  
+  const errorsLog = [];
 
   for (const model of models) {
     try {
@@ -109,27 +88,24 @@ export async function requestGeminiAudit(promptText) {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }]
-        })
+        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error?.message || `HTTP ${res.status}`);
+        const detailedMsg = errJson.error?.message || `HTTP ${res.status}`;
+        throw new Error(`[${model}] ${detailedMsg}`);
       }
 
       const json = await res.json();
       const answer = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (answer) {
-        return answer;
-      }
-      throw new Error('Пустой ответ от модели');
+      if (answer) return answer;
+      throw new Error(`[${model}] Пустой ответ модели`);
     } catch (err) {
-      console.warn(`[Gemini API] Модель ${model} вернула ошибку:`, err.message);
-      lastError = err;
+      console.warn(`[Gemini API] Ошибка модели:`, err.message);
+      errorsLog.push(err.message);
     }
   }
 
-  throw new Error(`Все модели Gemini недоступны. Последняя ошибка: ${lastError?.message}`);
+  throw new Error(`Все модели Gemini вернули ошибки:\n${errorsLog.join('\n')}`);
 }
