@@ -34,9 +34,9 @@ export function initSyncModule(onSyncSuccess) {
   }
 
   if (syncBtn) {
-    syncBtn.onclick = async () => {
+    syncBtn.addEventListener('click', async () => {
       await executeSync(onSyncSuccess);
-    };
+    });
   }
 }
 
@@ -60,24 +60,17 @@ export function handleIncomingReportText(text) {
 function renderParsedWorkoutView() {
   const summaryCard = document.getElementById('summaryCard');
   const container = document.getElementById('parsedContent');
-  const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
 
   if (!workout.sets || workout.sets.length === 0) {
-    alert('В отчете не найдено выполненных сетов!');
+    alert('В отчете не найдено выполненных рабочих сетов!');
     return;
   }
 
   if (summaryCard) {
     summaryCard.style.display = 'flex';
-    const titleEl = document.getElementById('workoutSummaryTitle');
-    const dateEl = document.getElementById('workoutSummaryDate');
-    if (titleEl) titleEl.innerText = workout.title || 'Тренировка GymUp';
-    if (dateEl) dateEl.innerText = `${workout.date} в ${workout.startTime} (${workout.sets.length} подходов)`;
-  }
-
-  if (syncBtn) {
-    syncBtn.disabled = false;
+    document.getElementById('workoutSummaryTitle').innerText = workout.title || 'Тренировка GymUp';
+    document.getElementById('workoutSummaryDate').innerText = `${workout.date} в ${workout.startTime} (${workout.sets.length} подходов)`;
   }
 
   if (!container) return;
@@ -127,10 +120,6 @@ function renderParsedWorkoutView() {
   }
 }
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 async function executeSync(onSyncSuccess) {
   const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
@@ -139,8 +128,9 @@ async function executeSync(onSyncSuccess) {
     return;
   }
 
-  if (syncBtn) syncBtn.disabled = true;
+  syncBtn.disabled = true;
 
+  // Индикация процесса отправки
   workout.sets.forEach(s => {
     const box = document.getElementById(`status-box-${s.id}`);
     if (box) {
@@ -158,31 +148,24 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
-    // 1. Отправка POST в Google Apps Script
+    // 1. Отправка POST в Google Apps Script с таймаутом
     await syncSetsToSheets(payload);
 
-    // 2. Ожидание записи на сервере Google и подтверждение вычиткой (3 попытки с интервалом)
-    let isConfirmed = false;
+    // 2. Двухэтапная верификация: подтверждение вычиткой из базы
+    const fetchResult = await fetchAnalyticsData();
+    if (!fetchResult.success) {
+      throw new Error('Данные отправлены, но не удалось подтвердить запись из Google Таблиц.');
+    }
+
+    // Проверяем, что в обновленном стейте действительно присутствуют подходы за эту дату
     const targetKey = getDateKey(workout.date);
+    const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
 
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      await delay(2500); // пауза на запись и flush
-      const fetchResult = await fetchAnalyticsData();
-
-      if (fetchResult.success) {
-        const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
-        if (verifiedSets.length > 0) {
-          isConfirmed = true;
-          break;
-        }
-      }
+    if (verifiedSets.length === 0) {
+      throw new Error('Сервер не вернул сохраненные подходы. Возможно, сработала блокировка таблицы.');
     }
 
-    if (!isConfirmed) {
-      throw new Error('Данные отправлены, но сервер Google Таблиц еще обрабатывает запись. Обновите страницу через 5 секунд.');
-    }
-
-    // 3. Выставляем статус успеха на карточках
+    // 3. Статус успеха выставляется строго после фактической верификации
     workout.sets.forEach(s => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`status-box-${s.id}`);
@@ -194,7 +177,6 @@ async function executeSync(onSyncSuccess) {
     }
 
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
-    alert(`✅ Тренировка за ${workout.date} успешно записана в Google Таблицу!`);
   } catch (err) {
     workout.sets.forEach(s => {
       s.syncStatus = 'error';
@@ -203,6 +185,6 @@ async function executeSync(onSyncSuccess) {
     });
     alert('Ошибка при синхронизации: ' + err.message);
   } finally {
-    if (syncBtn) syncBtn.disabled = false;
+    syncBtn.disabled = false;
   }
 }

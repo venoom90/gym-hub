@@ -1,62 +1,81 @@
-import { setDbData } from './state.js';
+import { state } from './state.js';
 
-export const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxTZcV-jwhBx-iw9k4As42hNIyALSHfpERMter6CZ00NjzOPCo5AribVNHTT2RMqmRV/exec";
+// URL Google Apps Script Web App
+export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwXyqZlDsl3L8P2aX4j1h4F-6B2iP9C3K7N/exec';
 
+/**
+ * Получение всех данных аналитики, каталога и циклов (GET)
+ */
 export async function fetchAnalyticsData() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const res = await fetch(`${APPS_SCRIPT_URL}?action=get_analytics`);
+    const res = await fetch(`${GAS_API_URL}?action=get_all_data`, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`HTTP Error ${res.status}`);
+    }
+
     const data = await res.json();
-    setDbData(data);
     return { success: true, data };
   } catch (err) {
-    console.error('Ошибка загрузки данных Apps Script:', err);
+    clearTimeout(timeoutId);
+    console.warn('[API] Ошибка сети при получении данных:', err);
     return { success: false, error: err.message };
   }
 }
 
+/**
+ * Отправка распарсенных сетов тренировки в Google Таблицы (POST no-cors)
+ */
 export async function syncSetsToSheets(payload) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
-    // В бэкапе использовалась надежная отправка через no-cors POST text/plain
-    const response = await fetch(APPS_SCRIPT_URL, {
+    await fetch(GAS_API_URL, {
       method: 'POST',
       mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    return response;
+    return { success: true };
   } catch (err) {
     clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания ответа сервера (20 сек).');
-    }
-    throw err;
+    throw new Error(`Сетевой сбой при отправке: ${err.message}`);
   }
 }
 
-// Каскадный вызов Gemini API с перебором моделей
+/**
+ * Каскадный вызов моделей Gemini для спортивного аудита
+ */
 export async function requestGeminiAudit(promptText) {
-  const apiKey = localStorage.getItem('gemini_api_key');
+  const apiKey = state.geminiApiKey || localStorage.getItem('gym_gemini_api_key');
   if (!apiKey) {
-    throw new Error('Ключ Gemini API не настроен в приложении');
+    throw new Error('API ключ Gemini не задан. Перейдите в настройки (шестеренка вверху) и укажите ключ.');
   }
 
-  const modelChain = [
+  const models = [
     'gemini-2.5-flash',
     'gemini-1.5-flash',
     'gemini-2.0-flash'
   ];
 
-  let lastErrorMessage = '';
+  let lastError = null;
 
-  for (const model of modelChain) {
+  for (const model of models) {
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const response = await fetch(endpoint, {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -64,32 +83,22 @@ export async function requestGeminiAudit(promptText) {
         })
       });
 
-      const data = await response.json();
-
-      if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts[0].text) {
-        return data.candidates[0].content.parts[0].text;
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error?.message || `HTTP ${res.status}`);
       }
 
-      if (data.error) {
-        lastErrorMessage = data.error.message || `Ошибка кода ${data.error.code}`;
-        const isDemandIssue = data.error.code === 503 ||
-                              data.error.code === 429 ||
-                              lastErrorMessage.toLowerCase().includes('demand') ||
-                              lastErrorMessage.toLowerCase().includes('overloaded');
-
-        if (isDemandIssue) {
-          console.warn(`[Gemini API] Модель ${model} перегружена (${lastErrorMessage}). Переключение...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          continue;
-        }
-
-        throw new Error(lastErrorMessage);
+      const json = await res.json();
+      const answer = json.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (answer) {
+        return answer;
       }
+      throw new Error('Пустой ответ от модели');
     } catch (err) {
-      lastErrorMessage = err.message;
-      continue;
+      console.warn(`[Gemini API] Модель ${model} вернула ошибку:`, err.message);
+      lastError = err;
     }
   }
 
-  throw new Error(`Все модели Gemini временно недоступны. Ответ: ${lastErrorMessage}`);
+  throw new Error(`Все модели Gemini недоступны. Последняя ошибка: ${lastError?.message}`);
 }

@@ -1,15 +1,20 @@
-const SAVED_CYCLE_KEY = 'gym_selected_cycle_id';
+/**
+ * Единый источник правды (Single Source of Truth)
+ * Изолированное хранилище состояния приложения и чистые утилиты нормализации
+ */
 
 export const state = {
+  activeTab: 'overview',
+  selectedCycleId: 'ALL',
+  geminiApiKey: localStorage.getItem('gym_gemini_api_key') || '',
+  isOnline: navigator.onLine,
   dbData: {
     sets: [],
     catalog: [],
-    exercises: [],
     cycles: [],
-    currentCycleId: 'C-1',
-    cyclesSummary: []
+    exercises: [],
+    currentCycleId: 'C-1'
   },
-  selectedCycleId: localStorage.getItem(SAVED_CYCLE_KEY) || 'ALL',
   parsedWorkout: {
     title: '',
     date: '',
@@ -19,103 +24,114 @@ export const state = {
   }
 };
 
-export function setDbData(newData) {
-  state.dbData = {
-    sets: newData.sets || [],
-    catalog: newData.catalog || [],
-    exercises: newData.exercises || [],
-    cycles: newData.cycles || [],
-    currentCycleId: newData.currentCycleId || 'C-1',
-    cyclesSummary: newData.cyclesSummary || []
-  };
-
-  const saved = localStorage.getItem(SAVED_CYCLE_KEY);
-  if (saved && (saved === 'ALL' || (state.dbData.cycles || []).includes(saved))) {
-    state.selectedCycleId = saved;
-  } else if (state.dbData.currentCycleId) {
-    state.selectedCycleId = state.dbData.currentCycleId;
-  }
+export function setActiveTab(tabName) {
+  state.activeTab = tabName;
 }
 
 export function setSelectedCycle(cycleId) {
   state.selectedCycleId = cycleId;
-  try {
-    localStorage.setItem(SAVED_CYCLE_KEY, cycleId);
-  } catch (e) {
-    console.warn('[State] Не удалось сохранить выбранный мезоцикл в localStorage:', e);
+}
+
+export function setGeminiApiKey(key) {
+  state.geminiApiKey = key ? key.trim() : '';
+  if (state.geminiApiKey) {
+    localStorage.setItem('gym_gemini_api_key', state.geminiApiKey);
+  } else {
+    localStorage.removeItem('gym_gemini_api_key');
   }
 }
 
-export function setParsedWorkout(workoutData) {
-  state.parsedWorkout = workoutData;
+export function setDbData(data) {
+  state.dbData = {
+    sets: Array.isArray(data.sets) ? data.sets : [],
+    catalog: Array.isArray(data.catalog) ? data.catalog : [],
+    cycles: Array.isArray(data.cycles) ? data.cycles : [],
+    exercises: Array.isArray(data.exercises) ? data.exercises : [],
+    currentCycleId: data.currentCycleId || 'C-1'
+  };
 }
 
-// Извлечение календарного ключа 'YYYY-MM-DD' в локальном времени
-export function getDateKey(val) {
-  if (!val) return '';
-  
-  if (val instanceof Date) {
-    if (isNaN(val.getTime())) return '';
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+export function setParsedWorkout(workout) {
+  state.parsedWorkout = workout || {
+    title: '',
+    date: '',
+    startTime: '',
+    sets: [],
+    allExercises: []
+  };
+}
+
+/**
+ * Нормализация строковых чисел с запятой в Float
+ */
+export function parseRuFloat(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const clean = String(val).replace(/\s+/g, '').replace(',', '.');
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
+}
+
+/**
+ * Приведение любой даты к полудню локального времени (12:00) для защиты от часовых поясов
+ */
+export function normalizeDate(dateVal) {
+  if (!dateVal) return null;
+  if (dateVal instanceof Date) {
+    const d = new Date(dateVal);
+    d.setHours(12, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
   }
 
-  const str = String(val).trim();
-
-  // 1. Формат ДД.ММ.ГГГГ
+  const str = String(dateVal).trim();
+  // Формат DD.MM.YYYY
   const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (ruMatch) {
-    const y = ruMatch[3];
-    const m = String(ruMatch[2]).padStart(2, '0');
-    const d = String(ruMatch[1]).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    const day = parseInt(ruMatch[1], 10);
+    const month = parseInt(ruMatch[2], 10) - 1;
+    const year = parseInt(ruMatch[3], 10);
+    const d = new Date(year, month, day, 12, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
   }
 
-  // 2. ISO-строка с таймзоной (UTC)
-  if (str.includes('T') || str.includes('Z')) {
-    const dObj = new Date(str);
-    if (!isNaN(dObj.getTime())) {
-      const y = dObj.getFullYear();
-      const m = String(dObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dObj.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-  }
-
-  // 3. Формат YYYY-MM-DD
+  // Формат YYYY-MM-DD
   const isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
-    const y = isoMatch[1];
-    const m = String(isoMatch[2]).padStart(2, '0');
-    const d = String(isoMatch[3]).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    const year = parseInt(isoMatch[1], 10);
+    const month = parseInt(isoMatch[2], 10) - 1;
+    const day = parseInt(isoMatch[3], 10);
+    const d = new Date(year, month, day, 12, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
   }
 
-  const direct = new Date(str);
-  if (!isNaN(direct.getTime())) {
-    const y = direct.getFullYear();
-    const m = String(direct.getMonth() + 1).padStart(2, '0');
-    const d = String(direct.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+  const fallback = new Date(str);
+  if (!isNaN(fallback.getTime())) {
+    fallback.setHours(12, 0, 0, 0);
+    return fallback;
   }
-
-  return '';
+  return null;
 }
 
-// Нормализация на локальный полдень (12:00) без сдвигов часовых поясов
-export function normalizeDate(val) {
-  const key = getDateKey(val);
-  if (!key) return null;
-
-  const parts = key.split('-');
-  return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 12, 0, 0);
+/**
+ * Ключ даты для группировки YYYY-MM-DD
+ */
+export function getDateKey(dateVal) {
+  const d = normalizeDate(dateVal);
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-export function formatDateDisplay(d) {
+/**
+ * Форматирование для интерфейса: DD.MM.YYYY
+ */
+export function formatDateDisplay(dateVal) {
+  const d = normalizeDate(dateVal);
   if (!d) return '';
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${day}.${month}`;
+  const year = d.getFullYear();
+  return `${day}.${month}.${year}`;
 }
