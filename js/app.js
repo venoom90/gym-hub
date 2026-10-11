@@ -5,7 +5,7 @@ import { renderAnalyticsModule } from './analytics.js';
 import { initSyncModule, handleIncomingReportText } from './sync.js';
 
 let deferredPrompt = null;
-const SHARE_CACHE_NAME = 'gym-share-temp-v30';
+const SHARE_CACHE_NAME = 'gym-share-temp-v31';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initServiceWorker();
@@ -15,10 +15,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   initInstallPrompt();
   initSyncModule(handleDataReload);
 
-  // Мгновенная проверка шэринга до тяжелых сетевых запросов
   checkCachedShareData();
-
   await loadCachedOrRemoteData();
+});
+
+window.addEventListener('pageshow', () => {
+  checkCachedShareData();
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    checkCachedShareData();
+  }
 });
 
 function initServiceWorker() {
