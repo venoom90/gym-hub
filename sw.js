@@ -1,5 +1,5 @@
-const CACHE_NAME = 'gym-hub-v30';
-const SHARE_CACHE_NAME = 'gym-share-temp-v30';
+const CACHE_NAME = 'gym-hub-v31';
+const SHARE_CACHE_NAME = 'gym-share-temp-v31';
 
 const STATIC_ASSETS = [
   './',
@@ -40,8 +40,20 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. ОБРАБОТКА WEB SHARE TARGET (POST-запрос из шторки GymUp)
-  if (event.request.method === 'POST') {
+  // 1. КРИТИЧЕСКИЙ ПРОПУСК: Внешние API (Apps Script, Gemini, CDN) пускаем напрямую в сеть без перехвата
+  const isExternalRequest = url.origin !== self.location.origin;
+  if (
+    isExternalRequest ||
+    url.hostname.includes('script.google.com') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('cdn.jsdelivr.net') ||
+    url.hostname.includes('esm.sh')
+  ) {
+    return;
+  }
+
+  // 2. ОБРАБОТКА WEB SHARE TARGET: Только локальные POST-запросы из системной шторки к нашему приложению
+  if (event.request.method === 'POST' && url.origin === self.location.origin && url.pathname.includes('/gym-hub/')) {
     event.respondWith((async () => {
       let sharedText = '';
       try {
@@ -76,24 +88,12 @@ self.addEventListener('fetch', (event) => {
           }
         }
       } catch (err) {
-        console.error('[SW v30] Ошибка при перехвате Share Target:', err);
+        console.error('[SW v31] Ошибка при перехвате Share Target:', err);
       }
 
       // Перенаправляем на главную страницу с флагом ожидания шэринга
       return Response.redirect('/gym-hub/?shared=1', 303);
     })());
-    return;
-  }
-
-  // 2. Внешние динамические API и CDN пропускаем напрямую в сеть
-  const isExternalRequest = url.origin !== self.location.origin;
-  if (
-    isExternalRequest ||
-    url.hostname.includes('script.google.com') ||
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('cdn.jsdelivr.net') ||
-    url.hostname.includes('esm.sh')
-  ) {
     return;
   }
 
