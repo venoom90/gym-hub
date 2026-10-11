@@ -1,6 +1,7 @@
 import { state } from './state.js';
 
-export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbwXyqZlDsl3L8P2aX4j1h4F-6B2iP9C3K7N/exec';
+// Актуальный боевой URL Google Apps Script Web App
+export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydM_23SpEHmQyKmveDgw9vc_0_TRASZA-M444YPXcGffdDowR5RWaryrrgNg_YflNv/exec';
 
 /**
  * Получение всех данных аналитики, каталога и циклов (GET)
