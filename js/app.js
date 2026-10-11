@@ -5,6 +5,7 @@ import { renderAnalyticsModule } from './analytics.js';
 import { initSyncModule, handleIncomingReportText } from './sync.js';
 
 let deferredPrompt = null;
+const SHARE_CACHE_NAME = 'gym-share-temp-v30';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initServiceWorker();
@@ -14,48 +15,67 @@ document.addEventListener('DOMContentLoaded', async () => {
   initInstallPrompt();
   initSyncModule(handleDataReload);
 
+  // Мгновенная проверка шэринга до тяжелых сетевых запросов
+  checkCachedShareData();
+
   await loadCachedOrRemoteData();
-  await checkSharedCacheData();
 });
 
 function initServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then((reg) => {
+    navigator.serviceWorker.register('./sw.js', { scope: '/gym-hub/' }).then((reg) => {
       console.log('[SW] Зарегистрирован:', reg.scope);
     }).catch((err) => {
-      console.error('[SW] Ошибка регистрации:', err);
+      console.warn('[SW] Ошибка регистрации:', err);
     });
 
     navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'GYM_SHARED_WORKOUT_AVAILABLE') {
-        switchToSyncTabAndParse(event.data.payload);
+      if (event.data && event.data.type === 'SHARED_WORKOUT_TEXT') {
+        switchTabToSync(event.data.text);
       }
     });
   }
 }
 
-async function checkSharedCacheData() {
-  if ('caches' in window) {
-    try {
-      const cache = await caches.open('gym-share-temp-v30');
-      const response = await cache.match('/gym-share-temp-v30/shared-workout-data');
-      if (response) {
-        const text = await response.text();
-        await cache.delete('/gym-share-temp-v30/shared-workout-data');
-        if (text) {
-          switchToSyncTabAndParse(text);
+async function checkCachedShareData(retries = 8) {
+  try {
+    const cache = await caches.open(SHARE_CACHE_NAME);
+    const response = await cache.match('/gym-hub/shared-workout-data');
+    if (response) {
+      const data = await response.json();
+      if (data && data.text && (Date.now() - data.timestamp < 300000)) {
+        await cache.delete('/gym-hub/shared-workout-data');
+        if (window.location.search.includes('shared=1')) {
+          window.history.replaceState({}, document.title, window.location.pathname);
         }
+        switchTabToSync(data.text);
+        return;
       }
-    } catch (e) {
-      console.warn('[Cache] Проверка шэринга завершилась с ошибкой:', e);
     }
+  } catch (e) {
+    console.warn('[Share] Ошибка вычитки данных из Cache Storage:', e);
+  }
+
+  if (retries > 0 && window.location.search.includes('shared=1')) {
+    setTimeout(() => checkCachedShareData(retries - 1), 150);
   }
 }
 
-function switchToSyncTabAndParse(reportText) {
+function switchTabToSync(reportText) {
   const syncNav = document.querySelector('.nav-item[data-tab="sync"]');
-  if (syncNav) syncNav.click();
-  handleIncomingReportText(reportText);
+  if (syncNav) {
+    syncNav.click();
+  } else {
+    document.querySelectorAll('.tab-content').forEach((tab) => tab.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
+    const syncTab = document.getElementById('tab-sync');
+    if (syncTab) syncTab.classList.add('active');
+    setActiveTab('sync');
+  }
+
+  if (reportText) {
+    handleIncomingReportText(reportText);
+  }
 }
 
 function initNetworkStatus() {
@@ -162,10 +182,10 @@ async function loadCachedOrRemoteData() {
     try {
       const cachedData = JSON.parse(cachedStr);
       setDbData(cachedData);
-      renderOverviewModule();
-      renderAnalyticsModule();
+      if (state.activeTab === 'overview') renderOverviewModule();
+      if (state.activeTab === 'analytics') renderAnalyticsModule();
     } catch (e) {
-      console.warn('Ошибка чтения кэша:', e);
+      console.warn('[Cache] Ошибка чтения локального кэша:', e);
     }
   }
 
