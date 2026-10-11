@@ -1,31 +1,24 @@
-const CACHE_NAME = 'gym-hub-gh-cache-v27';
-const SHARE_CACHE_NAME = 'gym-share-temp-v27';
+const CACHE_NAME = 'gym-hub-v30';
+const SHARE_CACHE_NAME = 'gym-share-temp-v30';
 
 const STATIC_ASSETS = [
-  '/gym-hub/',
-  '/gym-hub/index.html',
-  '/gym-hub/manifest.json',
-  '/gym-hub/js/state.js',
-  '/gym-hub/js/app.js',
-  '/gym-hub/js/api.js',
-  '/gym-hub/js/overview.js',
-  '/gym-hub/js/analytics.js',
-  '/gym-hub/js/parser.js',
-  '/gym-hub/js/sync.js'
+  './',
+  './index.html',
+  './manifest.json',
+  './js/app.js',
+  './js/state.js',
+  './js/api.js',
+  './js/parser.js',
+  './js/overview.js',
+  './js/analytics.js',
+  './js/sync.js'
 ];
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return Promise.allSettled(
-        STATIC_ASSETS.map((asset) =>
-          cache.add(asset).catch((err) => {
-            console.warn(`[SW v27] Ошибка кэширования: ${asset}`, err);
-          })
-        )
-      );
-    })
+      return cache.addAll(STATIC_ASSETS);
+    }).then(() => self.skipWaiting())
   );
 });
 
@@ -46,85 +39,59 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Web Share Target
-  if (event.request.method === 'POST') {
-    event.respondWith((async () => {
-      let sharedText = '';
-      try {
-        const formData = await event.request.formData();
-        for (const [, value] of formData.entries()) {
-          if (value && typeof value === 'object' && typeof value.text === 'function') {
-            sharedText = await value.text();
-            break;
-          }
-        }
-        if (!sharedText) {
-          sharedText = formData.get('text') || formData.get('title') || '';
-        }
-        if (sharedText) {
-          const shareCache = await caches.open(SHARE_CACHE_NAME);
-          await shareCache.put(
-            '/gym-hub/shared-workout-data',
-            new Response(JSON.stringify({ text: sharedText, timestamp: Date.now() }), {
-              headers: { 'Content-Type': 'application/json' }
-            })
-          );
-          const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-          for (const client of windowClients) {
-            client.postMessage({ type: 'SHARED_WORKOUT_TEXT', text: sharedText });
-          }
-        }
-      } catch (err) {
-        console.error('[SW v27] Ошибка Share Target:', err);
-      }
-      return Response.redirect('/gym-hub/?shared=1', 303);
-    })());
-    return;
-  }
-
-  // Внешние запросы к API Google и CDN
-  const isExternalRequest = url.origin !== self.location.origin;
-  if (
-    isExternalRequest ||
-    url.hostname.includes('script.google.com') ||
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('cdn.jsdelivr.net') ||
-    url.hostname.includes('esm.sh')
-  ) {
-    return;
-  }
-
-  if (event.request.mode === 'navigate') {
+  // Перехват входящего POST-запроса от Web Share Target API
+  if (event.request.method === 'POST' && url.pathname.includes('/gym-hub/')) {
     event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+      (async () => {
+        try {
+          const formData = await event.request.formData();
+          let sharedContent = formData.get('text') || '';
+
+          const file = formData.get('report_file');
+          if (file && typeof file.text === 'function') {
+            sharedContent = await file.text();
           }
-          return networkResponse;
-        })
-        .catch(async () => {
-          const cache = await caches.open(CACHE_NAME);
-          return (await cache.match(event.request)) || (await cache.match('/gym-hub/')) || (await cache.match('/gym-hub/index.html'));
-        })
+
+          if (sharedContent) {
+            const shareCache = await caches.open(SHARE_CACHE_NAME);
+            const responseToSave = new Response(sharedContent, {
+              headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            });
+            await shareCache.put('/gym-share-temp-v30/shared-workout-data', responseToSave);
+
+            const allClients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+            allClients.forEach((client) => {
+              client.postMessage({
+                type: 'GYM_SHARED_WORKOUT_AVAILABLE',
+                payload: sharedContent
+              });
+            });
+          }
+        } catch (err) {
+          console.error('[SW] Ошибка парсинга share target:', err);
+        }
+
+        // Редирект на главную страницу приложения
+        return Response.redirect('./', 303);
+      })()
     );
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
-  );
+  // Стандартная оффлайн-стратегия Cache First с фоновым обновлением для статики
+  if (event.request.method === 'GET') {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          fetch(event.request).then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
+            }
+          }).catch(() => {});
+          return cachedResponse;
+        }
+        return fetch(event.request);
+      })
+    );
+  }
 });

@@ -1,14 +1,13 @@
 {
   "name": "Gym Analytics Hub",
   "short_name": "GymHub",
-  "description": "Импорт и аналитика тренировок GymUp",
+  "description": "Evidence-Based силовая аналитика и DUP-периодизация",
   "start_url": "/gym-hub/",
-  "id": "/gym-hub/",
   "scope": "/gym-hub/",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#111318",
   "theme_color": "#111318",
+  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/fitness_center/default/48px.svg",
@@ -18,7 +17,7 @@
     }
   ],
   "share_target": {
-    "action": "/gym-hub/share-target",
+    "action": "/gym-hub/",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
@@ -26,8 +25,8 @@
       "text": "text",
       "files": [
         {
-          "name": "workout_file",
-          "accept": ["text/plain", "text/*", ".txt", "application/octet-stream"]
+          "name": "report_file",
+          "accept": ["text/plain", ".txt"]
         }
       ]
     }
