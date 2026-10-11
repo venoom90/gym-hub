@@ -15,10 +15,11 @@ const STATIC_ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -39,46 +40,64 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Перехват входящего POST-запроса от Web Share Target API
-  if (event.request.method === 'POST' && url.pathname.includes('/gym-hub/')) {
-    event.respondWith(
-      (async () => {
-        try {
-          const formData = await event.request.formData();
-          let sharedContent = formData.get('text') || '';
+  // 1. ОБРАБОТКА WEB SHARE TARGET (POST-запрос из шторки GymUp)
+  if (event.request.method === 'POST') {
+    event.respondWith((async () => {
+      let sharedText = '';
+      try {
+        const formData = await event.request.formData();
 
-          const file = formData.get('report_file');
-          if (file && typeof file.text === 'function') {
-            sharedContent = await file.text();
+        for (const [, value] of formData.entries()) {
+          if (value && typeof value === 'object' && typeof value.text === 'function') {
+            sharedText = await value.text();
+            break;
           }
-
-          if (sharedContent) {
-            const shareCache = await caches.open(SHARE_CACHE_NAME);
-            const responseToSave = new Response(sharedContent, {
-              headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-            });
-            await shareCache.put('/gym-share-temp-v30/shared-workout-data', responseToSave);
-
-            const allClients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-            allClients.forEach((client) => {
-              client.postMessage({
-                type: 'GYM_SHARED_WORKOUT_AVAILABLE',
-                payload: sharedContent
-              });
-            });
-          }
-        } catch (err) {
-          console.error('[SW] Ошибка парсинга share target:', err);
         }
 
-        // Редирект на главную страницу приложения
-        return Response.redirect('./', 303);
-      })()
-    );
+        if (!sharedText) {
+          sharedText = formData.get('text') || formData.get('title') || '';
+        }
+
+        if (sharedText) {
+          const shareCache = await caches.open(SHARE_CACHE_NAME);
+          await shareCache.put(
+            '/gym-hub/shared-workout-data',
+            new Response(JSON.stringify({ text: sharedText, timestamp: Date.now() }), {
+              headers: { 'Content-Type': 'application/json' }
+            })
+          );
+
+          const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          for (const client of windowClients) {
+            client.postMessage({
+              type: 'SHARED_WORKOUT_TEXT',
+              text: sharedText
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[SW v30] Ошибка при перехвате Share Target:', err);
+      }
+
+      // Перенаправляем на главную страницу с флагом ожидания шэринга
+      return Response.redirect('/gym-hub/?shared=1', 303);
+    })());
     return;
   }
 
-  // Стандартная оффлайн-стратегия Cache First с фоновым обновлением для статики
+  // 2. Внешние динамические API и CDN пропускаем напрямую в сеть
+  const isExternalRequest = url.origin !== self.location.origin;
+  if (
+    isExternalRequest ||
+    url.hostname.includes('script.google.com') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('cdn.jsdelivr.net') ||
+    url.hostname.includes('esm.sh')
+  ) {
+    return;
+  }
+
+  // 3. Локальные статические ресурсы приложения (Cache First с фоновым обновлением)
   if (event.request.method === 'GET') {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
