@@ -75,6 +75,20 @@ function initHelpModalTriggers() {
 
 function initAiAuditTrigger() {
   const btn = document.getElementById('runAiAuditBtn');
+  const intentInput = document.getElementById('aiBlockIntent');
+
+  // Восстановление сохраненного интента атлета
+  if (intentInput) {
+    const savedIntent = localStorage.getItem('gym_ai_block_intent');
+    if (savedIntent !== null) {
+      intentInput.value = savedIntent;
+    }
+
+    intentInput.addEventListener('input', () => {
+      localStorage.setItem('gym_ai_block_intent', intentInput.value.trim());
+    });
+  }
+
   if (btn) {
     btn.onclick = () => runGeminiCycleAudit();
   }
@@ -532,28 +546,93 @@ function renderExerciseProgressChart(exerciseName) {
 
 export async function runGeminiCycleAudit() {
   const auditBox = document.getElementById('aiAuditResult');
+  const intentInput = document.getElementById('aiBlockIntent');
   if (!auditBox) return;
-  auditBox.style.display = 'block';
-  auditBox.innerText = '🤖 Gemini выполняет углубленный спортивный аудит (Hard Sets, Push/Pull, 1ПМ)...';
 
-  const sets = getFilteredSets().slice(-30).map(s =>
-    `${s.date} [${s.workout}] ${s.exercise}: ${s.weight}кг x ${s.reps} (Категория: ${s.category}, Усилие: ${s.effort}, Тоннаж: ${s.tonnage}кг, 1ПМ: ${s.e1rm}кг, RIR: ${s.reserve})`
+  auditBox.style.display = 'block';
+  auditBox.innerText = '🤖 Gemini выполняет биомеханический расчет плана и аудит прогрессии DUP...';
+
+  const userCustomIntent = intentInput ? intentInput.value.trim() : (localStorage.getItem('gym_ai_block_intent') || '');
+
+  // Анализ упражнений и последних максимальных рабочих весов
+  const sets = getFilteredSets();
+  const exerciseStatsMap = {};
+
+  sets.forEach(s => {
+    const ex = (s.exercise || '').trim();
+    if (!ex) return;
+    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
+    if (!isWork) return;
+
+    const w = parseFloat(s.weight) || 0;
+    const r = parseInt(s.reps, 10) || 0;
+    const e1rm = parseFloat(s.e1rm) || (w * (1 + r / 30));
+
+    if (!exerciseStatsMap[ex]) {
+      exerciseStatsMap[ex] = {
+        maxWeight: 0,
+        maxReps: 0,
+        max1RM: 0,
+        split: s.split || '',
+        recentRIR: s.reserve || '+2'
+      };
+    }
+    if (w > exerciseStatsMap[ex].maxWeight) exerciseStatsMap[ex].maxWeight = w;
+    if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
+    if (s.split) exerciseStatsMap[ex].split = s.split;
+  });
+
+  const exerciseSummaryLines = Object.keys(exerciseStatsMap).map(ex => {
+    const item = exerciseStatsMap[ex];
+    return `- ${ex} (Сплит ${item.split || 'Общий'}): Макс. вес ${item.maxWeight} кг, Рекорд 1ПМ ${item.max1RM} кг`;
+  }).join('\n');
+
+  // Последние выполненные подходы для оценки утомления
+  const recentSetsLog = sets.slice(-25).map(s =>
+    `${s.date} [${s.workout}] ${s.exercise}: ${s.weight}кг x ${s.reps} (Категория: ${s.category}, Усилие: ${s.effort}, 1ПМ: ${s.e1rm}кг, Запас RIR: ${s.reserve})`
   ).join('\n');
 
-  const prompt = `Ты — ведущий эксперт по силовой подготовке и биомеханике (специалист по гипертрофии, DUP-периодизации и Volume Landmarks Mike Israetel / Eric Helms).
-Проанализируй рабочий тренировочный журнал атлета за выбранный период:
-${sets}
+  const prompt = `Ты — ведущий эксперт по силовой подготовке, биомеханике и DUP-периодизации (Daily Undulating Periodization, Eric Helms, Mike Israetel).
+Атлет тренируется по структурированной 5-недельной DUP-системе:
+- Недели 1 и 3: СИЛА (целевой диапазон 4–6 повторений, RIR 1–2).
+- Недели 2 и 4: ОБЪЕМ (целевой диапазон 12–16 повторений, MAV-объем, RIR 1–2).
+- Неделя 5: ДЕЛОАД (целевой диапазон 8–10 повторений, сброс тоннажа на 40%, RIR 4–10).
 
-Сделай честный, структурированный, прикладной спортивный разбор БЕЗ ВОДЫ по 4 пунктам:
-1. Анализ Hard Sets (Стимулирующих подходов): достаточно ли сетов выполнено в диапазоне RIR 0–3 и нет ли мусорного объема?
-2. Баланс плечевого пояса (Push / Pull Ratio): защищены ли плечевые суставы или наблюдается опасный перекос в жимы?
-3. Динамика силы (e1RM): есть ли объективный прирост силы между силовыми и объемными микроциклами?
-4. Решение по перегрузке и разгрузке: требуется ли делоад прямо сейчас и на сколько (+2.5 кг) повышать рабочие веса в следующем цикле?`;
+[ВВОДНЫЕ И ЦЕЛИ АТЛЕТА НА БЛОК]:
+${userCustomIntent || 'Full-Body сплит, верх в приоритете, ноги в поддержке (середина тренировки), икры акцентно, выравнивание объема рук.'}
+
+[БАЗА УПРАЖНЕНИЙ И ТЕКУЩИЕ СИЛОВЫЕ ПОКАЗАТЕЛИ АТЛЕТА]:
+${exerciseSummaryLines || 'Нет архивных упражнений'}
+
+[ПОСЛЕДНИЕ ПОДХОДЫ ИЗ ЖУРНАЛА]:
+${recentSetsLog}
+
+ЖЕЛЕЗНЫЕ ПРАВИЛА СОСТАВЛЕНИЯ ПЛАНА (Evidence-Based инварианты):
+1. ПОРЯДОК УПРАЖНЕНИЙ (Full-Body):
+   - Первыми идут базовые многосуставные станки/блоки верха тела на свежую ЦНС.
+   - Ноги (жимы платформы, приседания) ставятся СТРОГО В СЕРЕДИНУ сессии в поддерживающем режиме (Maintenance: 2–3 сета, RIR 2–3, без отказа), чтобы не отнимать системный драйв у целевого верха тела.
+   - Икры выполняются акцентно (3–4 сета с паузой в растяжке 2 сек).
+   - Баланс рук: если в Дне А в базе идет жим груди (нагрузка на трицепс как синергист), а в Дне Б база груди — это изолированная бабочка (трицепс выключен), то в День Б ОБЯЗАТЕЛЬНО включается прямая изоляция трицепса.
+2. КЛАСТЕРНЫЕ СЕТЫ:
+   - Применяются ТОЛЬКО в силовых неделях (Неделя 3) в последнем сете базовых тренажеров верха (Жим груди, Тяга блока).
+   - Оптимальная нисходящая схема: 4 + 3 + 2 (паузы строго 15–20 сек).
+   - Запрещены на ноги и в неделю делоада.
+3. ДРОП-СЕТЫ:
+   - Применяются ТОЛЬКО в объемных неделях (Неделя 2 — только икры; Неделя 4 — пиковый MAV перед делоадом).
+   - Для груди и спины — СТРОГО в изолированных станках (Бабочка, кроссовер) и СТРОГО в последнем подходе этой группы. Запрещены в тяжелых многосуставных жимах и тягах со свободным весом.
+   - Схема двойного сброса: базовый вес на 10–12 повт. -> сброс -25% на 6–8 повт. -> сброс -25% до отказа.
+4. ЭРГОНОМИКА ВЕСОВ:
+   - Все предлагаемые веса снарядов должны быть СТРОГО кратны шагу 2.5 кг (округление: 130 кг, 132.5 кг, 135 кг и т.д.).
+
+Сформируй четкий, бескомпромиссный отчет по 3 разделам:
+1. ОПТИМАЛЬНЫЙ ПЛАН: ДЕНЬ А (Упорядоченный список упражнений, целевые веса кратно 2.5 кг, подходы, повторы, RIR, пометка метода: Стандарт / Кластер / Дроп / Maintenance).
+2. ОПТИМАЛЬНЫЙ ПЛАН: ДЕНЬ Б (Упорядоченный список упражнений, целевые веса кратно 2.5 кг, подходы, повторы, RIR, компенсация трицепса и икры).
+3. БИОМЕХАНИЧЕСКОЕ И СПОРТИВНОЕ ОБОСНОВАНИЕ (кратко, почему выбран именно такой порядок упражнений, как распределены синергисты и когда подключать кластеры/дропы).`;
 
   try {
     const text = await requestGeminiAudit(prompt);
     auditBox.innerText = text;
   } catch (err) {
-    auditBox.innerText = `Ошибка аудита: ${err.message}`;
+    auditBox.innerText = `Ошибка генерации плана: ${err.message}`;
   }
 }
