@@ -76,12 +76,11 @@ export async function syncSetsToSheets(payload) {
 
 /**
  * Универсальный шлюз к Gemini через Google Apps Script Relay (работает без VPN).
- * Используется как во вкладке Аналитики, так и в Copilot тренере.
+ * Таймаут расширен до 85 секунд с запасом на холодный старт и глубокую генерацию плана.
  */
 export async function askGasGeminiCoach(promptText) {
   const controller = new AbortController();
-  // Увеличенный таймаут для генерации детального тренировочного плана
-  const timeoutId = setTimeout(() => controller.abort(), 35000);
+  const timeoutId = setTimeout(() => controller.abort(), 85000);
 
   try {
     const token = localStorage.getItem('gym_api_token') || '';
@@ -115,7 +114,7 @@ export async function askGasGeminiCoach(promptText) {
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания ответа ИИ-тренера (35 секунд). Проверьте интернет-соединение.');
+      throw new Error('Превышено время ожидания ответа ИИ-тренера (85 секунд). Проверьте интернет-соединение.');
     }
     throw new Error(`Сбой связи с ИИ-тренером: ${err.message}`);
   }

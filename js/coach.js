@@ -61,7 +61,6 @@ function initSosCalculator() {
       return;
     }
 
-    // Расчет сценариев адаптации при преждевременном отказе
     calculateAutoregulationDecision(resultBox, weight, targetReps, actualReps);
   };
 }
@@ -175,8 +174,8 @@ function initCyclePlanner() {
 
 async function generateMesocyclePlan() {
   const loadingBox = document.getElementById('coachPlanLoadingBox');
+  const genBtn = document.getElementById('generateCyclePlanBtn');
   const intentInput = document.getElementById('coachBlockIntent');
-  if (loadingBox) loadingBox.style.display = 'block';
 
   const userIntent = intentInput ? intentInput.value.trim() : '';
 
@@ -202,33 +201,27 @@ async function generateMesocyclePlan() {
 
   const exSummary = Object.keys(exerciseStatsMap).map(ex => {
     const item = exerciseStatsMap[ex];
-    return `- ${ex}: рекордный вес ${item.maxWeight} кг, e1RM ${item.max1RM} кг`;
+    return `- ${ex}: макс. ${item.maxWeight} кг, 1ПМ ${item.max1RM} кг`;
   }).join('\n');
 
   const currentCid = state.dbData.currentCycleId || 'C-2';
 
-  const prompt = `Ты — ведущий эксперт по силовой подготовке, биомеханике и DUP-периодизации (Daily Undulating Periodization, Mike Israetel, Eric Helms).
-Составь строгую программу тренировок на мезоцикл ${currentCid}.
+  const prompt = `Ты — эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
+Составь тренировочный план на мезоцикл ${currentCid}.
 
-[ВВОДНЫЕ И ЦЕЛИ АТЛЕТА]:
-${userIntent || 'Full-Body, верх в приоритете, ноги строго в середине в режиме поддержки (Maintenance), акцент на икры, паритет трицепса.'}
+[ЦЕЛИ АТЛЕТА]:
+${userIntent || 'Full-Body, верх в приоритете, ноги строго в середине в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
 
-[АРХИВНЫЕ СИЛОВЫЕ ПОКАЗАТЕЛИ АТЛЕТА]:
-${exSummary || 'Архивных упражнений нет'}
+[БАЗА СИЛОВЫХ ДАННЫХ]:
+${exSummary || 'Архивных данных нет'}
 
-ИНВАРИАНТЫ СОСТАВЛЕНИЯ ПЛАНА (Evidence-Based):
-1. СТРОГИЙ ПОРЯДОК УПРАЖНЕНИЙ:
-   - Первыми идут многосуставные станки верха тела на свежую ЦНС.
-   - Ноги (жимы платформ) ставятся СТРОГО В СЕРЕДИНУ сессии в режиме Maintenance (2–3 сета, RIR 2–3, без отказа), чтобы не отнимать системный драйв у верха.
-   - Икры выполняются акцентно (3–4 сета с паузой в растяжке 2 сек).
-   - Баланс рук: если в Дне А идет жим груди (трицепс нагружен), а в Дне Б база груди — бабочка (трицепс выключен), то в День Б ОБЯЗАТЕЛЬНО включить прямую тяжелую изоляцию трицепса.
-2. МЕТОДЫ:
-   - Кластеры 4+3+2 (паузы 15-20с) назначаются только на тяжелые базовые станки верха на Неделе 3.
-   - Дроп-сеты (-25%) — только на Неделе 4 на изоляцию верха и икры.
-   - Все веса СТРОГО кратны шагу 2.5 кг.
+ПРАВИЛА (Evidence-Based):
+1. ПОРЯДОК: Первыми идут базовые многосуставные станки верха на свежую ЦНС. Ноги ставятся СТРОГО В СЕРЕДИНУ сессии в режиме Maintenance (2–3 сета, без отказа). Икры акцентно (3–4 сета). Если в Дне А база груди жимовая, а в Дне Б изолированная бабочка — в День Б ОБЯЗАТЕЛЬНО включить тяжелую изоляцию трицепса.
+2. МЕТОДЫ: Кластеры 4+3+2 только на базовый верх Недели 3. Дроп-сеты (-25%) на изоляцию верха и икры Недели 4.
+3. ВЕСА: Все веса СТРОГО кратны шагу 2.5 кг.
 
 ФОРМАТ ОТВЕТА:
-Верни СТРОГО валидный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов по следующей схеме:
+Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
 {
   "cycleId": "${currentCid}",
   "mode": "Сила / Объем",
@@ -238,14 +231,13 @@ ${exSummary || 'Архивных упражнений нет'}
       "exercises": [
         {
           "order": 1,
-          "name": "Название упражнения",
-          "target": "Целевая мышца",
+          "name": "Название",
+          "target": "Грудь",
           "weight": 132.5,
           "sets": 4,
           "reps": "4-6",
           "rir": "+1..+2",
           "method": "Стандарт",
-          "equipment": "высота 4",
           "notes": "Базовый фокус"
         }
       ]
@@ -255,8 +247,23 @@ ${exSummary || 'Архивных упражнений нет'}
       "exercises": []
     }
   },
-  "rationale": "Подробное биомеханическое обоснование порядка и синергистов."
+  "rationale": "Краткое обоснование синергистов и порядка."
 }`;
+
+  // Запуск динамического индикатора времени ожидания
+  let elapsedSeconds = 0;
+  let timerInterval = null;
+
+  if (loadingBox) {
+    loadingBox.style.display = 'block';
+    loadingBox.innerText = `🤖 Gemini генерирует программу мезоцикла... (0с)`;
+    timerInterval = setInterval(() => {
+      elapsedSeconds++;
+      loadingBox.innerText = `🤖 Gemini генерирует программу мезоцикла... (${elapsedSeconds}с)`;
+    }, 1000);
+  }
+
+  if (genBtn) genBtn.disabled = true;
 
   try {
     const rawAnswer = await askGasGeminiCoach(prompt);
@@ -271,7 +278,9 @@ ${exSummary || 'Архивных упражнений нет'}
   } catch (err) {
     alert(`Ошибка генерации плана: ${err.message}`);
   } finally {
+    if (timerInterval) clearInterval(timerInterval);
     if (loadingBox) loadingBox.style.display = 'none';
+    if (genBtn) genBtn.disabled = false;
   }
 }
 
