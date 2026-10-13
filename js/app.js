@@ -3,13 +3,18 @@ import { fetchAnalyticsData } from './api.js';
 import { renderOverviewModule } from './overview.js';
 import { renderAnalyticsModule } from './analytics.js';
 import { renderCoachModule } from './coach.js';
-import { renderSyncModule } from './sync.js';
+import { initSyncModule, renderSyncModule } from './sync.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initNavigation();
   initNetworkStatus();
   initSettingsModal();
   initRefreshButton();
+
+  // Инициализация модуля синхронизации со сквозным колбэком обновления данных
+  initSyncModule(async () => {
+    await refreshApplicationData();
+  });
 
   // Начальная загрузка данных через GAS
   await refreshApplicationData();

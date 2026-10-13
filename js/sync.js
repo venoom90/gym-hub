@@ -3,8 +3,14 @@ import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData, fetchServerDebugLogs } from './api.js';
 
 let terminalLogsBuffer = [];
+let isSyncModuleInitialized = false;
 
+/**
+ * Первичная инициализация слушателей событий вкладки синхронизации
+ */
 export function initSyncModule(onSyncSuccess) {
+  if (isSyncModuleInitialized) return;
+
   const fileInput = document.getElementById('fileInput');
   const dropZone = document.getElementById('dropZone');
   const syncBtn = document.getElementById('syncAllBtn');
@@ -67,6 +73,17 @@ export function initSyncModule(onSyncSuccess) {
       const box = document.getElementById('syncTerminalLogs');
       if (box) box.innerText = 'Терминал очищен.';
     });
+  }
+
+  isSyncModuleInitialized = true;
+}
+
+/**
+ * Функция отрисовки/обновления для вызова из навигатора app.js
+ */
+export function renderSyncModule() {
+  if (state.parsedWorkout && state.parsedWorkout.sets && state.parsedWorkout.sets.length > 0) {
+    renderParsedWorkoutView();
   }
 }
 
