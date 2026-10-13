@@ -1,22 +1,17 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V32 STABLE)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V35 STABLE OFFLINE)
  * =========================================================================
- * 
- * ОБНОВЛЕНИЯ V32:
- * 1. Добавлен модуль ./js/coach.js в список прекэшируемых ассетов (AI Copilot).
- * 2. Ротация кэша: удаление старых контейнеров v31 и ниже.
- * 3. Сетевой пропуск Network Only для всех запросов к script.google.com и CDN.
- * 4. Сохранение полной поддержки Web Share Target v2 (отчеты GymUp).
  */
 
-const CACHE_NAME = 'gym-hub-v32';
-const SHARE_CACHE_NAME = 'gym-share-temp-v32';
+const CACHE_NAME = 'gym-hub-v35';
+const SHARE_CACHE_NAME = 'gym-share-temp-v35';
 
 const APP_ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './icon.svg',
   './js/app.js',
   './js/state.js',
   './js/api.js',
@@ -27,18 +22,16 @@ const APP_ASSETS = [
   './js/parser.js'
 ];
 
-// Установка: прекэширование критических ассетов приложения
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(APP_ASSETS);
+      return cache.addAll(APP_ASSETS.map((url) => new Request(url, { cache: 'reload' })));
     }).then(() => {
       return self.skipWaiting();
     })
   );
 });
 
-// Активация: автоматическая очистка устаревших контейнеров кэша
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -55,57 +48,59 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Обработка сетевых запросов (Fetch Strategy)
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Исключение для внешних API (Google Apps Script Relay, CDN, Google Fonts)
-  // Пропускаем напрямую в сеть без перехвата
-  if (url.origin.includes('script.google.com') ||
-      url.origin.includes('cdn.jsdelivr.net') ||
-      url.origin.includes('esm.sh') ||
-      url.origin.includes('googleapis.com') ||
-      url.origin.includes('gstatic.com')) {
+  // 1. Apps Script API пропускается исключительно в сеть
+  if (url.origin.includes('script.google.com')) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  // 2. Обработка Web Share Target (прием отчета GymUp через системную шторку)
-  if (event.request.method === 'POST' && url.pathname.includes('/share-target')) {
+  // 2. Обработка Web Share Target v2 (файл или текст из шторки Android)
+  if (event.request.method === 'POST' && url.pathname.endsWith('/share-target')) {
     event.respondWith(
       (async () => {
         try {
           const formData = await event.request.formData();
-          const file = formData.get('file');
-          if (file) {
-            const shareCache = await caches.open(SHARE_CACHE_NAME);
-            await shareCache.put('shared-report-file', new Response(file));
+          const file = formData.get('report_file') || formData.get('file');
+          const textData = formData.get('text');
+
+          const shareCache = await caches.open(SHARE_CACHE_NAME);
+
+          if (file && typeof file !== 'string') {
+            await shareCache.put('shared-workout-data', new Response(file));
+          } else if (textData && typeof textData === 'string' && textData.trim()) {
+            await shareCache.put('shared-workout-data', new Response(textData, {
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+            }));
           }
         } catch (err) {
-          console.warn('[SW] Ошибка приема файла через Share Target:', err);
+          console.warn('[SW] Ошибка приема данных шэринга:', err);
         }
-        // Редирект во вкладку синхронизации
         return Response.redirect('./#tab-sync', 303);
       })()
     );
     return;
   }
 
-  // 3. Стратегия Cache First с обновлением из сети для локальной статики PWA
+  // 3. Stale-While-Revalidate с защищенным оффлайн fallback для локальной статики и CDN
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Фоновое обновление кэша (Stale-While-Revalidate)
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse);
-            });
-          }
-        }).catch(() => {/* Оффлайн */});
-        return cachedResponse;
-      }
-      return fetch(event.request);
+      const fetchPromise = fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
+        }
+        return networkResponse;
+      }).catch(() => {
+        // Защита от падения воркера при отсутствии сети
+        return cachedResponse || new Response('', { status: 503, statusText: 'Offline Unavailable' });
+      });
+
+      return cachedResponse || fetchPromise;
     })
   );
 });

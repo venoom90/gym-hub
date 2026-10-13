@@ -2,10 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   
   <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/fitness_center/default/48px.svg" type="image/svg+xml">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <meta name="theme-color" content="#111318">
   <meta name="mobile-web-app-capable" content="yes">
   
@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="module" src="https://esm.sh/@material/web@1.5.1/all.js?bundle"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="https://esm.sh/@material/web@1.5.1/all.js?bundle" crossorigin="anonymous"></script>
 
   <style>
     :root {
@@ -134,7 +134,6 @@
       font-size: 18px;
     }
 
-    /* Календарь-стрип недели */
     .calendar-strip {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
@@ -292,7 +291,6 @@
       color: var(--md-sys-color-outline-variant);
     }
 
-    /* Манекен */
     .mannequin-container {
       display: flex;
       flex-direction: column;
@@ -335,6 +333,11 @@
       0% { stroke: #ffffff; stroke-width: 2px; filter: drop-shadow(0 0 3px #a8c8ff); }
       50% { stroke: #a8c8ff; stroke-width: 3px; filter: drop-shadow(0 0 8px #a8c8ff); }
       100% { stroke: #ffffff; stroke-width: 2px; filter: drop-shadow(0 0 3px #a8c8ff); }
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
     }
 
     .muscle-path {
@@ -399,7 +402,6 @@
       color: var(--md-sys-color-on-surface);
     }
 
-    /* KPI */
     .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi-card {
       background: var(--md-sys-color-surface-container-high);
@@ -508,7 +510,6 @@
       gap: 4px;
     }
 
-    /* СТИЛИ ВКЛАДКИ ТРЕНЕР (COPILOT) */
     .coach-sos-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -615,7 +616,6 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Синхронизация */
     .file-drop-zone {
       border: 2px dashed var(--md-sys-color-outline-variant);
       border-radius: 20px;
@@ -654,6 +654,35 @@
     .set-details { display: flex; flex-direction: column; gap: 2px; flex: 1; }
     .set-chips { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
     
+    .sync-terminal {
+      background: #0d0e11;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      border-radius: 16px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .terminal-header {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+    .terminal-body {
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: #94a3b8;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      line-height: 1.4;
+    }
+    .terminal-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     .navigation-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -715,15 +744,6 @@
       flex-direction: column;
       gap: 16px;
     }
-    .ai-bubble {
-      background: var(--md-sys-color-surface-container-high);
-      border-radius: 16px;
-      padding: 16px;
-      line-height: 1.5;
-      font-size: 0.9rem;
-      white-space: pre-wrap;
-    }
-    #installAppBtn { display: none; }
   </style>
 </head>
 <body>
@@ -735,7 +755,7 @@
       <span id="networkStatusDot" class="status-dot" title="Сетевой статус: Онлайн"></span>
     </h1>
     <div style="display: flex; gap: 8px;">
-      <md-filled-button id="installAppBtn">
+      <md-filled-button id="installAppBtn" style="display: none;">
         <span class="material-symbols-outlined" slot="icon">download</span>
         Установить
       </md-filled-button>
@@ -1020,11 +1040,11 @@
           </select>
 
           <div class="coach-sos-grid">
-            <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
               <label for="coachSosTargetWeight" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Вес снаряда (кг):</label>
               <input type="number" id="coachSosTargetWeight" class="m3-input" placeholder="130" step="2.5">
             </div>
-            <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
               <label for="coachSosTargetReps" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">План повторений:</label>
               <input type="number" id="coachSosTargetReps" class="m3-input" placeholder="6">
             </div>
@@ -1072,7 +1092,6 @@
         </div>
 
         <div id="coachPlanViewContainer" style="display: flex; flex-direction: column; gap: 12px; margin-top: 6px;">
-          <!-- Переключатель сплитов А и Б -->
           <div class="coach-split-chips-row">
             <div id="coachSplitTabA" class="coach-split-chip active">Сплит А (Сила/Горизонт)</div>
             <div id="coachSplitTabB" class="coach-split-chip">Сплит Б (Вертикаль/Руки)</div>
@@ -1148,6 +1167,17 @@
 
   </main>
 
+  <!-- МОДАЛЬНЫЕ ОКНА -->
+  <div id="daySummaryModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span id="modalDayDate" style="color: var(--md-sys-color-primary);">Дата</span>
+        <md-icon-button id="closeDaySummaryModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+      <div id="modalDayContent" style="font-size: 0.9rem; line-height: 1.5; color: var(--md-sys-color-on-surface-variant); display: flex; flex-direction: column; gap: 8px;"></div>
+    </div>
+  </div>
+
   <div id="metricHelpModal" class="modal-overlay">
     <div class="modal-card">
       <div class="card-title">
@@ -1165,7 +1195,7 @@
         <md-icon-button id="closeSettingsBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
       </div>
       <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
-        Все обращения к Gemini теперь идут через защищенный Google Apps Script Relay. При необходимости задайте токен API_TOKEN.
+        Все обращения к Gemini выполняются через бессерверный Google Apps Script Relay. При необходимости задайте токен API_TOKEN.
       </div>
       <input type="password" id="apiTokenInput" class="m3-input" placeholder="Секретный токен API_TOKEN (опционально)...">
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
@@ -1174,7 +1204,6 @@
     </div>
   </div>
 
-  <!-- ЧЕТЫРЕХПОЗИЦИОННАЯ ПАНЕЛЬ НАВИГАЦИИ -->
   <nav class="navigation-bar" id="bottomNav">
     <div class="nav-item active" data-tab="overview">
       <div class="nav-pill">

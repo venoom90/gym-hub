@@ -1,23 +1,24 @@
 {
+  "id": "/gym-hub/",
   "name": "Gym Analytics Hub",
   "short_name": "GymHub",
   "description": "Evidence-Based силовая аналитика и DUP-периодизация",
-  "start_url": "/gym-hub/",
-  "scope": "/gym-hub/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#111318",
   "theme_color": "#111318",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/fitness_center/default/48px.svg",
+      "src": "./icon.svg",
       "sizes": "48x48 72x72 96x96 144x144 192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ],
   "share_target": {
-    "action": "/gym-hub/",
+    "action": "./share-target",
     "method": "POST",
     "enctype": "multipart/form-data",
     "params": {
