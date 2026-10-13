@@ -1,11 +1,11 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V35 STABLE OFFLINE)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V36 FAULT-TOLERANT)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v35';
-const SHARE_CACHE_NAME = 'gym-share-temp-v35';
+const CACHE_NAME = 'gym-hub-v36';
+const SHARE_CACHE_NAME = 'gym-share-temp-v36';
 
 const APP_ASSETS = [
   './',
@@ -24,8 +24,20 @@ const APP_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(APP_ASSETS.map((url) => new Request(url, { cache: 'reload' })));
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Отказоустойчивое кэширование: 404 на отдельном файле не прерывает установку PWA
+      await Promise.allSettled(
+        APP_ASSETS.map((url) =>
+          fetch(new Request(url, { cache: 'reload' }))
+            .then((res) => {
+              if (res.ok) return cache.put(url, res);
+              console.warn('[SW] Пропуск ассета со статусом ' + res.status + ':', url);
+            })
+            .catch((err) => {
+              console.warn('[SW] Не удалось загрузить ассет:', url, err);
+            })
+        )
+      );
     }).then(() => {
       return self.skipWaiting();
     })
@@ -51,13 +63,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Apps Script API пропускается исключительно в сеть
+  // 1. Google Apps Script API пропускается исключительно в сеть
   if (url.origin.includes('script.google.com')) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  // 2. Обработка Web Share Target v2 (файл или текст из шторки Android)
+  // 2. Обработка Web Share Target v2 (файл или текст из системной шторки Android)
   if (event.request.method === 'POST' && url.pathname.endsWith('/share-target')) {
     event.respondWith(
       (async () => {
@@ -84,7 +96,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Stale-While-Revalidate с защищенным оффлайн fallback для локальной статики и CDN
+  // 3. Stale-While-Revalidate с защитой от сбоя при оффлайне
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
@@ -96,7 +108,6 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // Защита от падения воркера при отсутствии сети
         return cachedResponse || new Response('', { status: 503, statusText: 'Offline Unavailable' });
       });
 
