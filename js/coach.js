@@ -214,7 +214,6 @@ async function generateMesocyclePlan() {
     if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
   });
 
-  // Группировка упражнений атлета по Дням А и Б
   const dayAExercises = [];
   const dayBExercises = [];
 
@@ -233,11 +232,11 @@ async function generateMesocyclePlan() {
 
   const currentCid = state.dbData.currentCycleId || 'C-2';
 
-  const prompt = `Ты — эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
+  const prompt = `Ты — ведущий эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
 Составь тренировочный план на мезоцикл ${currentCid}.
 
-[ЦЕЛИ АТЛЕТА]:
-${userIntent || 'Full-Body, верх в приоритете, ноги строго в конце в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
+[ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА]:
+${userIntent || 'Full-Body, верх в приоритете, ноги в конце в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
 
 [АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ А]:
 ${exSummaryA}
@@ -245,14 +244,17 @@ ${exSummaryA}
 [АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ Б]:
 ${exSummaryB}
 
-ПРАВИЛА (Evidence-Based инварианты):
-1. ПОРЯДОК УПРАЖНЕНИЙ: 
-   - Первыми идут базовые многосуставные движения верха тела на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
-   - Затем прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
-   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR 2–3, без отказа), чтобы не отнимать системный ресурс у целевого верха тела.
-   - Икры выполняются в самом финале акцентно (3–4 сета с паузой в растяжке 2 сек).
-2. МЕТОДЫ: Кластеры 4+3+2 только на базовый верх Недели 3. Дроп-сеты (-25%) на изоляцию верха и икры Недели 4.
-3. ВЕСА: Все веса СТРОГО кратны шагу 2.5 кг и базируются на реальных рабочих показателях атлета с запасом RIR 1–2 (не завышать теоретическим 1ПМ!).
+ПРАВИЛА И ПРИОРИТЕТЫ:
+1. ПРИОРИТЕТ УКАЗАНИЙ АТЛЕТА: Если в [ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА] запрошены кластеры, дроп-сеты или специфические методы прямо со старта цикла — ОБЯЗАТЕЛЬНО внедрить их в план! В поле "method" указать точный метод ("Кластер 4+3+2", "Дроп-сет -25%" или "Стандарт").
+2. ПОРЯДОК УПРАЖНЕНИЙ:
+   - Базовый компаунд верха на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
+   - Прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
+   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR 2–3, без отказа).
+   - Икры выполняются в финале (3–4 сета).
+3. ВЕСА И ПОВТОРЕНИЯ:
+   - Все веса СТРОГО кратны шагу 2.5 кг.
+   - Опирайся на реальные рабочие веса атлета из архива, не завышая теоретическим 1ПМ.
+   - RIR: для рабочих подходов +1..+2, для ног в поддержке +3..+4.
 
 ФОРМАТ ОТВЕТА:
 Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
@@ -261,7 +263,7 @@ ${exSummaryB}
   "mode": "Сила / Объем",
   "splits": {
     "A": {
-      "title": "Тренировка А1 (Горизонтальный жим + Спина)",
+      "title": "Тренировка А1 (Сила + Кластеры)",
       "exercises": [
         {
           "order": 1,
@@ -271,17 +273,17 @@ ${exSummaryB}
           "sets": 4,
           "reps": "4-6",
           "rir": "+1..+2",
-          "method": "Стандарт",
-          "notes": "Базовый фокус"
+          "method": "Кластер 4+3+2",
+          "notes": "Кластерная схема в последнем сете"
         }
       ]
     },
     "B": {
-      "title": "Тренировка Б1 (Вертикальная тяга + Бабочка + Руки)",
+      "title": "Тренировка Б1 (Тяга + Дроп-сеты)",
       "exercises": []
     }
   },
-  "rationale": "Краткое биомеханическое обоснование порядка (ноги в конце)."
+  "rationale": "Краткое обоснование учета пожеланий атлета и порядка упражнений."
 }`;
 
   let elapsedSeconds = 0;
@@ -341,6 +343,7 @@ function renderStructuredCards() {
   const badgeEl = document.getElementById('coachPlanCycleBadge');
   const splitTabA = document.getElementById('coachSplitTabA');
   const splitTabB = document.getElementById('coachSplitTabB');
+  const splitTitleEl = document.getElementById('coachActiveSplitTitle');
 
   if (!container || !cachedPlanData) return;
 
@@ -348,17 +351,41 @@ function renderStructuredCards() {
     badgeEl.innerText = cachedPlanData.cycleId;
   }
 
-  // Динамические нативные названия кнопок сплитов
+  // Компактные кнопки-чипы в две строки (без обрезания многоточием)
   if (splitTabA && cachedPlanData.splits && cachedPlanData.splits.A) {
-    const fullTitleA = cachedPlanData.splits.A.title || 'День А';
-    splitTabA.innerText = fullTitleA.length > 24 ? fullTitleA.substring(0, 24) + '...' : fullTitleA;
+    const rawTitleA = cachedPlanData.splits.A.title || 'Тренировка А1';
+    const waveTagA = (rawTitleA.match(/[АA]\d+/i) || ['А1'])[0];
+    const modeSubA = rawTitleA.includes('Объем') ? 'Объем' : (rawTitleA.includes('Делоад') ? 'Делоад' : 'Сила');
+
+    splitTabA.innerHTML = `
+      <span style="font-size: 0.92rem; font-weight: 700;">День А</span>
+      <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">${escapeHtml(waveTagA)} • ${escapeHtml(modeSubA)}</span>
+    `;
   }
+
   if (splitTabB && cachedPlanData.splits && cachedPlanData.splits.B) {
-    const fullTitleB = cachedPlanData.splits.B.title || 'День Б';
-    splitTabB.innerText = fullTitleB.length > 24 ? fullTitleB.substring(0, 24) + '...' : fullTitleB;
+    const rawTitleB = cachedPlanData.splits.B.title || 'Тренировка Б1';
+    const waveTagB = (rawTitleB.match(/[БB]\d+/i) || ['Б1'])[0];
+    const modeSubB = rawTitleB.includes('Объем') ? 'Объем' : (rawTitleB.includes('Делоад') ? 'Делоад' : 'Сила');
+
+    splitTabB.innerHTML = `
+      <span style="font-size: 0.92rem; font-weight: 700;">День Б</span>
+      <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">${escapeHtml(waveTagB)} • ${escapeHtml(modeSubB)}</span>
+    `;
   }
 
   const currentSplit = cachedPlanData.splits ? cachedPlanData.splits[activeSplitView] : null;
+
+  // Развернутое название выбранного сплита над списком упражнений
+  if (splitTitleEl) {
+    if (currentSplit && currentSplit.title) {
+      splitTitleEl.style.display = 'block';
+      splitTitleEl.innerText = currentSplit.title;
+    } else {
+      splitTitleEl.style.display = 'none';
+    }
+  }
+
   if (!currentSplit || !currentSplit.exercises || currentSplit.exercises.length === 0) {
     container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Дня ${escapeHtml(activeSplitView)}</div>`;
     return;
