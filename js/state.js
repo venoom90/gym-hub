@@ -1,20 +1,37 @@
 /**
  * Единый источник правды (Single Source of Truth)
- * Изолированное хранилище состояния приложения и чистые утилиты нормализации
+ * Изолированное хранилище состояния приложения, Local-First гидратация и чистые утилиты нормализации
  */
 
-export const state = {
-  activeTab: 'overview',
-  selectedCycleId: 'ALL',
-  geminiApiKey: localStorage.getItem('gym_gemini_api_key') || '',
-  isOnline: navigator.onLine,
-  dbData: {
+function getInitialDbData() {
+  const fallback = {
     sets: [],
     catalog: [],
     cycles: [],
     exercises: [],
     currentCycleId: 'C-1'
-  },
+  };
+
+  try {
+    const raw = localStorage.getItem('gym_cached_db_data');
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return {
+      sets: Array.isArray(parsed.sets) ? parsed.sets : [],
+      catalog: Array.isArray(parsed.catalog) ? parsed.catalog : [],
+      cycles: Array.isArray(parsed.cycles) ? parsed.cycles : [],
+      exercises: Array.isArray(parsed.exercises) ? parsed.exercises : [],
+      currentCycleId: parsed.currentCycleId || 'C-1'
+    };
+  } catch (e) {
+    console.warn('[State] Ошибка гидратации кэша БД:', e);
+    return fallback;
+  }
+}
+
+export const state = {
+  selectedCycleId: 'ALL',
+  dbData: getInitialDbData(),
   parsedWorkout: {
     title: '',
     date: '',
@@ -24,21 +41,8 @@ export const state = {
   }
 };
 
-export function setActiveTab(tabName) {
-  state.activeTab = tabName;
-}
-
 export function setSelectedCycle(cycleId) {
   state.selectedCycleId = cycleId;
-}
-
-export function setGeminiApiKey(key) {
-  state.geminiApiKey = key ? key.trim() : '';
-  if (state.geminiApiKey) {
-    localStorage.setItem('gym_gemini_api_key', state.geminiApiKey);
-  } else {
-    localStorage.removeItem('gym_gemini_api_key');
-  }
 }
 
 export function setDbData(data) {
@@ -50,9 +54,17 @@ export function setDbData(data) {
     exercises: Array.isArray(safeData.exercises) ? safeData.exercises : [],
     currentCycleId: safeData.currentCycleId || 'C-1'
   };
+
+  try {
+    if (state.dbData.sets.length > 0) {
+      localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
+    }
+  } catch (e) {
+    console.warn('[State] Не удалось сохранить кэш БД в localStorage:', e);
+  }
 }
 
-// Экспорт алиаса для обратной совместимости с app.js
+// Экспорт алиаса для обратной совместимости
 export const setInitialData = setDbData;
 
 export function setParsedWorkout(workout) {
@@ -66,14 +78,27 @@ export function setParsedWorkout(workout) {
 }
 
 /**
- * Нормализация строковых чисел с запятой в Float
+ * Санитизация HTML-строк для защиты от XSS при выводе в DOM
+ */
+export function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Нормализация строковых чисел с запятой в Float с сохранением явного нуля
  */
 export function parseRuFloat(val) {
-  if (val === null || val === undefined || val === '') return 0;
-  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (val === null || val === undefined || val === '') return 0.0;
+  if (typeof val === 'number') return isNaN(val) ? 0.0 : val;
   const clean = String(val).replace(/\s+/g, '').replace(',', '.');
   const num = parseFloat(clean);
-  return isNaN(num) ? 0 : num;
+  return isNaN(num) ? 0.0 : num;
 }
 
 /**

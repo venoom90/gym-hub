@@ -1,24 +1,33 @@
-import { state } from './state.js';
-
 export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydM_23SpEHmQyKmveDgw9vc_0_TRASZA-M444YPXcGffdDowR5RWaryrrgNg_YflNv/exec';
 
+/**
+ * Получение всех данных БД через POST с токеном в теле (защита от утечки в access-логи)
+ */
 export async function fetchAnalyticsData() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
-    const timestamp = Date.now();
     const token = localStorage.getItem('gym_api_token') || '';
-    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-    const res = await fetch(`${GAS_API_URL}?action=get_all_data&_t=${timestamp}${tokenParam}`, {
-      method: 'GET',
-      cache: 'no-store',
+    const payload = {
+      action: 'get_all_data',
+      token: token,
+      _t: Date.now()
+    };
+
+    const res = await fetch(GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
 
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const data = await res.json();
+    if (data && data.success === false) {
+      throw new Error(data.error || 'Ошибка сервера при получении данных');
+    }
     return { success: true, data };
   } catch (err) {
     clearTimeout(timeoutId);
@@ -27,23 +36,34 @@ export async function fetchAnalyticsData() {
   }
 }
 
+/**
+ * Получение серверных логов отладки с листа Debug_Log
+ */
 export async function fetchServerDebugLogs() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const timestamp = Date.now();
     const token = localStorage.getItem('gym_api_token') || '';
-    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-    const res = await fetch(`${GAS_API_URL}?action=get_debug_log&_t=${timestamp}${tokenParam}`, {
-      method: 'GET',
-      cache: 'no-store',
+    const payload = {
+      action: 'get_debug_log',
+      token: token,
+      _t: Date.now()
+    };
+
+    const res = await fetch(GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
 
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     const json = await res.json();
+    if (json && json.success === false) {
+      throw new Error(json.error || 'Ошибка сервера при получении логов');
+    }
     return json.logs || [];
   } catch (err) {
     clearTimeout(timeoutId);
@@ -51,23 +71,38 @@ export async function fetchServerDebugLogs() {
   }
 }
 
+/**
+ * Отправка сетов на запись в Google Sheets с чтением JSON-ответа (без no-cors)
+ */
 export async function syncSetsToSheets(payload) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
 
   try {
     const token = localStorage.getItem('gym_api_token') || '';
     const fullPayload = { ...payload, token };
 
-    await fetch(GAS_API_URL, {
+    const res = await fetch(GAS_API_URL, {
       method: 'POST',
-      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(fullPayload),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    return { success: true };
+
+    if (!res.ok) {
+      throw new Error(`Сервер вернул статус HTTP ${res.status}`);
+    }
+
+    const data = await res.json().catch(() => {
+      throw new Error('Сервер вернул невалидный JSON ответ');
+    });
+
+    if (!data.success) {
+      throw new Error(data.error || 'Неизвестная ошибка синхронизации на сервере');
+    }
+
+    return data;
   } catch (err) {
     clearTimeout(timeoutId);
     throw new Error(`Сетевой сбой при отправке: ${err.message}`);
@@ -75,8 +110,7 @@ export async function syncSetsToSheets(payload) {
 }
 
 /**
- * Универсальный шлюз к Gemini через Google Apps Script Relay (работает без VPN).
- * Таймаут расширен до 85 секунд с запасом на холодный старт и глубокую генерацию плана.
+ * Универсальный шлюз к Gemini через бессерверный Google Apps Script Relay (работает без VPN)
  */
 export async function askGasGeminiCoach(promptText) {
   const controller = new AbortController();
@@ -121,7 +155,7 @@ export async function askGasGeminiCoach(promptText) {
 }
 
 /**
- * Обратная совместимость для существующей кнопки аудита в Analytics
+ * Обратная совместимость для аудита
  */
 export async function requestGeminiAudit(promptText) {
   return askGasGeminiCoach(promptText);

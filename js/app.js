@@ -3,25 +3,100 @@ import { fetchAnalyticsData } from './api.js';
 import { renderOverviewModule } from './overview.js';
 import { renderAnalyticsModule } from './analytics.js';
 import { renderCoachModule } from './coach.js';
-import { initSyncModule, renderSyncModule } from './sync.js';
+import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
+
+let deferredInstallPrompt = null;
+const SHARE_CACHE_NAME = 'gym-share-temp-v34';
 
 document.addEventListener('DOMContentLoaded', async () => {
+  initServiceWorker();
+  initPwaInstall();
   initNavigation();
   initNetworkStatus();
   initSettingsModal();
   initRefreshButton();
 
-  // Инициализация модуля синхронизации со сквозным колбэком обновления данных
   initSyncModule(async () => {
     await refreshApplicationData();
   });
 
-  // Начальная загрузка данных через GAS
+  // 1. Первичная проверка входящего шэринга отчета (ДО загрузки с сервера)
+  await checkSharedReportCache();
+
+  // 2. Первичная отрисовка активной вкладки из локального кэша
+  handleRouteHash();
+
+  // 3. Фоновое обновление базы данных с сервера Google Таблиц
   await refreshApplicationData();
 });
 
+function initServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg => {
+          console.log('[SW] Успешно зарегистрирован, scope:', reg.scope);
+        })
+        .catch(err => {
+          console.warn('[SW] Ошибка регистрации:', err);
+        });
+    });
+  }
+}
+
+function initPwaInstall() {
+  const installBtn = document.getElementById('installAppBtn');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (installBtn) {
+      installBtn.style.display = 'inline-flex';
+      installBtn.onclick = async () => {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        const choice = await deferredInstallPrompt.userChoice;
+        if (choice.outcome === 'accepted') {
+          installBtn.style.display = 'none';
+        }
+        deferredInstallPrompt = null;
+      };
+    }
+  });
+
+  window.addEventListener('appinstalled', () => {
+    if (installBtn) installBtn.style.display = 'none';
+    deferredInstallPrompt = null;
+    console.log('[PWA] Приложение успешно установлено на устройство.');
+  });
+}
+
 function initNavigation() {
   const navItems = document.querySelectorAll('#bottomNav .nav-item');
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const targetTab = item.getAttribute('data-tab');
+      if (targetTab) {
+        window.location.hash = `tab-${targetTab}`;
+      }
+    });
+  });
+
+  window.addEventListener('hashchange', () => {
+    handleRouteHash();
+  });
+}
+
+function handleRouteHash() {
+  const allowedTabs = ['overview', 'analytics', 'coach', 'sync'];
+  const hash = window.location.hash.replace('#', '') || 'tab-overview';
+  let tabName = hash.replace('tab-', '');
+
+  // Защита от неизвестного хэша с гарантированным переходом на обзор
+  if (!allowedTabs.includes(tabName)) {
+    tabName = 'overview';
+  }
+
   const tabs = {
     overview: document.getElementById('tab-overview'),
     analytics: document.getElementById('tab-analytics'),
@@ -29,28 +104,43 @@ function initNavigation() {
     sync: document.getElementById('tab-sync')
   };
 
-  navItems.forEach(item => {
-    item.addEventListener('click', () => {
-      const targetTab = item.getAttribute('data-tab');
-      if (!targetTab || !tabs[targetTab]) return;
-
-      navItems.forEach(n => n.classList.remove('active'));
-      item.classList.add('active');
-
-      Object.keys(tabs).forEach(k => {
-        if (tabs[k]) tabs[k].classList.remove('active');
-      });
-      tabs[targetTab].classList.add('active');
-
-      // Ленивая отрисовка активного модуля
-      if (targetTab === 'overview') renderOverviewModule();
-      if (targetTab === 'analytics') renderAnalyticsModule();
-      if (targetTab === 'coach') renderCoachModule();
-      if (targetTab === 'sync') renderSyncModule();
-
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
+  const navItems = document.querySelectorAll('#bottomNav .nav-item');
+  navItems.forEach(n => {
+    n.classList.toggle('active', n.getAttribute('data-tab') === tabName);
   });
+
+  Object.keys(tabs).forEach(k => {
+    if (tabs[k]) {
+      tabs[k].classList.toggle('active', k === tabName);
+    }
+  });
+
+  if (tabName === 'overview') renderOverviewModule();
+  if (tabName === 'analytics') renderAnalyticsModule();
+  if (tabName === 'coach') renderCoachModule();
+  if (tabName === 'sync') renderSyncModule();
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function checkSharedReportCache() {
+  if (!('caches' in window)) return;
+
+  try {
+    const cache = await caches.open(SHARE_CACHE_NAME);
+    const cachedResponse = await cache.match('shared-workout-data');
+    if (cachedResponse) {
+      const reportText = await cachedResponse.text();
+      await cache.delete('shared-workout-data');
+
+      if (reportText && reportText.trim()) {
+        window.location.hash = 'tab-sync';
+        handleIncomingReportText(reportText);
+      }
+    }
+  } catch (err) {
+    console.warn('[App] Ошибка проверки шэринга отчета:', err);
+  }
 }
 
 async function refreshApplicationData() {
@@ -62,7 +152,6 @@ async function refreshApplicationData() {
     setInitialData(res.data);
     if (statusDot) statusDot.classList.remove('offline');
 
-    // Отрисовка активной вкладки
     const activeNav = document.querySelector('#bottomNav .nav-item.active');
     const curTab = activeNav ? activeNav.getAttribute('data-tab') : 'overview';
 
@@ -71,7 +160,7 @@ async function refreshApplicationData() {
     if (curTab === 'coach') renderCoachModule();
     if (curTab === 'sync') renderSyncModule();
   } else {
-    console.warn('[App] Не удалось обновить данные с сервера.');
+    console.warn('[App] Сервер вернул ошибку или нет сети:', res.error);
   }
 }
 
@@ -125,7 +214,7 @@ function initSettingsModal() {
       const val = tokenInput.value.trim();
       localStorage.setItem('gym_api_token', val);
       modal.style.display = 'none';
-      alert('Токен авторизации сохранен в локальной памяти!');
+      alert('Токен авторизации сохранен!');
     };
   }
 }

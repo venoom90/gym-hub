@@ -1,10 +1,10 @@
-import { state, normalizeDate, formatDateDisplay, setSelectedCycle } from './state.js';
+import { state, normalizeDate, formatDateDisplay, setSelectedCycle, escapeHtml } from './state.js';
 import { requestGeminiAudit } from './api.js';
 
 let tonnageChartInstance = null;
 let exerciseChartInstance = null;
+let isHelpModalInitialized = false;
 
-// База знаний для новичка: понятные объяснения метрик
 const METRIC_HELP_KNOWLEDGE_BASE = {
   'help-cycle': {
     title: 'Что такое Мезоцикл?',
@@ -12,27 +12,27 @@ const METRIC_HELP_KNOWLEDGE_BASE = {
   },
   'help-hardsets': {
     title: 'Стимулирующие подходы (Hard Sets)',
-    text: 'Мышцы растут не от всех подходов подряд, а только от тех, где вы приблизились к пределу своих сил (осталось 1–3 повторения до мышечного отказа).\n\nРазминка и легкие подходы готовят суставы, но не дают сигнала к росту. Hard Sets — это честный счетчик настоящей работы без лишнего «мусорного объема».\n\n• Норма для активного роста: 10–16 качественных подходов в неделю на мышечную группу.'
+    text: 'Мышцы растут от качественных подходов, где вы приблизились к пределу своих сил (осталось 1–3 повторения до мышечного отказа, RIR 1–3).\n\n• Норма для активного роста: 10–16 качественных стимулирующих подходов в неделю на мышечную группу (MAV).'
   },
   'help-pushpull': {
     title: 'Баланс жимов и тяг (Push / Pull)',
-    text: 'Жимовые движения развивают грудь, передние плечи и трицепс. Тяговые — широчайшие, спину, задние плечи и бицепс.\n\nЕсли только жать и мало тянуть, плечи заворачиваются вперед, нарушается осанка и возникают боли в суставах.\n\n• Идеальный баланс: 1.0 – 1.2 в пользу тяг (на 10 жимовых подходов должно приходиться 10–12 тяговых). Это сохраняет здоровье плеч.'
+    text: 'Жимовые движения развивают грудь, дельты и трицепс. Тяговые — широчайшие, ромбовидные, трапеции, заднюю дельту и бицепс.\n\n• Идеальный баланс: 1.0 – 1.2 в пользу тяг (на 10 жимовых подходов приходится 10–12 тяговых). Это предотвращает протракцию плеч и защищает суставную губу.'
   },
   'help-deload': {
     title: 'Детектор переутомления (Deload)',
-    text: 'Мышцы растут не во время тренировки в зале, а во время отдыха. Если силовые показатели перестали расти, а усталость копится, организм требует разгрузки.\n\nЕсли статус меняется на «Нужен Делоад», значит пора провести запланированную разгрузочную неделю (снизить вес на 15–20% и уменьшить подходы на 40%). После делоада вас ждет суперкомпенсация и новый скачок силы.'
+    text: 'Если вы вышли на 5-ю неделю или накапливается системное утомление, статус меняется на «Делоад».\n\nВ эту неделю объем снижается на ~40%, веса на 15–20%, подходы выполняются с запасом (RIR 4–5). После делоада наступает суперкомпенсация.'
   },
   'help-volume': {
     title: 'Шкала объемов (Volume Landmarks)',
-    text: 'Показывает, сколько подходов в неделю получает каждая группа мышц:\n\n• Maintenance (2–4 сета): поддержание текущей формы (достаточно для ног в верхнедоминантном сплите).\n• MEV (6–11 сетов): минимальный объем, запускающий рост мышц.\n• MAV (12–18 сетов): золотая середина максимального роста верха тела.\n• MRV (>18 сетов): зона риска перетренированности.'
+    text: 'Расчет фактического среднего объема подходов в неделю:\n\n• Maintenance (2–4 сета/нед): поддержание массы (ноги в сплите верха).\n• MEV (6–11 сетов/нед): минимальный объем запуска гипертрофии.\n• MAV (12–18 сетов/нед): диапазон максимальной адаптации верха.\n• MRV (>18 сетов/нед): предельно переносимый объем.'
   },
   'help-tonnage': {
     title: 'Динамика тоннажа (т)',
-    text: 'Тоннаж — это общий вес, поднятый за тренировку (Вес × Повторения).\n\nВ волновой периодизации тоннаж не должен расти каждую неделю монотонно: в силовые дни он умеренный, в объемные — пиковый, а на 5-й неделе делоада столбик становится заметно ниже (выделен приглушенным цветом), что говорит о правильном запланированном восстановлении.'
+    text: 'Тоннаж — это общий вес, поднятый за тренировку (Вес × Повторения) исключительно в рабочих сетах.\n\nВ силовые дни он умеренный, в объемные дни достигает пика, а в неделю делоада (желтый цвет) снижается для регенерации суставов.'
   },
   'help-1rm': {
     title: 'Расчетный 1ПМ (e1RM) и рекорд (PR)',
-    text: '1ПМ — это теоретический максимальный вес, который вы могли бы поднять на 1 раз.\n\nПоскольку повторения в тренировках меняются (то 6 раз, то 12 раз), сравнивать рабочие веса напрямую нельзя. Расчетный 1ПМ переводит любой подход к единому знаменателю и показывает, стали ли вы объективно сильнее.\n\nЗолотой значок PR показывает ваш абсолютный личный рекорд в этом движении.'
+    text: '1ПМ — теоретический максимальный вес на 1 повторение по формуле Эпли.\n\nПозволяет сравнивать силу в подходах с разным числом повторений. Золотой значок PR отображает личный рекорд за всю историю.'
   }
 };
 
@@ -41,20 +41,18 @@ export function renderAnalyticsModule() {
   initHelpModalTriggers();
   renderKpiAndVolumes();
   renderExerciseSelect();
-  initAiAuditTrigger();
 }
 
 function initHelpModalTriggers() {
+  if (isHelpModalInitialized) return;
+
   const modal = document.getElementById('metricHelpModal');
   const closeBtn = document.getElementById('closeHelpModalBtn');
   const titleEl = document.getElementById('helpModalTitle');
   const contentEl = document.getElementById('helpModalContent');
   if (!modal || !closeBtn) return;
 
-  closeBtn.onclick = () => {
-    modal.style.display = 'none';
-  };
-
+  closeBtn.onclick = () => { modal.style.display = 'none'; };
   modal.onclick = (e) => {
     if (e.target === modal) modal.style.display = 'none';
   };
@@ -71,26 +69,8 @@ function initHelpModalTriggers() {
       }
     };
   });
-}
 
-function initAiAuditTrigger() {
-  const btn = document.getElementById('runAiAuditBtn');
-  const intentInput = document.getElementById('aiBlockIntent');
-
-  if (intentInput) {
-    const savedIntent = localStorage.getItem('gym_ai_block_intent');
-    if (savedIntent !== null) {
-      intentInput.value = savedIntent;
-    }
-
-    intentInput.addEventListener('input', () => {
-      localStorage.setItem('gym_ai_block_intent', intentInput.value.trim());
-    });
-  }
-
-  if (btn) {
-    btn.onclick = () => runGeminiCycleAudit();
-  }
+  isHelpModalInitialized = true;
 }
 
 function populateCycleSelector() {
@@ -134,7 +114,7 @@ function renderKpiAndVolumes() {
   let pullSetsScore = 0;
 
   filteredSets.forEach(s => {
-    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
     if (!isWork) return;
 
     totalWorkSets++;
@@ -146,10 +126,11 @@ function renderKpiAndVolumes() {
     }
 
     const item = catalogMap[(s.exercise || '').trim()];
-    if (item) {
+    if (item && item.status !== 'Требует разметки') {
       const matchTargets = [
         { muscle: item.primaryMuscle, ratio: parseFloat(item.primaryRatio) || 1.0 },
-        { muscle: item.secondaryMuscle, ratio: parseFloat(item.secondaryRatio) || 0.5 }
+        { muscle: item.secondaryMuscle, ratio: parseFloat(item.secondaryRatio) || 0.5 },
+        { muscle: item.tertiaryMuscle, ratio: parseFloat(item.tertiaryRatio) || 0.25 }
       ].filter(t => Boolean(t.muscle));
 
       matchTargets.forEach(t => {
@@ -206,12 +187,12 @@ function renderKpiAndVolumes() {
   if (kpiHardSetsEl) kpiHardSetsEl.innerText = hardSetsCount;
   if (kpiHardSetsSubEl) {
     const hardRatio = totalWorkSets > 0 ? Math.round((hardSetsCount / totalWorkSets) * 100) : 0;
-    kpiHardSetsSubEl.innerText = `${hardRatio}% от всех сетов`;
+    kpiHardSetsSubEl.innerText = `${hardRatio}% от рабочих сетов`;
   }
 
   if (kpiPushPullEl) kpiPushPullEl.innerText = `1 : ${pushPullRatio}`;
   if (kpiPushPullSubEl) {
-    if (pushPullRatio >= 1.0 && pushPullRatio <= 1.3) {
+    if (pushPullRatio >= 1.0 && pushPullRatio <= 1.2) {
       kpiPushPullSubEl.innerText = 'Баланс в норме';
       kpiPushPullSubEl.style.color = 'var(--md-sys-color-success)';
     } else if (pushPullRatio < 1.0) {
@@ -255,14 +236,14 @@ function renderPushPullWidget(push, pull, ratio) {
   }
 
   if (verdictEl) {
-    if (ratio < 0.95) {
-      verdictEl.innerText = 'Внимание: мало тяг, риск перегрузки передней дельты';
+    if (ratio < 1.0) {
+      verdictEl.innerText = 'Внимание: перевес жимов, риск перегрузки плечевого пояса';
       verdictEl.style.color = 'var(--md-sys-color-warning)';
-    } else if (ratio >= 0.95 && ratio <= 1.3) {
-      verdictEl.innerText = 'Отличный баланс: суставы защищены';
+    } else if (ratio >= 1.0 && ratio <= 1.2) {
+      verdictEl.innerText = 'Отличный баланс: оптимально для здоровья суставов';
       verdictEl.style.color = 'var(--md-sys-color-success)';
     } else {
-      verdictEl.innerText = 'Тяговый приоритет: спина получает высокий объем';
+      verdictEl.innerText = 'Тяговый приоритет: активный фокус на широчайшие и спину';
       verdictEl.style.color = 'var(--md-sys-color-primary)';
     }
   }
@@ -286,8 +267,18 @@ function renderMuscleVolumes(sets) {
 
   if (warningBadge) warningBadge.style.display = hasUnmapped ? 'inline' : 'none';
 
-  const uniqueDates = [...new Set(sets.map(s => s.date).filter(Boolean))];
-  const estimatedWeeks = Math.max(1, Math.round(uniqueDates.length / 2.5));
+  const timestamps = sets.map(s => {
+    const d = normalizeDate(s.date);
+    return d ? d.getTime() : null;
+  }).filter(Boolean);
+
+  let calculatedWeeks = 1;
+  if (timestamps.length > 0) {
+    const minT = Math.min(...timestamps);
+    const maxT = Math.max(...timestamps);
+    const diffDays = Math.round((maxT - minT) / (1000 * 60 * 60 * 24)) + 1;
+    calculatedWeeks = Math.max(1, Math.ceil(diffDays / 7));
+  }
 
   if (volumeTitle) {
     volumeTitle.innerText = state.selectedCycleId === 'ALL'
@@ -297,11 +288,11 @@ function renderMuscleVolumes(sets) {
 
   const rawMuscleVolumes = {};
   sets.forEach(s => {
-    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
     if (!isWork) return;
 
     const info = catalogMap[(s.exercise || '').trim()];
-    if (!info) return;
+    if (!info || info.status === 'Требует разметки') return;
 
     if (info.primaryMuscle) {
       rawMuscleVolumes[info.primaryMuscle] = (rawMuscleVolumes[info.primaryMuscle] || 0) + (parseFloat(info.primaryRatio) || 1.0);
@@ -316,7 +307,7 @@ function renderMuscleVolumes(sets) {
 
   const weeklyMuscleVolumes = {};
   Object.keys(rawMuscleVolumes).forEach(m => {
-    weeklyMuscleVolumes[m] = parseFloat((rawMuscleVolumes[m] / estimatedWeeks).toFixed(1));
+    weeklyMuscleVolumes[m] = parseFloat((rawMuscleVolumes[m] / calculatedWeeks).toFixed(1));
   });
 
   const sortedMuscles = Object.keys(weeklyMuscleVolumes)
@@ -324,7 +315,7 @@ function renderMuscleVolumes(sets) {
     .sort((a, b) => weeklyMuscleVolumes[b] - weeklyMuscleVolumes[a]);
 
   if (sortedMuscles.length === 0) {
-    container.innerHTML = '<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет рабочих сетов в выбранном периоде</div>';
+    container.innerHTML = '<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет размеченных рабочих сетов в выбранном периоде</div>';
     return;
   }
 
@@ -352,7 +343,7 @@ function renderMuscleVolumes(sets) {
     item.className = 'volume-item';
     item.innerHTML = `
       <div class="volume-header">
-        <span><b>${m}</b></span>
+        <span><b>${escapeHtml(m)}</b></span>
         <span><b>${val}</b> сетов/нед <span style="font-size: 0.7rem; color: #94a3b8;">(${zoneLabel})</span></span>
       </div>
       <div class="volume-progress-bg">
@@ -369,6 +360,9 @@ function renderTonnageGraph(sets) {
 
   const dateMap = {};
   sets.forEach(s => {
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
+    if (!isWork) return;
+
     const d = normalizeDate(s.date);
     const key = d ? d.getTime() : 0;
     const label = d ? formatDateDisplay(d) : 'Без даты';
@@ -376,7 +370,7 @@ function renderTonnageGraph(sets) {
       dateMap[key] = {
         label,
         kg: 0,
-        isDeload: String(s.workout || '').toLowerCase().includes('разгруз') || String(s.workout || '').toLowerCase().includes('делоад')
+        isDeload: s.cycleMode === 'Делоад' || s.cycleMode === 'Разгрузка' || parseInt(s.cycleWeek, 10) >= 5
       };
     }
     const vol = s.tonnage || ((parseFloat(s.weight) || 0) * (parseInt(s.reps, 10) || 0));
@@ -399,7 +393,7 @@ function renderTonnageGraph(sets) {
     data: {
       labels: labels,
       datasets: [{
-        label: 'Тоннаж (т)',
+        label: 'Рабочий тоннаж (т)',
         data: data,
         backgroundColor: bgColors,
         borderColor: borderColors,
@@ -433,9 +427,12 @@ function renderTonnageGraph(sets) {
 function renderExerciseSelect() {
   const select = document.getElementById('exerciseSelector');
   if (!select) return;
-  select.innerHTML = '';
 
   const exercises = state.dbData.exercises || [];
+  const currentVal = select.value;
+
+  select.innerHTML = '';
+
   exercises.forEach(ex => {
     const opt = document.createElement('option');
     opt.value = ex;
@@ -443,10 +440,16 @@ function renderExerciseSelect() {
     select.appendChild(opt);
   });
 
-  select.onchange = () => renderExerciseProgressChart(select.value);
   if (exercises.length > 0) {
-    renderExerciseProgressChart(exercises[0]);
+    if (currentVal && exercises.includes(currentVal)) {
+      select.value = currentVal;
+    } else {
+      select.value = exercises[0];
+    }
+    renderExerciseProgressChart(select.value);
   }
+
+  select.onchange = () => renderExerciseProgressChart(select.value);
 }
 
 function renderExerciseProgressChart(exerciseName) {
@@ -464,13 +467,14 @@ function renderExerciseProgressChart(exerciseName) {
     if (!d) return;
     const key = d.getTime();
     const displayDate = formatDateDisplay(d);
-    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
 
     const w = parseFloat(s.weight) || 0;
     const r = parseInt(s.reps, 10) || 0;
 
     if (w > 0 && r > 0 && isWork) {
-      const epley1RM = s.e1rm || (w * (1 + r / 30));
+      // Опора на каноничное расчетное поле 1ПМ
+      const epley1RM = parseFloat(s.e1rm) || (r === 1 ? w : w * (1 + r / 30));
       if (!sessionMap[key]) sessionMap[key] = { label: displayDate, maxWeight: 0, max1RM: 0 };
       if (w > sessionMap[key].maxWeight) sessionMap[key].maxWeight = w;
       if (epley1RM > sessionMap[key].max1RM) sessionMap[key].max1RM = parseFloat(epley1RM.toFixed(1));
@@ -529,94 +533,4 @@ function renderExerciseProgressChart(exerciseName) {
       }
     }
   });
-}
-
-export async function runGeminiCycleAudit() {
-  const auditBox = document.getElementById('aiAuditResult');
-  const intentInput = document.getElementById('aiBlockIntent');
-  if (!auditBox) return;
-
-  auditBox.style.display = 'block';
-  auditBox.innerText = '🤖 Gemini выполняет биомеханический расчет плана и аудит прогрессии DUP...';
-
-  const userCustomIntent = intentInput ? intentInput.value.trim() : (localStorage.getItem('gym_ai_block_intent') || '');
-
-  const sets = getFilteredSets();
-  const exerciseStatsMap = {};
-
-  sets.forEach(s => {
-    const ex = (s.exercise || '').trim();
-    if (!ex) return;
-    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
-    if (!isWork) return;
-
-    const w = parseFloat(s.weight) || 0;
-    const r = parseInt(s.reps, 10) || 0;
-    const e1rm = parseFloat(s.e1rm) || (w * (1 + r / 30));
-
-    if (!exerciseStatsMap[ex]) {
-      exerciseStatsMap[ex] = {
-        maxWeight: 0,
-        maxReps: 0,
-        max1RM: 0,
-        split: s.splitDay || s.split || '',
-        recentRIR: s.reserve || '+2'
-      };
-    }
-    if (w > exerciseStatsMap[ex].maxWeight) exerciseStatsMap[ex].maxWeight = w;
-    if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
-  });
-
-  const exerciseSummaryLines = Object.keys(exerciseStatsMap).map(ex => {
-    const item = exerciseStatsMap[ex];
-    return `- ${ex} (Сплит ${item.split || 'Общий'}): Макс. вес ${item.maxWeight} кг, Рекорд 1ПМ ${item.max1RM} кг`;
-  }).join('\n');
-
-  const recentSetsLog = sets.slice(-25).map(s =>
-    `${s.date} [${s.workout}] ${s.exercise}: ${s.weight}кг x ${s.reps} (Категория: ${s.category}, Усилие: ${s.effort}, 1ПМ: ${s.e1rm}кг, Запас RIR: ${s.reserve})`
-  ).join('\n');
-
-  const prompt = `Ты — ведущий эксперт по силовой подготовке, биомеханике и DUP-периодизации (Daily Undulating Periodization, Eric Helms, Mike Israetel).
-Атлет тренируется по структурированной 5-недельной DUP-системе:
-- Недели 1 и 3: СИЛА (целевой диапазон 4–6 повторений, RIR 1–2).
-- Недели 2 и 4: ОБЪЕМ (целевой диапазон 12–16 повторений, MAV-объем, RIR 1–2).
-- Неделя 5: ДЕЛОАД (целевой диапазон 8–10 повторений, сброс тоннажа на 40%, RIR 4–10).
-
-[ВВОДНЫЕ И ЦЕЛИ АТЛЕТА НА БЛОК]:
-${userCustomIntent || 'Full-Body сплит, верх в приоритете, ноги в поддержке (середина тренировки), икры акцентно, выравнивание объема рук.'}
-
-[БАЗА УПРАЖНЕНИЙ И ТЕКУЩИЕ СИЛОВЫЕ ПОКАЗАТЕЛИ АТЛЕТА]:
-${exerciseSummaryLines || 'Нет архивных упражнений'}
-
-[ПОСЛЕДНИЕ ПОДХОДЫ ИЗ ЖУРНАЛА]:
-${recentSetsLog}
-
-ЖЕЛЕЗНЫЕ ПРАВИЛА СОСТАВЛЕНИЯ ПЛАНА (Evidence-Based инварианты):
-1. ПОРЯДОК УПРАЖНЕНИЙ (Full-Body):
-   - Первыми идут базовые многосуставные станки/блоки верха тела на свежую ЦНС.
-   - Ноги (жимы платформы, приседания) ставятся СТРОГО В СЕРЕДИНУ сессии в поддерживающем режиме (Maintenance: 2–3 сета, RIR 2–3, без отказа), чтобы не отнимать системный драйв у целевого верха тела.
-   - Икры выполняются акцентно (3–4 сета с паузой в растяжке 2 сек).
-   - Баланс рук: если в Дне А в базе идет жим груди (нагрузка на трицепс как синергист), а в Дне Б база груди — это изолированная бабочка (трицепс выключен), то в День Б ОБЯЗАТЕЛЬНО включается прямая изоляция трицепса.
-2. КЛАСТЕРНЫЕ СЕТЫ:
-   - Применяются ТОЛЬКО в силовых неделях (Неделя 3) в последнем сете базовых тренажеров верха (Жим груди, Тяга блока).
-   - Оптимальная нисходящая схема: 4 + 3 + 2 (паузы строго 15–20 сек).
-   - Запрещены на ноги и в неделю делоада.
-3. ДРОП-СЕТЫ:
-   - Применяются ТОЛЬКО в объемных неделях (Неделя 2 — только икры; Неделя 4 — пиковый MAV перед делоадом).
-   - Для груди и спины — СТРОГО в изолированных станках (Бабочка, кроссовер) и СТРОГО в последнем подходе этой группы. Запрещены в тяжелых многосуставных жимах и тягах со свободным весом.
-   - Схема двойного сброса: базовый вес на 10–12 повт. -> сброс -25% на 6–8 повт. -> сброс -25% до отказа.
-4. ЭРГОНОМИКА ВЕСОВ:
-   - Все предлагаемые веса снарядов должны быть СТРОГО кратны шагу 2.5 кг (округление: 130 кг, 132.5 кг, 135 кг и т.д.).
-
-Сформируй четкий, бескомпромиссный отчет по 3 разделам:
-1. ОПТИМАЛЬНЫЙ ПЛАН: ДЕНЬ А (Упорядоченный список упражнений, целевые веса кратно 2.5 кг, подходы, повторы, RIR, пометка метода: Стандарт / Кластер / Дроп / Maintenance).
-2. ОПТИМАЛЬНЫЙ ПЛАН: ДЕНЬ Б (Упорядоченный список упражнений, целевые веса кратно 2.5 кг, подходы, повторы, RIR, компенсация трицепса и икры).
-3. БИОМЕХАНИЧЕСКОЕ И СПОРТИВНОЕ ОБОСНОВАНИЕ (кратко, почему выбран именно такой порядок упражнений, как распределены синергисты и когда подключать кластеры/дропы).`;
-
-  try {
-    const text = await requestGeminiAudit(prompt);
-    auditBox.innerText = text;
-  } catch (err) {
-    auditBox.innerText = `Ошибка генерации плана: ${err.message}`;
-  }
 }

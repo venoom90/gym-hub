@@ -1,4 +1,4 @@
-import { state, setParsedWorkout, getDateKey } from './state.js';
+import { state, setParsedWorkout, setInitialData, getDateKey, escapeHtml } from './state.js';
 import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData, fetchServerDebugLogs } from './api.js';
 
@@ -79,7 +79,7 @@ export function initSyncModule(onSyncSuccess) {
 }
 
 /**
- * Функция отрисовки/обновления для вызова из навигатора app.js
+ * Отрисовка превью разобранного отчета
  */
 export function renderSyncModule() {
   if (state.parsedWorkout && state.parsedWorkout.sets && state.parsedWorkout.sets.length > 0) {
@@ -134,7 +134,7 @@ function readAndHandleFile(file) {
 }
 
 export function handleIncomingReportText(text) {
-  logToTerminal('PARSE_START', `Парсинг текста отчета (${text.length} символов)...`, 'info');
+  logToTerminal('PARSE_START', `Парсинг отчета (${text.length} символов)...`, 'info');
   const parsed = parseGymUpReport(text);
   setParsedWorkout(parsed);
   logToTerminal('PARSE_END', `Распознано: ${parsed.sets ? parsed.sets.length : 0} сетов, дата: "${parsed.date}", время: "${parsed.startTime}", упражнений: ${parsed.allExercises ? parsed.allExercises.length : 0}`, 'info');
@@ -162,7 +162,8 @@ function renderParsedWorkoutView() {
   container.innerHTML = '';
 
   const groups = {};
-  workout.sets.forEach(set => {
+  workout.sets.forEach((set, index) => {
+    set._uiIndex = index;
     if (!groups[set.exercise]) groups[set.exercise] = [];
     groups[set.exercise].push(set);
   });
@@ -170,33 +171,41 @@ function renderParsedWorkoutView() {
   for (const [exercise, sets] of Object.entries(groups)) {
     const card = document.createElement('div');
     card.className = 'exercise-card';
-    card.innerHTML = `<div class="exercise-header">${exercise}</div>`;
+    card.innerHTML = `<div class="exercise-header">${escapeHtml(exercise)}</div>`;
 
     sets.forEach(set => {
       const row = document.createElement('div');
       row.className = 'set-row';
-      row.id = `set-row-${set.id}`;
 
       const categoryColor = set.category === 'Рабочий' 
         ? 'var(--md-sys-color-primary)' 
         : 'var(--md-sys-color-on-surface-variant)';
 
+      let statusIconHtml = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-outline-variant);">hourglass_empty</span>`;
+      if (set.syncStatus === 'synced') {
+        statusIconHtml = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-success);">check_circle</span>`;
+      } else if (set.syncStatus === 'error') {
+        statusIconHtml = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-error);">error</span>`;
+      } else if (set.syncStatus === 'syncing') {
+        statusIconHtml = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-primary); animation: spin 1s infinite linear;">sync</span>`;
+      }
+
       row.innerHTML = `
         <div class="set-details">
-          <div><b>#${set.setNum}</b> — ${set.weight} кг × ${set.reps} (${set.effort || 'Без оценки'})</div>
-          <div class="set-chips">
-            <span class="badge-chip" style="color: ${categoryColor}; font-weight: 600;">${set.category}</span>
-            <span class="badge-chip">Тоннаж: ${set.tonnage} кг</span>
-            ${set.e1rm > 0 ? `<span class="badge-chip" style="color: var(--md-sys-color-success);">1ПМ: ~${set.e1rm} кг</span>` : ''}
-            ${set.reserve ? `<span class="badge-chip">Запас: ${set.reserve}</span>` : ''}
-            ${set.method ? `<span class="badge-chip">${set.method}</span>` : ''}
-            ${set.equipment ? `<span class="badge-chip">${set.equipment}</span>` : ''}
-            ${set.positioning ? `<span class="badge-chip">${set.positioning}</span>` : ''}
-            <span class="badge-chip" style="color: var(--md-sys-color-primary);">День ${set.splitDay}${set.waveIndex !== 'Делоад' ? set.waveIndex : ''} / ${set.cycleMode}</span>
+          <div><b>#${parseInt(set.setNum, 10) || 1}</b> — ${parseFloat(set.weight) || 0} кг × ${parseInt(set.reps, 10) || 0} (${escapeHtml(set.effort || 'Без оценки')})</div>
+          <div class="set-chips" style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; margin-top: 4px;">
+            <span style="color: ${categoryColor}; font-weight: 600;">${escapeHtml(set.category)}</span>
+            <span>Тоннаж: ${set.tonnage} кг</span>
+            ${set.e1rm > 0 ? `<span style="color: var(--md-sys-color-success);">1ПМ: ~${set.e1rm} кг</span>` : ''}
+            ${set.reserve ? `<span>Запас: ${escapeHtml(set.reserve)}</span>` : ''}
+            ${set.method ? `<span>${escapeHtml(set.method)}</span>` : ''}
+            ${set.equipment ? `<span>${escapeHtml(set.equipment)}</span>` : ''}
+            ${set.positioning ? `<span>${escapeHtml(set.positioning)}</span>` : ''}
+            <span style="color: var(--md-sys-color-primary);">День ${escapeHtml(set.splitDay)}${set.waveIndex !== 'Делоад' ? escapeHtml(set.waveIndex) : ''} / ${escapeHtml(set.cycleMode)}</span>
           </div>
         </div>
-        <div class="status-indicator" id="status-box-${set.id}">
-          <span class="material-symbols-outlined status-icon status-pending">hourglass_empty</span>
+        <div class="status-indicator" id="set-status-box-${set._uiIndex}">
+          ${statusIconHtml}
         </div>
       `;
       card.appendChild(row);
@@ -208,19 +217,27 @@ function renderParsedWorkoutView() {
 async function executeSync(onSyncSuccess) {
   const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
+
   if (!workout.sets || workout.sets.length === 0) {
     logToTerminal('SYNC_ABORT', 'Нет данных для синхронизации', 'error');
     alert('Нет данных для синхронизации!');
     return;
   }
 
+  if (!workout.date) {
+    logToTerminal('SYNC_ABORT', 'Дата тренировки не определена. Синхронизация отменена во избежание порчи данных.', 'error');
+    alert('Не удалось определить дату тренировки. Проверьте формат отчета.');
+    return;
+  }
+
   syncBtn.disabled = true;
   logToTerminal('SYNC_START', `Запуск синхронизации: ${workout.sets.length} сетов за ${workout.date}`, 'info');
 
-  workout.sets.forEach(s => {
-    const box = document.getElementById(`status-box-${s.id}`);
+  workout.sets.forEach((s, idx) => {
+    s.syncStatus = 'syncing';
+    const box = document.getElementById(`set-status-box-${idx}`);
     if (box) {
-      box.innerHTML = `<span class="material-symbols-outlined status-icon status-pending" style="animation: spin 1s infinite linear;">sync</span>`;
+      box.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-primary); animation: spin 1s infinite linear;">sync</span>`;
     }
   });
 
@@ -234,54 +251,50 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
-    // 1. Отправка POST в Google Apps Script
+    // 1. Физическая запись на сервер с получением JSON-ответа
     const t0 = performance.now();
-    logToTerminal('STEP_1_POST', `Отправка POST no-cors в Apps Script...`, 'info');
-    await syncSetsToSheets(payload);
+    logToTerminal('STEP_1_POST', `Отправка POST в Google Apps Script...`, 'info');
+    const syncRes = await syncSetsToSheets(payload);
     const postDuration = Math.round(performance.now() - t0);
-    logToTerminal('STEP_1_OK', `POST-пакет передан за ${postDuration} мс. Пауза 1000 мс перед вычиткой...`, 'success');
+    logToTerminal('STEP_1_OK', `Записано ${syncRes.insertedCount || workout.sets.length} строк за ${postDuration} мс.`, 'success');
 
-    // 2. Техническая пауза для завершения скрипта на сервере Google
-    await new Promise(r => setTimeout(r, 1000));
-
-    // 3. Обратная проверка (Reverse Verification)
-    logToTerminal('STEP_2_VERIFY', `Запрос GET get_all_data для подтверждения физической записи...`, 'info');
+    // 2. Обратная проверка целостности (Reverse Verification)
+    logToTerminal('STEP_2_VERIFY', `Запрос актуальных данных для верификации записи...`, 'info');
     const fetchResult = await fetchAnalyticsData();
     if (!fetchResult.success) {
-      throw new Error(`Не удалось связаться с сервером для подтверждения: ${fetchResult.error}`);
+      throw new Error(`Ошибка вычитки обновлений с сервера: ${fetchResult.error}`);
     }
+
+    setInitialData(fetchResult.data);
 
     const targetKey = getDateKey(workout.date);
-    const serverSets = (state.dbData.sets || []);
-    logToTerminal('STEP_2_DATA', `Сервер вернул базу: ${serverSets.length} сетов. Поиск ключа "${targetKey}"...`, 'info');
-
-    const verifiedSets = serverSets.filter(s => getDateKey(s.date) === targetKey);
+    const verifiedSets = (state.dbData.sets || []).filter(s => getDateKey(s.date) === targetKey);
 
     if (verifiedSets.length === 0) {
-      logToTerminal('VERIFY_FAIL', `Ключ "${targetKey}" не найден среди записей сервера! Возможно, сработала блокировка таблицы или не завершилась запись.`, 'error');
-      throw new Error('Сервер не вернул сохраненные подходы. Возможно, сработала блокировка таблицы.');
+      logToTerminal('VERIFY_FAIL', `Ключ "${targetKey}" не найден в базе сервера после записи!`, 'error');
+      throw new Error('Сервер подтвердил получение, но при обратной проверке данные не найдены.');
     }
 
-    logToTerminal('VERIFY_SUCCESS', `Успешно верифицировано ${verifiedSets.length} подходов в базе!`, 'success');
+    logToTerminal('VERIFY_SUCCESS', `Успешно верифицировано ${verifiedSets.length} подходов в базе данных!`, 'success');
 
-    // 4. Выставление статуса успеха
-    workout.sets.forEach(s => {
+    // 3. Выставление статуса успешной синхронизации
+    workout.sets.forEach((s, idx) => {
       s.syncStatus = 'synced';
-      const box = document.getElementById(`status-box-${s.id}`);
-      if (box) box.innerHTML = `<span class="material-symbols-outlined status-icon status-synced">check_circle</span>`;
+      const box = document.getElementById(`set-status-box-${idx}`);
+      if (box) {
+        box.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-success);">check_circle</span>`;
+      }
     });
-
-    if (state.dbData && (state.dbData.sets || []).length > 0) {
-      localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
-    }
 
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
   } catch (err) {
     logToTerminal('SYNC_ERROR', `Сбой синхронизации: ${err.message}`, 'error');
-    workout.sets.forEach(s => {
+    workout.sets.forEach((s, idx) => {
       s.syncStatus = 'error';
-      const box = document.getElementById(`status-box-${s.id}`);
-      if (box) box.innerHTML = `<span class="material-symbols-outlined status-icon status-error" title="${err.message}">error</span>`;
+      const box = document.getElementById(`set-status-box-${idx}`);
+      if (box) {
+        box.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-error);" title="${escapeHtml(err.message)}">error</span>`;
+      }
     });
     alert('Ошибка при синхронизации: ' + err.message);
   } finally {

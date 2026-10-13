@@ -1,27 +1,30 @@
 /**
- * Парсер отчетов GymUp и периодизации тренировочной программы
+ * Парсер отчетов GymUp и DUP-периодизации
  * Поддержка нативного формата GymUp (•), составных повторений (кластеры), дроп-сетов, дробных весов и заметок
  */
 
 export function normalizeExerciseName(rawName) {
   if (!rawName) return '';
   return String(rawName)
-    .replace(/^\d+\.\s*/, '') // Убираем порядковый номер в начале (например, "1. Жим в тренажере")
+    .replace(/^\d+\.\s*/, '') // Снятие порядкового номера (например, "1. Жим в тренажере")
     .replace(/\u00A0/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+/**
+ * Детерминированное извлечение метаданных DUP-периодизации с изоляцией токенов
+ */
 export function extractPeriodization(workoutTitle) {
   const t = String(workoutTitle || '').toLowerCase();
 
-  // 1. Определение сплита (А или Б)
+  // 1. Определение сплита: строгая изоляция буквы 'Б' (не реагирует на слово «Объем»)
   let splitDay = 'А';
-  if (t.includes('б') || t.includes('b')) {
+  if (/(?<![а-яёa-z])[бb](?![а-яёa-z])/i.test(t)) {
     splitDay = 'Б';
   }
 
-  // 2. Режим тренировки (с поддержкой русских терминов разгрузки)
+  // 2. Режим тренировки
   let cycleMode = 'Сила';
   if (t.includes('делоад') || t.includes('deload') || t.includes('разгруз')) {
     cycleMode = 'Делоад';
@@ -29,13 +32,12 @@ export function extractPeriodization(workoutTitle) {
     cycleMode = 'Объем';
   }
 
-  // 3. Номер волны
+  // 3. Номер волны: вырезаем токен цикла (C-2, Ц-1) во избежание ложной волны
+  const tClean = t.replace(/[cсц]-\d+/gi, ' ').replace(/[-_]/g, ' ');
   let waveIndex = '1';
-  const waveMatch = t.match(/[абab](\d+)/i) || t.match(/волна\s*(\d+)/i);
+  const waveMatch = tClean.match(/волна\s*(\d+)/i) || tClean.match(/(?<![а-яёa-z])[абab](\d+)/i);
   if (waveMatch) {
     waveIndex = waveMatch[1];
-  } else if (t.includes('2')) {
-    waveIndex = '2';
   }
 
   // 4. Неделя цикла (1..5)
@@ -66,14 +68,15 @@ export function parseGymUpReport(text) {
   const allExercises = [];
 
   let currentExercise = '';
-  let setCounter = 1;
+  let exerciseSetCounter = 1;
+  let totalSetsParsedCount = 0;
 
   // 1. Извлечение даты, времени и названия из шапки отчета
   let startIndex = 0;
   if (rawLines.length > 0) {
     const firstLine = rawLines[0];
 
-    // Формат 1: GymUp с датой в первой строке: "28.09.2026, 21:58"
+    // Формат GymUp с датой в первой строке: "28.09.2026, 21:58"
     const dateMatch = firstLine.match(/^(\d{2}\.\d{2}\.\d{4})(?:,\s*(\d{1,2}:\d{2}))?/);
     if (dateMatch) {
       date = dateMatch[1];
@@ -84,7 +87,7 @@ export function parseGymUpReport(text) {
         startIndex = 2;
       }
     } else if (firstLine.includes('—')) {
-      // Формат 2: Классический: "Тренировка — 28.09.2026 21:58"
+      // Формат классический: "Тренировка — 28.09.2026 21:58"
       const parts = firstLine.split('—').map(p => p.trim());
       title = parts[0] || 'Тренировка';
       const dtParts = (parts[1] || '').split(' ');
@@ -97,28 +100,29 @@ export function parseGymUpReport(text) {
   for (let i = startIndex; i < rawLines.length; i++) {
     const line = rawLines[i];
 
-    // 2. Игнорирование служебного мусора GymUp
+    // 2. Игнорирование служебных строк GymUp
     if (
       line.startsWith('http') ||
-      line.match(/^\d{1,2}:\d{2}\/\d{1,2}:\d{2}/) || // Тайминги отдыха вида 01:20/03:00/04:00
-      line.match(/^\d+\.?\d*\s*т\s*•/i) ||          // Сводка тоннажа упражнения "8.56 т • 6 / 88"
-      line.match(/^\d+\s*\/\s*\d+$/) ||              // "0 / 0" для пропущенных упражнений
+      line.match(/^\d{1,2}:\d{2}\/\d{1,2}:\d{2}/) || // Тайминги отдыха 01:20/03:00
+      line.match(/^\d+\.?\d*\s*т\s*•/i) ||          // Сводка тоннажа "8.56 т • 6 / 88"
+      line.match(/^\d+\s*\/\s*\d+$/) ||              // "0 / 0"
       line.toLowerCase().includes('тренировка завершена') ||
-      line.match(/^\d{2}:\d{2}:\d{2}\s*•/)           // Общее время тренировки "01:20:13 • 30.61 т"
+      line.match(/^\d{2}:\d{2}:\d{2}\s*•/)           // Время сессии "01:20:13 • 30.61 т"
     ) {
       continue;
     }
 
     // 3. Распознавание строки с названием упражнения
-    const isExerciseHeader = line.match(/^\d+\.\s+([^\d•].+)$/) || 
-      (!line.match(/^\d+\./) && !line.includes('кг') && !line.match(/[xхXХ]/) && !line.includes('•') && line.length > 2);
+    const isWeightLine = line.match(/\d+\s*(?:кг)?\s*[•\s]+\s*\d+\s*[xхXХ]/i);
+    const isNumberedHeader = line.match(/^\d+\.\s+([^\d•].+)$/);
+    const isExerciseHeader = isNumberedHeader || (!line.match(/^\d+\./) && !line.includes('кг') && !isWeightLine && !line.includes('•') && line.length > 2);
 
     if (isExerciseHeader && !line.includes('Размин.') && !line.includes('Высокое') && !line.includes('Максим.')) {
       currentExercise = normalizeExerciseName(line);
       if (!allExercises.includes(currentExercise)) {
         allExercises.push(currentExercise);
       }
-      setCounter = 1;
+      exerciseSetCounter = 1;
       continue;
     }
 
@@ -132,13 +136,18 @@ export function parseGymUpReport(text) {
       const weight = parseFloat(rawWeightStr.split('/')[0]) || 0;
       const repsRaw = match[2];
 
-      // Суммирование составных повторений кластера
+      // Суммирование повторений для тоннажа и изоляция первого сегмента для 1ПМ
       let reps = 0;
+      let firstSegmentReps = 0;
       const isClusterByReps = repsRaw.includes('+');
+      
       if (isClusterByReps) {
-        reps = repsRaw.split('+').reduce((acc, val) => acc + (parseInt(val, 10) || 0), 0);
+        const segments = repsRaw.split('+').map(val => parseInt(val, 10) || 0);
+        firstSegmentReps = segments[0] || 0;
+        reps = segments.reduce((acc, val) => acc + val, 0);
       } else {
         reps = parseInt(repsRaw, 10) || 0;
+        firstSegmentReps = reps;
       }
 
       const metaRaw = match[3] || '';
@@ -155,11 +164,10 @@ export function parseGymUpReport(text) {
       let positioning = '';
       const notesArr = [];
 
-      // Анализ токенов мета-данных
       metaTokens.forEach(token => {
         const lower = token.toLowerCase();
 
-        // 1. Извлечение запаса RIR и отделение склеенных заметок (например "+10 Высота 4")
+        // Запас RIR
         const rirMatch = token.match(/^\+(\d+)(?:\s+(.*))?$/);
         if (rirMatch) {
           reserve = `+${rirMatch[1]}`;
@@ -169,7 +177,7 @@ export function parseGymUpReport(text) {
           return;
         }
 
-        // 2. Оценка усилия
+        // Оценка усилия
         if (['максим.', 'максим', 'высокое', 'среднее', 'низкое', 'размин.', 'размин'].includes(lower)) {
           if (lower.startsWith('размин')) effort = 'Размин.';
           else if (lower.startsWith('максим')) effort = 'Максим.';
@@ -179,7 +187,7 @@ export function parseGymUpReport(text) {
           return;
         }
 
-        // 3. Методы (кластер / дроп-сет)
+        // Специальные методы
         if (lower.includes('кластер') || lower.includes('cluster')) {
           method = token;
           return;
@@ -189,13 +197,13 @@ export function parseGymUpReport(text) {
           return;
         }
 
-        // 4. Оборудование и высота
+        // Оборудование
         if (lower.includes('высота') || lower.includes('наклон') || lower.includes('постановка')) {
           equipment = token;
           return;
         }
 
-        // 5. Положение тела
+        // Положение
         if (lower.includes('сидя') || lower.includes('стоя') || lower.includes('лежа') || lower.includes('лёжа')) {
           positioning = token;
           return;
@@ -223,13 +231,18 @@ export function parseGymUpReport(text) {
       const category = isWarmupEffort ? 'Разминка' : 'Рабочий';
 
       const tonnage = parseFloat((weight * reps).toFixed(1));
-      const e1rm = category === 'Рабочий' && reps > 0
-        ? parseFloat((weight * (1 + reps / 30)).toFixed(1))
-        : 0.0;
 
-      const currentSetNum = setCounter++;
-      // Каноничный составной ID: ДАТА_ВРЕМЯ_УПРАЖНЕНИЕ_setX
-      const setId = `${date}_${startTime}_${currentExercise}_set${currentSetNum}`;
+      // Биомеханически корректный расчет 1ПМ по формуле Эпли:
+      // Для кластеров расчет ведется СТРОГО по первому непрерывному сегменту повторений
+      let e1rm = 0.0;
+      if (category === 'Рабочий' && firstSegmentReps > 0 && weight > 0) {
+        e1rm = firstSegmentReps === 1 ? weight : parseFloat((weight * (1 + firstSegmentReps / 30)).toFixed(1));
+      }
+
+      totalSetsParsedCount++;
+      const currentSetNum = exerciseSetCounter++;
+      // Уникальный ID, защищенный от дублирования при повторе упражнения в сессии
+      const setId = `${date}_${startTime}_${currentExercise}_set${currentSetNum}_idx${totalSetsParsedCount}`;
 
       sets.push({
         id: setId,
@@ -240,6 +253,7 @@ export function parseGymUpReport(text) {
         setNum: currentSetNum,
         weight: weight,
         reps: reps,
+        firstSegmentReps: firstSegmentReps,
         effort: effort,
         reserve: reserve,
         method: method,

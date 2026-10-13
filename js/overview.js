@@ -1,14 +1,30 @@
-import { state, normalizeDate, formatDateDisplay, getDateKey } from './state.js';
+import { state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml } from './state.js';
 import { extractPeriodization } from './parser.js';
 
+let isOverviewInitialized = false;
+
 export function renderOverviewModule() {
+  initDayModalListeners();
   renderCalendarStrip();
   renderAiRecipeCard();
   renderMuscleMannequin();
 }
 
+function initDayModalListeners() {
+  if (isOverviewInitialized) return;
+  const modal = document.getElementById('daySummaryModal');
+  const closeBtn = document.getElementById('closeDaySummaryModalBtn');
+  if (closeBtn && modal) {
+    closeBtn.onclick = () => { modal.style.display = 'none'; };
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    };
+  }
+  isOverviewInitialized = true;
+}
+
 /**
- * Округление расчетного веса до шага тренажеров и дисков
+ * Округление расчетного веса до шага 2.5 кг
  */
 function roundToGymStep(weight) {
   if (!weight || weight <= 0) return 0;
@@ -43,17 +59,22 @@ function renderCalendarStrip() {
     const key = getDateKey(s.date);
     if (!key) return;
 
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
+
     if (!sessionDatesMap[key]) {
       const p = extractPeriodization(s.workout);
       sessionDatesMap[key] = {
         split: s.splitDay || p.splitDay || 'А',
-        workout: s.workout,
+        workout: s.workout || 'Тренировка',
         setsCount: 0,
         tonnage: 0
       };
     }
-    sessionDatesMap[key].setsCount++;
-    sessionDatesMap[key].tonnage += (s.tonnage || 0);
+    
+    if (isWork) {
+      sessionDatesMap[key].setsCount++;
+      sessionDatesMap[key].tonnage += (s.tonnage || 0);
+    }
   });
 
   days.forEach(day => {
@@ -65,9 +86,9 @@ function renderCalendarStrip() {
     card.className = `calendar-day-card ${isToday ? 'today' : ''}`;
 
     let badgeHtml = '<div class="badge-rest"></div>';
-    if (session) {
+    if (session && session.setsCount > 0) {
       const badgeClass = (session.split === 'А' || session.split === 'A') ? 'badge-split-a' : 'badge-split-b';
-      badgeHtml = `<div class="cal-badge ${badgeClass}">${session.split}</div>`;
+      badgeHtml = `<div class="cal-badge ${badgeClass}">${escapeHtml(session.split)}</div>`;
     }
 
     card.innerHTML = `
@@ -88,16 +109,16 @@ function openDaySummaryModal(date, session) {
   const modal = document.getElementById('daySummaryModal');
   const title = document.getElementById('modalDayDate');
   const content = document.getElementById('modalDayContent');
-  if (!modal) return;
+  if (!modal || !title || !content) return;
 
-  title.innerText = `${formatDateDisplay(date)} ${date.toLocaleDateString('ru-RU', { weekday: 'long' })}`;
+  title.innerText = `${formatDateDisplay(date)} (${date.toLocaleDateString('ru-RU', { weekday: 'long' })})`;
 
-  if (session) {
+  if (session && session.setsCount > 0) {
     content.innerHTML = `
-      <div style="font-weight: 600; color: var(--md-sys-color-primary);">${session.workout}</div>
-      <div><b>Сплит:</b> День ${session.split}</div>
-      <div><b>Выполнено подходов:</b> ${session.setsCount}</div>
-      <div><b>Суммарный тоннаж:</b> ${(session.tonnage / 1000).toFixed(2)} т</div>
+      <div style="font-weight: 600; color: var(--md-sys-color-primary);">${escapeHtml(session.workout)}</div>
+      <div><b>Сплит:</b> День ${escapeHtml(session.split)}</div>
+      <div><b>Рабочих подходов:</b> ${session.setsCount}</div>
+      <div><b>Рабочий тоннаж:</b> ${(session.tonnage / 1000).toFixed(2)} т</div>
     `;
   } else {
     content.innerHTML = `<div style="color: var(--md-sys-color-on-surface-variant);">В этот день тренировок не зафиксировано (день отдыха).</div>`;
@@ -156,18 +177,14 @@ function renderAiRecipeCard() {
   let nextCycleId = currentCycleId;
   let isNewCycleTransition = false;
 
-  // ЛОГИКА ПЕРЕХОДОВ ДНЕЙ И МЕЗОЦИКЛОВ
   if (currentSplit === 'А' || currentSplit === 'A') {
-    // В рамках текущей недели: День Б повторяет режим Дня А
     nextSplit = 'Б';
     nextWeek = currentWeek;
     nextMode = currentMode;
     nextWave = currentWave;
     nextCycleId = currentCycleId;
   } else {
-    // Переход после завершения Дня Б
     if (currentMode === 'Делоад' || currentWeek >= 5) {
-      // Полное завершение мезоцикла: переход на C-(X+1)
       nextSplit = 'А';
       nextWeek = 1;
       nextMode = 'Сила';
@@ -195,7 +212,6 @@ function renderAiRecipeCard() {
   if (cycleBadge) cycleBadge.innerText = nextCycleId;
   if (nextTag) nextTag.innerText = nextTitle;
 
-  // Ищем строго последнюю выполненную сессию нужного сплита
   const prevSplitSets = sortedSets.filter(s => {
     const sSplit = (s.splitDay || extractPeriodization(s.workout).splitDay || '').toUpperCase();
     return sSplit === nextSplit;
@@ -210,7 +226,6 @@ function renderAiRecipeCard() {
   const latestSplitDate = prevSplitSets[0].date;
   const targetSessionSets = prevSplitSets.filter(s => s.date === latestSplitDate);
 
-  // Сбор упражнений только этой сессии
   const targetExercises = [];
   targetSessionSets.forEach(s => {
     if (s.exercise && !targetExercises.includes(s.exercise)) {
@@ -246,22 +261,61 @@ function renderAiRecipeCard() {
     modeAdvice = 'Многоповторный объемный режим (RIR +2..+3). Фокус на постоянное натяжение и памп.';
   }
 
-  if (adviceText) {
-    adviceText.innerText = modeAdvice;
-  }
+  if (adviceText) adviceText.innerText = modeAdvice;
+
+  // Ограничиваем исторический горизонт расчетов последними 60 днями
+  const sixtyDaysAgo = Date.now() - (60 * 24 * 3600 * 1000);
 
   targetExercises.forEach(ex => {
-    const history = prevSplitSets.filter(s => s.exercise === ex && (s.category === 'Рабочий' || s.effort !== 'Размин.'));
+    const history = prevSplitSets.filter(s => {
+      const setDate = normalizeDate(s.date);
+      const isRecent = setDate && setDate.getTime() >= sixtyDaysAgo;
+      const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
+      return s.exercise === ex && isWork && isRecent;
+    });
+
     let maxWeight = 0;
     let best1RM = 0;
 
-    history.forEach(h => {
+    // ЭТАП 1: Строгий поиск максимума только среди базовых регулярных сетов
+    const regularSets = history.filter(h => {
+      const isSpecial = (h.method || '').toLowerCase().includes('дроп') || (h.method || '').toLowerCase().includes('кластер');
+      return !isSpecial;
+    });
+
+    regularSets.forEach(h => {
       const w = parseFloat(h.weight) || 0;
-      const r = parseInt(h.reps, 10) || 0;
       if (w > maxWeight) maxWeight = w;
-      const e1rm = h.e1rm || (w * (1 + r / 30));
+    });
+
+    // ЭТАП 2: Fallback на спецметоды только при полном отсутствии обычных сетов
+    if (maxWeight === 0) {
+      history.forEach(h => {
+        const w = parseFloat(h.weight) || 0;
+        if (w > maxWeight) maxWeight = w;
+      });
+    }
+
+    // Резервный fallback на последнюю выполненную сессию
+    if (maxWeight === 0) {
+      targetSessionSets.filter(s => s.exercise === ex).forEach(h => {
+        const w = parseFloat(h.weight) || 0;
+        if (w > maxWeight) maxWeight = w;
+      });
+    }
+
+    // 1ПМ собирается по всей валидной истории
+    history.forEach(h => {
+      const e1rm = parseFloat(h.e1rm) || 0;
       if (e1rm > best1RM) best1RM = e1rm;
     });
+
+    if (best1RM === 0) {
+      targetSessionSets.filter(s => s.exercise === ex).forEach(h => {
+        const e1rm = parseFloat(h.e1rm) || 0;
+        if (e1rm > best1RM) best1RM = e1rm;
+      });
+    }
 
     let targetRepsBadge = '12–15 повт.';
     let rirBadgeText = 'RIR 2–3';
@@ -278,13 +332,13 @@ function renderAiRecipeCard() {
       targetRepsBadge = '4–6 повт.';
       rirBadgeText = 'RIR 1–2 (Сила)';
       const progressionMultiplier = isNewCycleTransition ? 1.025 : 1.0;
-      rawTargetLoad = maxWeight > 0 ? (best1RM * 0.82 * progressionMultiplier) : 0;
+      rawTargetLoad = best1RM > 0 ? (best1RM * 0.82 * progressionMultiplier) : (maxWeight * progressionMultiplier);
       const roundedStrength = roundToGymStep(rawTargetLoad);
       warmUpText = `1 подход × ${roundToGymStep(roundedStrength * 0.5)} кг`;
     } else {
       targetRepsBadge = '12–16 повт.';
       rirBadgeText = 'RIR 2–3 (Объем)';
-      rawTargetLoad = maxWeight > 0 ? (best1RM * 0.65) : 0;
+      rawTargetLoad = best1RM > 0 ? (best1RM * 0.65) : (maxWeight * 0.8);
       const roundedVolume = roundToGymStep(rawTargetLoad);
       warmUpText = `1 подход × ${roundToGymStep(roundedVolume * 0.45)} кг`;
     }
@@ -294,7 +348,7 @@ function renderAiRecipeCard() {
     const step = document.createElement('div');
     step.className = 'recipe-step';
     step.innerHTML = `
-      <div class="recipe-step-header">${ex}</div>
+      <div class="recipe-step-header">${escapeHtml(ex)}</div>
       <div class="recipe-metrics-row">
         <span class="recipe-sets-count">2–3 сета ×</span>
         <span class="recipe-weight-highlight">${finalTargetLoad > 0 ? finalTargetLoad + ' кг' : 'рабочий вес'}</span>
@@ -303,7 +357,7 @@ function renderAiRecipeCard() {
       </div>
       <div class="recipe-warmup-row">
         <span class="material-symbols-outlined">restart_alt</span>
-        <span>Разминка: ${warmUpText}</span>
+        <span>Разминка: ${escapeHtml(warmUpText)}</span>
       </div>
     `;
     recipeBox.appendChild(step);
@@ -338,10 +392,10 @@ function renderMuscleMannequin() {
     if (!key) return;
 
     const item = catalogMap[(s.exercise || '').trim()];
-    if (!item) return;
+    if (!item || item.status === 'Требует разметки') return;
 
     const exName = (s.exercise || '').trim();
-    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
 
     const parts = key.split('-');
     const setMidnight = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0).getTime();
@@ -413,7 +467,6 @@ function renderMuscleMannequin() {
     else if (vol >= 12 && vol <= 18) { zone = 'MAV'; barColor = '#a8c8ff'; }
     else if (vol > 18) { zone = 'MRV ⚠️'; barColor = '#facc15'; }
 
-    // Процент шкалы до MRV (20 сетов max)
     const barWidthPercent = Math.min(Math.round((vol / 20) * 100), 100);
 
     muscleStatusData[muscle] = {
@@ -454,12 +507,10 @@ function renderMuscleMannequin() {
         badgeBox.style.color = data.color;
 
         detailsBox.innerHTML = `
-          <div>• Последняя тренировка: <b>${data.timeAgoText}</b> (${data.lastExercise})</div>
-          <div>• Объем за неделю: <b>${data.volumeText}</b></div>
-          <div class="mini-volume-bar-wrap">
-            <div class="mini-volume-bar-bg">
-              <div class="mini-volume-bar-fill" style="width: ${data.barWidthPercent}%; background-color: ${data.barColor};"></div>
-            </div>
+          <div>• Последняя тренировка: <b>${escapeHtml(data.timeAgoText)}</b> (${escapeHtml(data.lastExercise)})</div>
+          <div>• Объем за неделю: <b>${escapeHtml(data.volumeText)}</b></div>
+          <div style="height: 6px; background: var(--md-sys-color-surface-container); border-radius: 3px; overflow: hidden; margin-top: 6px;">
+            <div style="width: ${data.barWidthPercent}%; background-color: ${data.barColor}; height: 100%; transition: width 0.3s ease;"></div>
           </div>
         `;
       }

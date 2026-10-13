@@ -1,8 +1,9 @@
-import { state } from './state.js';
+import { state, normalizeDate, escapeHtml } from './state.js';
 import { askGasGeminiCoach } from './api.js';
 
 let activeSplitView = 'A';
 let cachedPlanData = null;
+let isCoachInitialized = false;
 
 export function renderCoachModule() {
   initSosCalculator();
@@ -25,22 +26,38 @@ function initSosCalculator() {
 
   if (!selectEl || !calcBtn) return;
 
-  // Наполнение списка упражнений
   const exercises = state.dbData.exercises || [];
+  const currentSelected = selectEl.value;
+
   selectEl.innerHTML = '<option value="" disabled selected>Выберите текущее упражнение...</option>';
   exercises.forEach(ex => {
     const opt = document.createElement('option');
     opt.value = ex;
     opt.textContent = ex;
+    if (ex === currentSelected) opt.selected = true;
     selectEl.appendChild(opt);
   });
 
-  // Автозаполнение последнего рабочего веса при выборе упражнения
   selectEl.onchange = () => {
     const chosen = selectEl.value;
-    const sets = (state.dbData.sets || []).filter(s => (s.exercise || '').trim() === chosen);
-    if (sets.length > 0) {
-      const lastSet = sets[sets.length - 1];
+    
+    // Хронологическая сортировка рабочих сетов по дате и номеру подхода
+    const workSets = (state.dbData.sets || [])
+      .filter(s => 
+        (s.exercise || '').trim() === chosen && 
+        s.category === 'Рабочий' && 
+        s.effort !== 'Размин.'
+      )
+      .sort((a, b) => {
+        const da = normalizeDate(a.date);
+        const db = normalizeDate(b.date);
+        const tDiff = (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+        if (tDiff !== 0) return tDiff;
+        return (parseInt(a.setNum, 10) || 0) - (parseInt(b.setNum, 10) || 0);
+      });
+
+    if (workSets.length > 0) {
+      const lastSet = workSets[workSets.length - 1];
       if (lastSet.weight && weightInput) weightInput.value = lastSet.weight;
       if (lastSet.reps && targetRepsInput && !targetRepsInput.value) targetRepsInput.value = lastSet.reps;
     }
@@ -70,14 +87,9 @@ function calculateAutoregulationDecision(container, weight, targetReps, actualRe
 
   const repDeficit = targetReps - actualReps;
   const isSevereFailure = (actualReps <= Math.floor(targetReps / 2));
-
-  // Округление до шага 2.5 кг
   const roundToStep = (val) => Math.round(val / 2.5) * 2.5;
 
-  // Вариант 1: Бэк-офф сет (-15% веса)
   const backoffWeight = roundToStep(weight * 0.85);
-
-  // Вариант 2: Кластерный сет на текущем весе
   const clusterRepsA = Math.max(1, actualReps);
   const clusterRepsB = Math.max(1, Math.floor(repDeficit / 2));
   const clusterRepsC = Math.max(1, repDeficit - clusterRepsB);
@@ -92,21 +104,21 @@ function calculateAutoregulationDecision(container, weight, targetReps, actualRe
 
       <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface); line-height: 1.4; margin-top: 4px;">
         ${isSevereFailure
-          ? `⚠️ <b>Системное утомление ЦНС/синергистов:</b> продолжать текущий вес опасно для связок.`
-          : `⚡ <b>Локальный метаболический блок:</b> используйте адаптацию нагрузки.`}
+          ? `⚠️ <b>Системное утомление ЦНС/синергистов:</b> продолжать с текущим весом неэффективно.`
+          : `⚡ <b>Локальный метаболический блок:</b> примените одну из стратегий адаптации.`}
       </div>
 
       <div style="background: var(--md-sys-color-surface-container-highest); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-        <span style="font-size: 0.8rem; font-weight: 700; color: var(--md-sys-color-primary);">ВАРИАНТ А (Рекомендуемый: Сброс веса / Back-off):</span>
+        <span style="font-size: 0.8rem; font-weight: 700; color: var(--md-sys-color-primary);">ВАРИАНТ А (Сброс веса / Back-off):</span>
         <div style="font-size: 0.85rem;">
-          Установите <b>${backoffWeight} кг</b> (-15%) и выполните <b>${targetReps} повторений</b> с чистой техникой и 2-секундной паузой в растяжении.
+          Установите <b>${backoffWeight} кг</b> (-15%) и выполните <b>${targetReps} повторений</b> с подконтрольной негативной фазой.
         </div>
       </div>
 
       <div style="background: var(--md-sys-color-surface-container-highest); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
-        <span style="font-size: 0.8rem; font-weight: 700; color: var(--md-sys-color-success);">ВАРИАНТ Б (Сохранение силового веса: Кластер):</span>
+        <span style="font-size: 0.8rem; font-weight: 700; color: var(--md-sys-color-success);">ВАРИАНТ Б (Кластерная доработка на текущем весе):</span>
         <div style="font-size: 0.85rem;">
-          Оставьте <b>${weight} кг</b>, но выполните кластерную схему: 
+          Оставьте <b>${weight} кг</b> и выполните схему: 
           <b>${clusterRepsA} повт.</b> → отдых 20 сек → <b>${clusterRepsB} повт.</b> → отдых 20 сек → <b>${clusterRepsC} повт.</b>
         </div>
       </div>
@@ -120,8 +132,8 @@ function renderSosSuccess(container, weight, reps) {
     <div class="coach-sos-result-card" style="border-color: var(--md-sys-color-success);">
       <b style="color: var(--md-sys-color-success);">План перевыполнен!</b>
       <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface); margin-top: 4px;">
-        Стимул максимален. В следующем подходе сохраняйте <b>${weight} кг</b>. 
-        На следующей тренировке этого режима запланируйте прогрессию <b>+2.5 кг</b> (${weight + 2.5} кг).
+        Стимул максимален. В следующем сете сохраняйте <b>${weight} кг</b>. 
+        На следующей тренировке запланируйте прогрессию <b>+2.5 кг</b> (${weight + 2.5} кг).
       </div>
     </div>
   `;
@@ -129,10 +141,12 @@ function renderSosSuccess(container, weight, reps) {
 
 /**
  * -------------------------------------------------------------
- * 2. СТРАТЕГИЧЕСКИЙ ГЕНЕРАТОР ПЛАНА МЕЗОЦИКЛА (AI COPILOT)
+ * 2. СТРАТЕГИЧЕСКИЙ ПЛАНИРОВЩИК МЕЗОЦИКЛА (AI COPILOT)
  * -------------------------------------------------------------
  */
 function initCyclePlanner() {
+  if (isCoachInitialized) return;
+
   const intentInput = document.getElementById('coachBlockIntent');
   const genBtn = document.getElementById('generateCyclePlanBtn');
   const splitTabA = document.getElementById('coachSplitTabA');
@@ -170,6 +184,8 @@ function initCyclePlanner() {
   if (copyBtn) {
     copyBtn.onclick = () => copyPlanToClipboard();
   }
+
+  isCoachInitialized = true;
 }
 
 async function generateMesocyclePlan() {
@@ -185,12 +201,13 @@ async function generateMesocyclePlan() {
   sets.forEach(s => {
     const ex = (s.exercise || '').trim();
     if (!ex) return;
-    const isWork = s.category ? s.category === 'Рабочий' : (s.method !== 'Подводка' && s.effort !== 'Размин.');
+    const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
     if (!isWork) return;
 
     const w = parseFloat(s.weight) || 0;
     const r = parseInt(s.reps, 10) || 0;
-    const e1rm = parseFloat(s.e1rm) || (w * (1 + r / 30));
+    // Опора на каноничное серверное поле 1ПМ
+    const e1rm = parseFloat(s.e1rm) || (r === 1 ? w : w * (1 + r / 30));
 
     if (!exerciseStatsMap[ex]) {
       exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: s.splitDay || s.split || '' };
@@ -204,7 +221,7 @@ async function generateMesocyclePlan() {
     return `- ${ex}: макс. ${item.maxWeight} кг, 1ПМ ${item.max1RM} кг`;
   }).join('\n');
 
-  const currentCid = state.dbData.currentCycleId || 'C-2';
+  const currentCid = state.dbData.currentCycleId || 'C-1';
 
   const prompt = `Ты — эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
 Составь тренировочный план на мезоцикл ${currentCid}.
@@ -250,7 +267,6 @@ ${exSummary || 'Архивных данных нет'}
   "rationale": "Краткое обоснование синергистов и порядка."
 }`;
 
-  // Запуск динамического индикатора времени ожидания
   let elapsedSeconds = 0;
   let timerInterval = null;
 
@@ -267,11 +283,15 @@ ${exSummary || 'Архивных данных нет'}
 
   try {
     const rawAnswer = await askGasGeminiCoach(prompt);
-    
     const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Модель не вернула валидную JSON структуру.');
+    if (!jsonMatch) throw new Error('Модель не вернула валидную JSON-структуру.');
 
-    cachedPlanData = JSON.parse(jsonMatch[0]);
+    const parsedPlan = JSON.parse(jsonMatch[0]);
+    if (!parsedPlan.splits || !parsedPlan.splits.A) {
+      throw new Error('Структура сгенерированного плана некорректна.');
+    }
+
+    cachedPlanData = parsedPlan;
     localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
 
     renderStructuredCards();
@@ -311,7 +331,7 @@ function renderStructuredCards() {
 
   const currentSplit = cachedPlanData.splits ? cachedPlanData.splits[activeSplitView] : null;
   if (!currentSplit || !currentSplit.exercises || currentSplit.exercises.length === 0) {
-    container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Сплита ${activeSplitView}</div>`;
+    container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Сплита ${escapeHtml(activeSplitView)}</div>`;
     return;
   }
 
@@ -323,18 +343,18 @@ function renderStructuredCards() {
     card.innerHTML = `
       <div class="coach-card-header">
         <div>
-          <span style="font-size: 0.72rem; color: var(--md-sys-color-primary); font-weight: 700;">#${ex.order} • ${ex.target || 'База'}</span>
-          <div class="coach-exercise-title">${ex.name}</div>
+          <span style="font-size: 0.72rem; color: var(--md-sys-color-primary); font-weight: 700;">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.target || 'База')}</span>
+          <div class="coach-exercise-title">${escapeHtml(ex.name)}</div>
         </div>
-        <span class="coach-weight-tag">${ex.weight} кг</span>
+        <span class="coach-weight-tag">${parseFloat(ex.weight) || 0} кг</span>
       </div>
       <div class="coach-card-chips">
-        <span class="coach-card-chip">${ex.sets} подх.</span>
-        <span class="coach-card-chip">${ex.reps} повт.</span>
-        <span class="coach-card-chip" style="color: var(--md-sys-color-primary);">RIR ${ex.rir}</span>
-        <span class="coach-method-badge">${ex.method || 'Стандарт'}</span>
+        <span class="coach-card-chip">${parseInt(ex.sets, 10) || 3} подх.</span>
+        <span class="coach-card-chip">${escapeHtml(ex.reps || '6')} повт.</span>
+        <span class="coach-card-chip" style="color: var(--md-sys-color-primary);">RIR ${escapeHtml(ex.rir || '1-2')}</span>
+        <span class="coach-method-badge">${escapeHtml(ex.method || 'Стандарт')}</span>
       </div>
-      ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">📌 ${ex.notes}</div>` : ''}
+      ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
     `;
     container.appendChild(card);
   });
