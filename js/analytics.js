@@ -77,7 +77,6 @@ function initAiAuditTrigger() {
   const btn = document.getElementById('runAiAuditBtn');
   const intentInput = document.getElementById('aiBlockIntent');
 
-  // Восстановление сохраненного интента атлета
   if (intentInput) {
     const savedIntent = localStorage.getItem('gym_ai_block_intent');
     if (savedIntent !== null) {
@@ -140,14 +139,12 @@ function renderKpiAndVolumes() {
 
     totalWorkSets++;
 
-    // Определение Hard Set: RIR <= 3 или усилие Высокое/Максимальное
     const res = parseInt(s.reserve, 10);
     const isHighEffort = (s.effort === 'Высокое' || s.effort === 'Максим.' || (!isNaN(res) && res <= 3));
     if (isHighEffort) {
       hardSetsCount++;
     }
 
-    // Классификация Push / Pull на основе анатомии
     const item = catalogMap[(s.exercise || '').trim()];
     if (item) {
       const matchTargets = [
@@ -166,18 +163,15 @@ function renderKpiAndVolumes() {
     }
   });
 
-  // Расчет Push/Pull коэффициента
   const roundedPush = parseFloat(pushSetsScore.toFixed(1));
   const roundedPull = parseFloat(pullSetsScore.toFixed(1));
   let pushPullRatio = roundedPush > 0 ? (roundedPull / roundedPush) : 1.0;
   pushPullRatio = parseFloat(pushPullRatio.toFixed(2));
 
-  // Определение статуса адаптации / детектора делоада
   let adaptationStatus = 'Свеж';
   let adaptationColor = 'var(--md-sys-color-success)';
   let adaptationSub = 'Накопление стимула';
 
-  // Проверка недели текущего цикла
   const sortedByDate = [...filteredSets].sort((a, b) => {
     const da = normalizeDate(a.date);
     const db = normalizeDate(b.date);
@@ -202,7 +196,6 @@ function renderKpiAndVolumes() {
     adaptationSub = 'Стимул максимален';
   }
 
-  // Обновление UI карточек KPI
   const kpiHardSetsEl = document.getElementById('kpiHardSets');
   const kpiHardSetsSubEl = document.getElementById('kpiHardSetsSub');
   const kpiPushPullEl = document.getElementById('kpiPushPull');
@@ -236,10 +229,7 @@ function renderKpiAndVolumes() {
   }
   if (kpiAdaptationSubEl) kpiAdaptationSubEl.innerText = adaptationSub;
 
-  // Обновление виджета баланса
   renderPushPullWidget(roundedPush, roundedPull, pushPullRatio);
-
-  // Отрисовка шкал объема и графика тоннажа
   renderMuscleVolumes(filteredSets);
   renderTonnageGraph(filteredSets);
 }
@@ -346,12 +336,10 @@ function renderMuscleVolumes(sets) {
     let zoneLabel = 'Maintenance';
 
     if (isLegMuscle) {
-      // Адаптивная шкала поддержания для ног
       if (val >= 2 && val < 5) { zoneClass = 'zone-mev'; zoneLabel = 'Maintenance'; }
       else if (val >= 5 && val <= 10) { zoneClass = 'zone-mav'; zoneLabel = 'MEV/MAV'; }
       else if (val > 10) { zoneClass = 'zone-mrv'; zoneLabel = 'Высокий объем'; }
     } else {
-      // Специализированная шкала гипертрофии верха тела
       if (val >= 6 && val < 12) { zoneClass = 'zone-mev'; zoneLabel = 'MEV'; }
       else if (val >= 12 && val <= 18) { zoneClass = 'zone-mav'; zoneLabel = 'MAV'; }
       else if (val > 18) { zoneClass = 'zone-mrv'; zoneLabel = 'MRV ⚠️'; }
@@ -490,7 +478,6 @@ function renderExerciseProgressChart(exerciseName) {
     }
   });
 
-  // Обновление бейджа персонального рекорда
   if (prBadgeEl && prValueEl) {
     if (allTimeMax1RM > 0) {
       prBadgeEl.style.display = 'flex';
@@ -554,7 +541,6 @@ export async function runGeminiCycleAudit() {
 
   const userCustomIntent = intentInput ? intentInput.value.trim() : (localStorage.getItem('gym_ai_block_intent') || '');
 
-  // Анализ упражнений и последних максимальных рабочих весов
   const sets = getFilteredSets();
   const exerciseStatsMap = {};
 
@@ -573,13 +559,12 @@ export async function runGeminiCycleAudit() {
         maxWeight: 0,
         maxReps: 0,
         max1RM: 0,
-        split: s.split || '',
+        split: s.splitDay || s.split || '',
         recentRIR: s.reserve || '+2'
       };
     }
     if (w > exerciseStatsMap[ex].maxWeight) exerciseStatsMap[ex].maxWeight = w;
     if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
-    if (s.split) exerciseStatsMap[ex].split = s.split;
   });
 
   const exerciseSummaryLines = Object.keys(exerciseStatsMap).map(ex => {
@@ -587,7 +572,6 @@ export async function runGeminiCycleAudit() {
     return `- ${ex} (Сплит ${item.split || 'Общий'}): Макс. вес ${item.maxWeight} кг, Рекорд 1ПМ ${item.max1RM} кг`;
   }).join('\n');
 
-  // Последние выполненные подходы для оценки утомления
   const recentSetsLog = sets.slice(-25).map(s =>
     `${s.date} [${s.workout}] ${s.exercise}: ${s.weight}кг x ${s.reps} (Категория: ${s.category}, Усилие: ${s.effort}, 1ПМ: ${s.e1rm}кг, Запас RIR: ${s.reserve})`
   ).join('\n');

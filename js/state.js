@@ -42,14 +42,18 @@ export function setGeminiApiKey(key) {
 }
 
 export function setDbData(data) {
+  const safeData = data || {};
   state.dbData = {
-    sets: Array.isArray(data.sets) ? data.sets : [],
-    catalog: Array.isArray(data.catalog) ? data.catalog : [],
-    cycles: Array.isArray(data.cycles) ? data.cycles : [],
-    exercises: Array.isArray(data.exercises) ? data.exercises : [],
-    currentCycleId: data.currentCycleId || 'C-1'
+    sets: Array.isArray(safeData.sets) ? safeData.sets : [],
+    catalog: Array.isArray(safeData.catalog) ? safeData.catalog : [],
+    cycles: Array.isArray(safeData.cycles) ? safeData.cycles : [],
+    exercises: Array.isArray(safeData.exercises) ? safeData.exercises : [],
+    currentCycleId: safeData.currentCycleId || 'C-1'
   };
 }
+
+// Экспорт алиаса для обратной совместимости с app.js
+export const setInitialData = setDbData;
 
 export function setParsedWorkout(workout) {
   state.parsedWorkout = workout || {

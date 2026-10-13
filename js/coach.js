@@ -108,7 +108,7 @@ function calculateAutoregulationDecision(container, weight, targetReps, actualRe
         <span style="font-size: 0.8rem; font-weight: 700; color: var(--md-sys-color-success);">ВАРИАНТ Б (Сохранение силового веса: Кластер):</span>
         <div style="font-size: 0.85rem;">
           Оставьте <b>${weight} кг</b>, но выполните кластерную схему: 
-          <b>${clusterRepsA} повт.</b> $\\rightarrow$ отдых 20 сек $\\rightarrow$ <b>${clusterRepsB} повт.</b> $\\rightarrow$ отдых 20 сек $\\rightarrow$ <b>${clusterRepsC} повт.</b>
+          <b>${clusterRepsA} повт.</b> → отдых 20 сек → <b>${clusterRepsB} повт.</b> → отдых 20 сек → <b>${clusterRepsC} повт.</b>
         </div>
       </div>
     </div>
@@ -140,7 +140,6 @@ function initCyclePlanner() {
   const splitTabB = document.getElementById('coachSplitTabB');
   const copyBtn = document.getElementById('copyGymUpListBtn');
 
-  // Загрузка сохраненного пользовательского намерения
   if (intentInput) {
     const saved = localStorage.getItem('gym_ai_block_intent');
     if (saved) intentInput.value = saved;
@@ -149,7 +148,6 @@ function initCyclePlanner() {
     });
   }
 
-  // Переключение вкладок Сплит А / Сплит Б
   if (splitTabA && splitTabB) {
     splitTabA.onclick = () => {
       activeSplitView = 'A';
@@ -182,7 +180,6 @@ async function generateMesocyclePlan() {
 
   const userIntent = intentInput ? intentInput.value.trim() : '';
 
-  // Сбор силовых рекордов
   const sets = state.dbData.sets || [];
   const exerciseStatsMap = {};
 
@@ -197,7 +194,7 @@ async function generateMesocyclePlan() {
     const e1rm = parseFloat(s.e1rm) || (w * (1 + r / 30));
 
     if (!exerciseStatsMap[ex]) {
-      exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: s.splitDay || '' };
+      exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: s.splitDay || s.split || '' };
     }
     if (w > exerciseStatsMap[ex].maxWeight) exerciseStatsMap[ex].maxWeight = w;
     if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
@@ -264,7 +261,6 @@ ${exSummary || 'Архивных упражнений нет'}
   try {
     const rawAnswer = await askGasGeminiCoach(prompt);
     
-    // Надежное извлечение JSON из ответа модели
     const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('Модель не вернула валидную JSON структуру.');
 
