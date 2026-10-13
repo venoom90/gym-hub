@@ -213,14 +213,13 @@ function renderAiRecipeCard() {
   if (nextTag) nextTag.innerText = nextTitle;
 
   // 1. ПРИОРИТЕТ: ЧТЕНИЕ СОХРАНЕННОГО ПЛАНА МЕЗОЦИКЛА (AI COPILOT)
-  // Исключает рассинхрон между экранами «Обзор» и «Тренер»
   let activeAiPlan = null;
   try {
     const rawAiPlan = localStorage.getItem('gym_ai_coach_plan');
     if (rawAiPlan) {
       const parsedPlan = JSON.parse(rawAiPlan);
       const planSplitKey = (nextSplit === 'А' || nextSplit === 'A') ? 'A' : 'B';
-      if (parsedPlan && parsedPlan.splits && parsedPlan.splits[planSplitKey] && parsedPlan.splits[planSplitKey].exercises) {
+      if (parsedPlan && parsedPlan.splits && parsedPlan.splits[planSplitKey] && Array.isArray(parsedPlan.splits[planSplitKey].exercises)) {
         activeAiPlan = parsedPlan.splits[planSplitKey];
       }
     }
@@ -229,7 +228,6 @@ function renderAiRecipeCard() {
   }
 
   if (activeAiPlan && activeAiPlan.exercises.length > 0) {
-    // Вывод тегов целевых мышечных групп из плана ИИ
     const targetMusclesList = [];
     activeAiPlan.exercises.forEach(ex => {
       const catItem = catalogMap[(ex.name || '').trim()];
@@ -254,36 +252,50 @@ function renderAiRecipeCard() {
         : `План дня ${nextSplit} из сохраненного мезоцикла.`;
     }
 
-    activeAiPlan.exercises.forEach(ex => {
-      const step = document.createElement('div');
-      step.className = 'recipe-step';
+    // Полный безошибочный рендер всех упражнений с поддержкой методов и заметок
+    activeAiPlan.exercises.forEach((ex, idx) => {
+      try {
+        const step = document.createElement('div');
+        step.className = 'recipe-step';
 
-      const weightVal = parseFloat(ex.weight) || 0;
-      const setsCount = parseInt(ex.sets, 10) || 3;
-      const repsRange = ex.reps || '4-6';
-      const rirVal = ex.rir || '1-2';
-      const warmupWeight = roundToGymStep(weightVal * 0.5);
+        const orderNum = parseInt(ex.order, 10) || (idx + 1);
+        const weightVal = parseFloat(ex.weight) || 0;
+        const setsCount = parseInt(ex.sets, 10) || 3;
+        const repsRange = String(ex.reps || '4-6');
+        const rirVal = String(ex.rir || '1-2');
+        const methodVal = String(ex.method || 'Стандарт');
+        const notesVal = ex.notes ? String(ex.notes) : '';
+        const warmupWeight = roundToGymStep(weightVal * 0.5);
 
-      step.innerHTML = `
-        <div class="recipe-step-header">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.name)}</div>
-        <div class="recipe-metrics-row">
-          <span class="recipe-sets-count">${setsCount} сета ×</span>
-          <span class="recipe-weight-highlight">${weightVal > 0 ? weightVal + ' кг' : 'рабочий вес'}</span>
-          <span class="recipe-reps-chip">${escapeHtml(repsRange)} повт.</span>
-          <span class="recipe-rir-badge">RIR ${escapeHtml(rirVal)}</span>
-        </div>
-        <div class="recipe-warmup-row">
-          <span class="material-symbols-outlined">restart_alt</span>
-          <span>Разминка: ${warmupWeight > 0 ? `1 подход × ${warmupWeight} кг` : 'Не требуется'}</span>
-        </div>
-      `;
-      recipeBox.appendChild(step);
+        const methodBadgeHtml = methodVal !== 'Стандарт'
+          ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">${escapeHtml(methodVal)}</span>`
+          : '';
+
+        step.innerHTML = `
+          <div class="recipe-step-header">#${orderNum} • ${escapeHtml(ex.name || 'Упражнение')}</div>
+          <div class="recipe-metrics-row">
+            <span class="recipe-sets-count">${setsCount} сета ×</span>
+            <span class="recipe-weight-highlight">${weightVal > 0 ? weightVal + ' кг' : 'рабочий вес'}</span>
+            <span class="recipe-reps-chip">${escapeHtml(repsRange)} повт.</span>
+            <span class="recipe-rir-badge">RIR ${escapeHtml(rirVal)}</span>
+            ${methodBadgeHtml}
+          </div>
+          <div class="recipe-warmup-row">
+            <span class="material-symbols-outlined">restart_alt</span>
+            <span>Разминка: ${warmupWeight > 0 ? `1 подход × ${warmupWeight} кг` : 'Не требуется'}</span>
+          </div>
+          ${notesVal ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(notesVal)}</div>` : ''}
+        `;
+        recipeBox.appendChild(step);
+      } catch (stepErr) {
+        console.warn('[Overview] Ошибка отрисовки шага упражнения:', stepErr, ex);
+      }
     });
 
     return;
   }
 
-  // 2. FALLBACK: РАСЧЕТ ОТ РЕАЛЬНОГО РАБОЧЕГО ВЕСА (БЕЗ ЗАВЫШАЮЩЕЙ ФОРМУЛЫ 1ПМ)
+  // 2. FALLBACK: РАСЧЕТ ОТ РЕАЛЬНОГО РАБОЧЕГО ВЕСА
   const prevSplitSets = sortedSets.filter(s => {
     const sSplit = (s.splitDay || extractPeriodization(s.workout).splitDay || '').toUpperCase();
     return sSplit === nextSplit;
@@ -347,7 +359,6 @@ function renderAiRecipeCard() {
 
     let lastKnownWorkingWeight = 0;
 
-    // СТРОГИЙ ПОИСК РЕАЛЬНОГО РАБОЧЕГО ВЕСА: сначала чистые регулярные сеты
     const regularSets = history.filter(h => {
       const isSpecial = (h.method || '').toLowerCase().includes('дроп') || (h.method || '').toLowerCase().includes('кластер');
       return !isSpecial;
@@ -376,7 +387,6 @@ function renderAiRecipeCard() {
     } else if (nextMode === 'Сила') {
       targetRepsBadge = '4–6 повт.';
       rirBadgeText = 'RIR 1–2 (Сила)';
-      // Физиологическая прогрессия: +2.5 кг к реальному рабочему весу
       const progressionStep = isNewCycleTransition ? 2.5 : 0;
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight + progressionStep) : 0;
       const roundedStrength = roundToGymStep(rawTargetLoad);
