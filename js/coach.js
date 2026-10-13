@@ -41,7 +41,6 @@ function initSosCalculator() {
   selectEl.onchange = () => {
     const chosen = selectEl.value;
     
-    // Хронологическая сортировка рабочих сетов по дате и номеру подхода
     const workSets = (state.dbData.sets || [])
       .filter(s => 
         (s.exercise || '').trim() === chosen && 
@@ -206,36 +205,54 @@ async function generateMesocyclePlan() {
 
     const w = parseFloat(s.weight) || 0;
     const r = parseInt(s.reps, 10) || 0;
-    // Опора на каноничное серверное поле 1ПМ
     const e1rm = parseFloat(s.e1rm) || (r === 1 ? w : w * (1 + r / 30));
 
     if (!exerciseStatsMap[ex]) {
-      exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: s.splitDay || s.split || '' };
+      exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: (s.splitDay || s.split || '').toUpperCase() };
     }
     if (w > exerciseStatsMap[ex].maxWeight) exerciseStatsMap[ex].maxWeight = w;
     if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
   });
 
-  const exSummary = Object.keys(exerciseStatsMap).map(ex => {
-    const item = exerciseStatsMap[ex];
-    return `- ${ex}: макс. ${item.maxWeight} кг, 1ПМ ${item.max1RM} кг`;
-  }).join('\n');
+  // Группировка упражнений атлета по Дням А и Б
+  const dayAExercises = [];
+  const dayBExercises = [];
 
-  const currentCid = state.dbData.currentCycleId || 'C-1';
+  Object.keys(exerciseStatsMap).forEach(ex => {
+    const item = exerciseStatsMap[ex];
+    const line = `- ${ex}: макс. ${item.maxWeight} кг, 1ПМ ${item.max1RM} кг`;
+    if (item.split === 'Б' || item.split === 'B') {
+      dayBExercises.push(line);
+    } else {
+      dayAExercises.push(line);
+    }
+  });
+
+  const exSummaryA = dayAExercises.join('\n') || 'Нет данных';
+  const exSummaryB = dayBExercises.join('\n') || 'Нет данных';
+
+  const currentCid = state.dbData.currentCycleId || 'C-2';
 
   const prompt = `Ты — эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
 Составь тренировочный план на мезоцикл ${currentCid}.
 
 [ЦЕЛИ АТЛЕТА]:
-${userIntent || 'Full-Body, верх в приоритете, ноги строго в середине в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
+${userIntent || 'Full-Body, верх в приоритете, ноги строго в конце в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
 
-[БАЗА СИЛОВЫХ ДАННЫХ]:
-${exSummary || 'Архивных данных нет'}
+[АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ А]:
+${exSummaryA}
 
-ПРАВИЛА (Evidence-Based):
-1. ПОРЯДОК: Первыми идут базовые многосуставные станки верха на свежую ЦНС. Ноги ставятся СТРОГО В СЕРЕДИНУ сессии в режиме Maintenance (2–3 сета, без отказа). Икры акцентно (3–4 сета). Если в Дне А база груди жимовая, а в Дне Б изолированная бабочка — в День Б ОБЯЗАТЕЛЬНО включить тяжелую изоляцию трицепса.
+[АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ Б]:
+${exSummaryB}
+
+ПРАВИЛА (Evidence-Based инварианты):
+1. ПОРЯДОК УПРАЖНЕНИЙ: 
+   - Первыми идут базовые многосуставные движения верха тела на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
+   - Затем прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
+   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR 2–3, без отказа), чтобы не отнимать системный ресурс у целевого верха тела.
+   - Икры выполняются в самом финале акцентно (3–4 сета с паузой в растяжке 2 сек).
 2. МЕТОДЫ: Кластеры 4+3+2 только на базовый верх Недели 3. Дроп-сеты (-25%) на изоляцию верха и икры Недели 4.
-3. ВЕСА: Все веса СТРОГО кратны шагу 2.5 кг.
+3. ВЕСА: Все веса СТРОГО кратны шагу 2.5 кг и базируются на реальных рабочих показателях атлета с запасом RIR 1–2 (не завышать теоретическим 1ПМ!).
 
 ФОРМАТ ОТВЕТА:
 Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
@@ -248,7 +265,7 @@ ${exSummary || 'Архивных данных нет'}
       "exercises": [
         {
           "order": 1,
-          "name": "Название",
+          "name": "Жим в тренажере",
           "target": "Грудь",
           "weight": 132.5,
           "sets": 4,
@@ -260,11 +277,11 @@ ${exSummary || 'Архивных данных нет'}
       ]
     },
     "B": {
-      "title": "Тренировка Б1 (Вертикальная тяга + Бабочка + Трицепс)",
+      "title": "Тренировка Б1 (Вертикальная тяга + Бабочка + Руки)",
       "exercises": []
     }
   },
-  "rationale": "Краткое обоснование синергистов и порядка."
+  "rationale": "Краткое биомеханическое обоснование порядка (ноги в конце)."
 }`;
 
   let elapsedSeconds = 0;
@@ -322,6 +339,8 @@ function renderStructuredCards() {
   const rationaleText = document.getElementById('coachRationaleText');
   const copyBtn = document.getElementById('copyGymUpListBtn');
   const badgeEl = document.getElementById('coachPlanCycleBadge');
+  const splitTabA = document.getElementById('coachSplitTabA');
+  const splitTabB = document.getElementById('coachSplitTabB');
 
   if (!container || !cachedPlanData) return;
 
@@ -329,9 +348,19 @@ function renderStructuredCards() {
     badgeEl.innerText = cachedPlanData.cycleId;
   }
 
+  // Динамические нативные названия кнопок сплитов
+  if (splitTabA && cachedPlanData.splits && cachedPlanData.splits.A) {
+    const fullTitleA = cachedPlanData.splits.A.title || 'День А';
+    splitTabA.innerText = fullTitleA.length > 24 ? fullTitleA.substring(0, 24) + '...' : fullTitleA;
+  }
+  if (splitTabB && cachedPlanData.splits && cachedPlanData.splits.B) {
+    const fullTitleB = cachedPlanData.splits.B.title || 'День Б';
+    splitTabB.innerText = fullTitleB.length > 24 ? fullTitleB.substring(0, 24) + '...' : fullTitleB;
+  }
+
   const currentSplit = cachedPlanData.splits ? cachedPlanData.splits[activeSplitView] : null;
   if (!currentSplit || !currentSplit.exercises || currentSplit.exercises.length === 0) {
-    container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Сплита ${escapeHtml(activeSplitView)}</div>`;
+    container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Дня ${escapeHtml(activeSplitView)}</div>`;
     return;
   }
 
@@ -378,6 +407,6 @@ function copyPlanToClipboard() {
   });
 
   navigator.clipboard.writeText(lines.join('\n'))
-    .then(() => alert(`Список упражнений Сплита ${activeSplitView} скопирован в буфер обмена для GymUp!`))
+    .then(() => alert(`Список упражнений Дня ${activeSplitView} скопирован в буфер обмена для GymUp!`))
     .catch(() => alert('Не удалось скопировать текст.'));
 }

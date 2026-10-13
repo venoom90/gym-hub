@@ -212,6 +212,78 @@ function renderAiRecipeCard() {
   if (cycleBadge) cycleBadge.innerText = nextCycleId;
   if (nextTag) nextTag.innerText = nextTitle;
 
+  // 1. ПРИОРИТЕТ: ЧТЕНИЕ СОХРАНЕННОГО ПЛАНА МЕЗОЦИКЛА (AI COPILOT)
+  // Исключает рассинхрон между экранами «Обзор» и «Тренер»
+  let activeAiPlan = null;
+  try {
+    const rawAiPlan = localStorage.getItem('gym_ai_coach_plan');
+    if (rawAiPlan) {
+      const parsedPlan = JSON.parse(rawAiPlan);
+      const planSplitKey = (nextSplit === 'А' || nextSplit === 'A') ? 'A' : 'B';
+      if (parsedPlan && parsedPlan.splits && parsedPlan.splits[planSplitKey] && parsedPlan.splits[planSplitKey].exercises) {
+        activeAiPlan = parsedPlan.splits[planSplitKey];
+      }
+    }
+  } catch (err) {
+    console.warn('[Overview] Не удалось распарсить сохраненный план ИИ:', err);
+  }
+
+  if (activeAiPlan && activeAiPlan.exercises.length > 0) {
+    // Вывод тегов целевых мышечных групп из плана ИИ
+    const targetMusclesList = [];
+    activeAiPlan.exercises.forEach(ex => {
+      const catItem = catalogMap[(ex.name || '').trim()];
+      const muscle = (catItem && catItem.primaryMuscle) ? catItem.primaryMuscle : (ex.target || '');
+      if (muscle && !targetMusclesList.includes(muscle)) {
+        targetMusclesList.push(muscle);
+      }
+    });
+
+    if (muscleTagsRow && targetMusclesList.length > 0) {
+      targetMusclesList.forEach(m => {
+        const chip = document.createElement('span');
+        chip.className = 'muscle-tag';
+        chip.innerText = m;
+        muscleTagsRow.appendChild(chip);
+      });
+    }
+
+    if (adviceText) {
+      adviceText.innerText = activeAiPlan.title 
+        ? `План мезоцикла: ${activeAiPlan.title}. Рассчитан ИИ-тренером с учетом DUP и канонов восстановления.`
+        : `План дня ${nextSplit} из сохраненного мезоцикла.`;
+    }
+
+    activeAiPlan.exercises.forEach(ex => {
+      const step = document.createElement('div');
+      step.className = 'recipe-step';
+
+      const weightVal = parseFloat(ex.weight) || 0;
+      const setsCount = parseInt(ex.sets, 10) || 3;
+      const repsRange = ex.reps || '4-6';
+      const rirVal = ex.rir || '1-2';
+      const warmupWeight = roundToGymStep(weightVal * 0.5);
+
+      step.innerHTML = `
+        <div class="recipe-step-header">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.name)}</div>
+        <div class="recipe-metrics-row">
+          <span class="recipe-sets-count">${setsCount} сета ×</span>
+          <span class="recipe-weight-highlight">${weightVal > 0 ? weightVal + ' кг' : 'рабочий вес'}</span>
+          <span class="recipe-reps-chip">${escapeHtml(repsRange)} повт.</span>
+          <span class="recipe-rir-badge">RIR ${escapeHtml(rirVal)}</span>
+        </div>
+        <div class="recipe-warmup-row">
+          <span class="material-symbols-outlined">restart_alt</span>
+          <span>Разминка: ${warmupWeight > 0 ? `1 подход × ${warmupWeight} кг` : 'Не требуется'}</span>
+        </div>
+      `;
+      recipeBox.appendChild(step);
+    });
+
+    return;
+  }
+
+  // 2. FALLBACK: РАСЧЕТ ОТ РЕАЛЬНОГО РАБОЧЕГО ВЕСА (БЕЗ ЗАВЫШАЮЩЕЙ ФОРМУЛЫ 1ПМ)
   const prevSplitSets = sortedSets.filter(s => {
     const sSplit = (s.splitDay || extractPeriodization(s.workout).splitDay || '').toUpperCase();
     return sSplit === nextSplit;
@@ -252,7 +324,7 @@ function renderAiRecipeCard() {
 
   let modeAdvice = '';
   if (isNewCycleTransition) {
-    modeAdvice = `Старт нового мезоцикла ${nextCycleId}! Силовой режим с плановой перегрузкой (+2.5% к 1ПМ) после суперкомпенсации разгрузочной недели.`;
+    modeAdvice = `Старт нового мезоцикла ${nextCycleId}! Силовой режим: сохраняйте проверенный рабочий вес с прогрессией +2.5 кг.`;
   } else if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
     modeAdvice = 'Разгрузочная тренировка (RIR +4..+5). Сниженный вес (~65%), работа без мышечного отказа для восстановления ЦНС и суставов.';
   } else if (nextMode === 'Сила') {
@@ -263,7 +335,6 @@ function renderAiRecipeCard() {
 
   if (adviceText) adviceText.innerText = modeAdvice;
 
-  // Ограничиваем исторический горизонт расчетов последними 60 днями
   const sixtyDaysAgo = Date.now() - (60 * 24 * 3600 * 1000);
 
   targetExercises.forEach(ex => {
@@ -274,47 +345,21 @@ function renderAiRecipeCard() {
       return s.exercise === ex && isWork && isRecent;
     });
 
-    let maxWeight = 0;
-    let best1RM = 0;
+    let lastKnownWorkingWeight = 0;
 
-    // ЭТАП 1: Строгий поиск максимума только среди базовых регулярных сетов
+    // СТРОГИЙ ПОИСК РЕАЛЬНОГО РАБОЧЕГО ВЕСА: сначала чистые регулярные сеты
     const regularSets = history.filter(h => {
       const isSpecial = (h.method || '').toLowerCase().includes('дроп') || (h.method || '').toLowerCase().includes('кластер');
       return !isSpecial;
     });
 
-    regularSets.forEach(h => {
-      const w = parseFloat(h.weight) || 0;
-      if (w > maxWeight) maxWeight = w;
-    });
-
-    // ЭТАП 2: Fallback на спецметоды только при полном отсутствии обычных сетов
-    if (maxWeight === 0) {
-      history.forEach(h => {
-        const w = parseFloat(h.weight) || 0;
-        if (w > maxWeight) maxWeight = w;
-      });
-    }
-
-    // Резервный fallback на последнюю выполненную сессию
-    if (maxWeight === 0) {
-      targetSessionSets.filter(s => s.exercise === ex).forEach(h => {
-        const w = parseFloat(h.weight) || 0;
-        if (w > maxWeight) maxWeight = w;
-      });
-    }
-
-    // 1ПМ собирается по всей валидной истории
-    history.forEach(h => {
-      const e1rm = parseFloat(h.e1rm) || 0;
-      if (e1rm > best1RM) best1RM = e1rm;
-    });
-
-    if (best1RM === 0) {
-      targetSessionSets.filter(s => s.exercise === ex).forEach(h => {
-        const e1rm = parseFloat(h.e1rm) || 0;
-        if (e1rm > best1RM) best1RM = e1rm;
-      });
+    if (regularSets.length > 0) {
+      lastKnownWorkingWeight = parseFloat(regularSets[0].weight) || 0;
+    } else if (history.length > 0) {
+      lastKnownWorkingWeight = parseFloat(history[0].weight) || 0;
+    } else {
+      const fallbackSet = targetSessionSets.find(s => s.exercise === ex);
+      if (fallbackSet) lastKnownWorkingWeight = parseFloat(fallbackSet.weight) || 0;
     }
 
     let targetRepsBadge = '12–15 повт.';
@@ -325,20 +370,21 @@ function renderAiRecipeCard() {
     if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
       targetRepsBadge = '8–10 повт.';
       rirBadgeText = 'RIR 4–5 (Делоад)';
-      rawTargetLoad = maxWeight > 0 ? (maxWeight * 0.65) : 0;
+      rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.65) : 0;
       const roundedDeload = roundToGymStep(rawTargetLoad);
       warmUpText = `1 легкий подход на ${roundToGymStep(roundedDeload * 0.5)} кг`;
     } else if (nextMode === 'Сила') {
       targetRepsBadge = '4–6 повт.';
       rirBadgeText = 'RIR 1–2 (Сила)';
-      const progressionMultiplier = isNewCycleTransition ? 1.025 : 1.0;
-      rawTargetLoad = best1RM > 0 ? (best1RM * 0.82 * progressionMultiplier) : (maxWeight * progressionMultiplier);
+      // Физиологическая прогрессия: +2.5 кг к реальному рабочему весу
+      const progressionStep = isNewCycleTransition ? 2.5 : 0;
+      rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight + progressionStep) : 0;
       const roundedStrength = roundToGymStep(rawTargetLoad);
       warmUpText = `1 подход × ${roundToGymStep(roundedStrength * 0.5)} кг`;
     } else {
       targetRepsBadge = '12–16 повт.';
       rirBadgeText = 'RIR 2–3 (Объем)';
-      rawTargetLoad = best1RM > 0 ? (best1RM * 0.65) : (maxWeight * 0.8);
+      rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.75) : 0;
       const roundedVolume = roundToGymStep(rawTargetLoad);
       warmUpText = `1 подход × ${roundToGymStep(roundedVolume * 0.45)} кг`;
     }
