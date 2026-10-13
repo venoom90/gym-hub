@@ -1,103 +1,96 @@
-import { state, setActiveTab, setDbData, setGeminiApiKey } from './state.js';
+import { state, setInitialData } from './state.js';
 import { fetchAnalyticsData } from './api.js';
 import { renderOverviewModule } from './overview.js';
 import { renderAnalyticsModule } from './analytics.js';
-import { initSyncModule, handleIncomingReportText } from './sync.js';
-
-let deferredPrompt = null;
-const SHARE_CACHE_NAME = 'gym-share-temp-v31';
+import { renderCoachModule } from './coach.js';
+import { renderSyncModule } from './sync.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
-  initServiceWorker();
-  initNetworkStatus();
   initNavigation();
+  initNetworkStatus();
   initSettingsModal();
-  initInstallPrompt();
-  initSyncModule(handleDataReload);
+  initRefreshButton();
 
-  checkCachedShareData();
-  await loadCachedOrRemoteData();
+  // Начальная загрузка данных через GAS
+  await refreshApplicationData();
 });
 
-window.addEventListener('pageshow', () => {
-  checkCachedShareData();
-});
+function initNavigation() {
+  const navItems = document.querySelectorAll('#bottomNav .nav-item');
+  const tabs = {
+    overview: document.getElementById('tab-overview'),
+    analytics: document.getElementById('tab-analytics'),
+    coach: document.getElementById('tab-coach'),
+    sync: document.getElementById('tab-sync')
+  };
 
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    checkCachedShareData();
-  }
-});
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const targetTab = item.getAttribute('data-tab');
+      if (!targetTab || !tabs[targetTab]) return;
 
-function initServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js', { scope: '/gym-hub/' }).then((reg) => {
-      console.log('[SW] Зарегистрирован:', reg.scope);
-    }).catch((err) => {
-      console.warn('[SW] Ошибка регистрации:', err);
+      navItems.forEach(n => n.classList.remove('active'));
+      item.classList.add('active');
+
+      Object.keys(tabs).forEach(k => {
+        if (tabs[k]) tabs[k].classList.remove('active');
+      });
+      tabs[targetTab].classList.add('active');
+
+      // Ленивая отрисовка активного модуля
+      if (targetTab === 'overview') renderOverviewModule();
+      if (targetTab === 'analytics') renderAnalyticsModule();
+      if (targetTab === 'coach') renderCoachModule();
+      if (targetTab === 'sync') renderSyncModule();
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     });
-
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'SHARED_WORKOUT_TEXT') {
-        switchTabToSync(event.data.text);
-      }
-    });
-  }
+  });
 }
 
-async function checkCachedShareData(retries = 8) {
-  try {
-    const cache = await caches.open(SHARE_CACHE_NAME);
-    const response = await cache.match('/gym-hub/shared-workout-data');
-    if (response) {
-      const data = await response.json();
-      if (data && data.text && (Date.now() - data.timestamp < 300000)) {
-        await cache.delete('/gym-hub/shared-workout-data');
-        if (window.location.search.includes('shared=1')) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        switchTabToSync(data.text);
-        return;
-      }
-    }
-  } catch (e) {
-    console.warn('[Share] Ошибка вычитки данных из Cache Storage:', e);
-  }
+async function refreshApplicationData() {
+  const statusDot = document.getElementById('networkStatusDot');
+  if (statusDot) statusDot.classList.add('offline');
 
-  if (retries > 0 && window.location.search.includes('shared=1')) {
-    setTimeout(() => checkCachedShareData(retries - 1), 150);
-  }
-}
+  const res = await fetchAnalyticsData();
+  if (res.success && res.data) {
+    setInitialData(res.data);
+    if (statusDot) statusDot.classList.remove('offline');
 
-function switchTabToSync(reportText) {
-  const syncNav = document.querySelector('.nav-item[data-tab="sync"]');
-  if (syncNav) {
-    syncNav.click();
+    // Отрисовка активной вкладки
+    const activeNav = document.querySelector('#bottomNav .nav-item.active');
+    const curTab = activeNav ? activeNav.getAttribute('data-tab') : 'overview';
+
+    if (curTab === 'overview') renderOverviewModule();
+    if (curTab === 'analytics') renderAnalyticsModule();
+    if (curTab === 'coach') renderCoachModule();
+    if (curTab === 'sync') renderSyncModule();
   } else {
-    document.querySelectorAll('.tab-content').forEach((tab) => tab.classList.remove('active'));
-    document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
-    const syncTab = document.getElementById('tab-sync');
-    if (syncTab) syncTab.classList.add('active');
-    setActiveTab('sync');
+    console.warn('[App] Не удалось обновить данные с сервера.');
   }
+}
 
-  if (reportText) {
-    handleIncomingReportText(reportText);
+function initRefreshButton() {
+  const btn = document.getElementById('refreshDataBtn');
+  if (btn) {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      await refreshApplicationData();
+      btn.disabled = false;
+    };
   }
 }
 
 function initNetworkStatus() {
   const dot = document.getElementById('networkStatusDot');
   const update = () => {
-    state.isOnline = navigator.onLine;
-    if (dot) {
-      if (state.isOnline) {
-        dot.classList.remove('offline');
-        dot.title = 'Сетевой статус: Онлайн';
-      } else {
-        dot.classList.add('offline');
-        dot.title = 'Сетевой статус: Оффлайн (Локальный кэш)';
-      }
+    if (!dot) return;
+    if (navigator.onLine) {
+      dot.classList.remove('offline');
+      dot.title = 'Сетевой статус: Онлайн';
+    } else {
+      dot.classList.add('offline');
+      dot.title = 'Сетевой статус: Оффлайн';
     }
   };
   window.addEventListener('online', update);
@@ -105,107 +98,29 @@ function initNetworkStatus() {
   update();
 }
 
-function initNavigation() {
-  const navItems = document.querySelectorAll('.nav-item');
-  navItems.forEach((item) => {
-    item.addEventListener('click', () => {
-      const targetTab = item.getAttribute('data-tab');
-      navItems.forEach((n) => n.classList.remove('active'));
-      item.classList.add('active');
-
-      document.querySelectorAll('.tab-content').forEach((tab) => {
-        tab.classList.remove('active');
-      });
-
-      const activeSection = document.getElementById(`tab-${targetTab}`);
-      if (activeSection) activeSection.classList.add('active');
-
-      setActiveTab(targetTab);
-
-      if (targetTab === 'overview') renderOverviewModule();
-      if (targetTab === 'analytics') renderAnalyticsModule();
-    });
-  });
-
-  const refreshBtn = document.getElementById('refreshDataBtn');
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', async () => {
-      refreshBtn.style.animation = 'spin 1s infinite linear';
-      await handleDataReload();
-      refreshBtn.style.animation = '';
-    });
-  }
-}
-
 function initSettingsModal() {
   const modal = document.getElementById('settingsModal');
   const openBtn = document.getElementById('openSettingsBtn');
   const closeBtn = document.getElementById('closeSettingsBtn');
-  const saveBtn = document.getElementById('saveApiKeyBtn');
-  const input = document.getElementById('geminiApiKeyInput');
+  const tokenInput = document.getElementById('apiTokenInput');
+  const saveBtn = document.getElementById('saveApiTokenBtn');
 
-  if (!modal || !openBtn) return;
+  if (!modal || !openBtn || !closeBtn) return;
 
   openBtn.onclick = () => {
-    if (input) input.value = state.geminiApiKey;
+    if (tokenInput) tokenInput.value = localStorage.getItem('gym_api_token') || '';
     modal.style.display = 'flex';
   };
 
   closeBtn.onclick = () => { modal.style.display = 'none'; };
   modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
 
-  saveBtn.onclick = () => {
-    if (input) {
-      setGeminiApiKey(input.value);
+  if (saveBtn && tokenInput) {
+    saveBtn.onclick = () => {
+      const val = tokenInput.value.trim();
+      localStorage.setItem('gym_api_token', val);
       modal.style.display = 'none';
-      alert('API ключ Gemini успешно сохранен.');
-    }
-  };
-}
-
-function initInstallPrompt() {
-  const installBtn = document.getElementById('installAppBtn');
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    if (installBtn) installBtn.style.display = 'inline-flex';
-  });
-
-  if (installBtn) {
-    installBtn.onclick = async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice.outcome === 'accepted') {
-        installBtn.style.display = 'none';
-      }
-      deferredPrompt = null;
+      alert('Токен авторизации сохранен в локальной памяти!');
     };
-  }
-}
-
-async function loadCachedOrRemoteData() {
-  const cachedStr = localStorage.getItem('gym_cached_db_data');
-  if (cachedStr) {
-    try {
-      const cachedData = JSON.parse(cachedStr);
-      setDbData(cachedData);
-      if (state.activeTab === 'overview') renderOverviewModule();
-      if (state.activeTab === 'analytics') renderAnalyticsModule();
-    } catch (e) {
-      console.warn('[Cache] Ошибка чтения локального кэша:', e);
-    }
-  }
-
-  await handleDataReload();
-}
-
-async function handleDataReload() {
-  const res = await fetchAnalyticsData();
-  if (res.success && res.data) {
-    setDbData(res.data);
-    localStorage.setItem('gym_cached_db_data', JSON.stringify(res.data));
-    if (state.activeTab === 'overview') renderOverviewModule();
-    if (state.activeTab === 'analytics') renderAnalyticsModule();
   }
 }

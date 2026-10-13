@@ -8,7 +8,9 @@ export async function fetchAnalyticsData() {
 
   try {
     const timestamp = Date.now();
-    const res = await fetch(`${GAS_API_URL}?action=get_all_data&_t=${timestamp}`, {
+    const token = localStorage.getItem('gym_api_token') || '';
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+    const res = await fetch(`${GAS_API_URL}?action=get_all_data&_t=${timestamp}${tokenParam}`, {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal
@@ -31,7 +33,9 @@ export async function fetchServerDebugLogs() {
 
   try {
     const timestamp = Date.now();
-    const res = await fetch(`${GAS_API_URL}?action=get_debug_log&_t=${timestamp}`, {
+    const token = localStorage.getItem('gym_api_token') || '';
+    const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+    const res = await fetch(`${GAS_API_URL}?action=get_debug_log&_t=${timestamp}${tokenParam}`, {
       method: 'GET',
       cache: 'no-store',
       signal: controller.signal
@@ -52,11 +56,14 @@ export async function syncSetsToSheets(payload) {
   const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
+    const token = localStorage.getItem('gym_api_token') || '';
+    const fullPayload = { ...payload, token };
+
     await fetch(GAS_API_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(fullPayload),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -67,45 +74,56 @@ export async function syncSetsToSheets(payload) {
   }
 }
 
-export async function requestGeminiAudit(promptText) {
-  const apiKey = state.geminiApiKey || localStorage.getItem('gym_gemini_api_key');
-  if (!apiKey) {
-    throw new Error('API ключ Gemini не задан в настройках.');
-  }
+/**
+ * Универсальный шлюз к Gemini через Google Apps Script Relay (работает без VPN).
+ * Используется как во вкладке Аналитики, так и в Copilot тренере.
+ */
+export async function askGasGeminiCoach(promptText) {
+  const controller = new AbortController();
+  // Увеличенный таймаут для генерации детального тренировочного плана
+  const timeoutId = setTimeout(() => controller.abort(), 35000);
 
-  // Актуальный каскад моделей Google Generative AI с поддержкой v1beta
-  const models = [
-    'gemini-2.5-flash',
-    'gemini-2.5-pro',
-    'gemini-flash-latest'
-  ];
-  
-  const errorsLog = [];
+  try {
+    const token = localStorage.getItem('gym_api_token') || '';
+    const payload = {
+      action: 'ask_gemini_coach',
+      prompt: promptText,
+      token: token
+    };
 
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
-      });
+    const res = await fetch(GAS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        const detailedMsg = errJson.error?.message || `HTTP ${res.status}`;
-        throw new Error(`[${model}] ${detailedMsg}`);
-      }
-
-      const json = await res.json();
-      const answer = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (answer) return answer;
-      throw new Error(`[${model}] Пустой ответ модели`);
-    } catch (err) {
-      console.warn(`[Gemini API] Ошибка модели:`, err.message);
-      errorsLog.push(err.message);
+    if (!res.ok) {
+      throw new Error(`Сервер вернул статус HTTP ${res.status}`);
     }
-  }
 
-  throw new Error(`Все модели Gemini вернули ошибки:\n${errorsLog.join('\n')}`);
+    const data = await res.json().catch(() => {
+      throw new Error('Сервер вернул невалидный JSON ответ');
+    });
+
+    if (!data.success) {
+      throw new Error(data.error || 'Неизвестная ошибка на стороне GAS AI Relay');
+    }
+
+    return data.answer;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Превышено время ожидания ответа ИИ-тренера (35 секунд). Проверьте интернет-соединение.');
+    }
+    throw new Error(`Сбой связи с ИИ-тренером: ${err.message}`);
+  }
+}
+
+/**
+ * Обратная совместимость для существующей кнопки аудита в Analytics
+ */
+export async function requestGeminiAudit(promptText) {
+  return askGasGeminiCoach(promptText);
 }
