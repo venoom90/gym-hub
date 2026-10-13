@@ -399,27 +399,6 @@
       color: var(--md-sys-color-on-surface);
     }
 
-    .mini-volume-bar-wrap {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin-top: 4px;
-    }
-
-    .mini-volume-bar-bg {
-      height: 6px;
-      background: var(--md-sys-color-surface-container);
-      border-radius: 3px;
-      overflow: hidden;
-      display: flex;
-    }
-
-    .mini-volume-bar-fill {
-      height: 100%;
-      border-radius: 3px;
-      transition: width 0.3s ease;
-    }
-
     /* KPI */
     .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi-card {
@@ -529,6 +508,113 @@
       gap: 4px;
     }
 
+    /* СТИЛИ ВКЛАДКИ ТРЕНЕР (COPILOT) */
+    .coach-sos-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .coach-split-chips-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .coach-split-chip {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      border-radius: 12px;
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      user-select: none;
+      border: 1px solid transparent;
+    }
+
+    .coach-split-chip.active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+
+    .coach-exercise-card {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .coach-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .coach-exercise-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.3;
+    }
+
+    .coach-weight-tag {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--md-sys-color-primary);
+      letter-spacing: -0.5px;
+      white-space: nowrap;
+    }
+
+    .coach-card-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .coach-card-chip {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+    }
+
+    .coach-method-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+    }
+
+    .coach-sos-result-card {
+      background: #141b24;
+      border: 1px solid var(--md-sys-color-primary);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
     /* Синхронизация */
     .file-drop-zone {
       border: 2px dashed var(--md-sys-color-outline-variant);
@@ -567,51 +653,7 @@
     }
     .set-details { display: flex; flex-direction: column; gap: 2px; flex: 1; }
     .set-chips { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
-    .badge-chip { background: var(--md-sys-color-surface-container-highest); padding: 2px 6px; border-radius: 4px; }
     
-    .status-indicator { display: flex; align-items: center; gap: 6px; }
-    .status-icon { font-size: 1.25rem; }
-    .status-synced { color: var(--md-sys-color-success); }
-    .status-pending { color: var(--md-sys-color-outline-variant); }
-    .status-error { color: var(--md-sys-color-error); }
-
-    /* Терминал отладки синхронизации */
-    .sync-terminal {
-      background: #0d1117;
-      border: 1px solid var(--md-sys-color-outline-variant);
-      border-radius: 16px;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .terminal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.85rem;
-      font-weight: 600;
-      color: var(--md-sys-color-primary);
-    }
-    .terminal-body {
-      background: #05070a;
-      border-radius: 10px;
-      padding: 12px;
-      font-family: monospace;
-      font-size: 0.75rem;
-      line-height: 1.4;
-      color: #7ee787;
-      max-height: 180px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-    .terminal-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
     .navigation-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -632,15 +674,16 @@
       gap: 4px;
       cursor: pointer;
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 500;
+      user-select: none;
     }
 
     .nav-pill {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 64px;
+      width: 56px;
       height: 32px;
       border-radius: 16px;
       transition: background-color 0.2s ease;
@@ -956,38 +999,106 @@
           <canvas id="exerciseChart"></canvas>
         </div>
       </div>
+    </div>
 
-      <!-- КАРТОЧКА НАСТРОЙКИ ЦЕЛЕЙ И AI-АУДИТА GEMINI -->
+    <!-- МОДУЛЬ 3: ТРЕНЕР (COPILOT & AUTOREGULATION) -->
+    <div id="tab-coach" class="tab-content">
+      
+      <!-- ЗОНА 1: SOS-АВТОРЕГУЛЯТОР У СТАНКА -->
+      <div class="m3-card" style="border: 1px solid rgba(168, 200, 255, 0.2);">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" style="color: var(--md-sys-color-warning);">bolt</span>
+            SOS-Авторегулятор подхода
+          </span>
+          <span style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant);">В реальном времени</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <select id="coachSosExerciseSelect" class="m3-select">
+            <option value="" disabled selected>Выберите текущее упражнение...</option>
+          </select>
+
+          <div class="coach-sos-grid">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label for="coachSosTargetWeight" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Вес снаряда (кг):</label>
+              <input type="number" id="coachSosTargetWeight" class="m3-input" placeholder="130" step="2.5">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label for="coachSosTargetReps" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">План повторений:</label>
+              <input type="number" id="coachSosTargetReps" class="m3-input" placeholder="6">
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <label for="coachSosActualReps" style="font-size: 0.75rem; color: var(--md-sys-color-error);">Сделано до отказа (Факт повторений):</label>
+            <input type="number" id="coachSosActualReps" class="m3-input" placeholder="2">
+          </div>
+
+          <md-filled-button id="calculateSosBtn" style="margin-top: 4px;">
+            <span class="material-symbols-outlined" slot="icon">flash_on</span>
+            Что делать в следующем подходе?
+          </md-filled-button>
+
+          <div id="coachSosResultContainer" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- ЗОНА 2: СТРАТЕГИЧЕСКИЙ ПЛАНИРОВЩИК МЕЗОЦИКЛА -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">smart_toy</span>
-            Спортивный ИИ-аудит и План цикла
+            <span class="material-symbols-outlined">psychology</span>
+            План мезоцикла (AI Copilot)
           </span>
+          <span id="coachPlanCycleBadge" class="plan-cycle-chip">C-2</span>
         </div>
-        
+
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <label for="aiBlockIntent" style="font-size: 0.85rem; font-weight: 500; color: var(--md-sys-color-primary);">
-            Ваши цели и акценты на цикл (Full-Body / DUP):
+          <label for="coachBlockIntent" style="font-size: 0.82rem; font-weight: 500; color: var(--md-sys-color-primary);">
+            Ваши цели и фокус на цикл:
           </label>
-          <textarea id="aiBlockIntent" class="m3-input" rows="3" placeholder="Например: фулбоди, ноги в поддержке (середина тренировки), акцент на средние дельты и икры, выровнять трицепс во 2-й тренировке, кластеры 4+3+2 в силе, дропы -25% в объеме..."></textarea>
-          <span style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">
-            Цели сохраняются в браузере и передаются Gemini для оптимизации биомеханического порядка упражнений, шага весов (+2.5 кг) и распределения стимула.
-          </span>
+          <textarea id="coachBlockIntent" class="m3-input" rows="2" placeholder="Фулбоди, верх в приоритете, ноги в поддержке (середина), акцент на икры, паритет трицепса..."></textarea>
+          <div style="display: flex; justify-content: flex-end;">
+            <md-filled-button id="generateCyclePlanBtn">
+              <span class="material-symbols-outlined" slot="icon">auto_awesome</span>
+              Рассчитать программу мезоцикла
+            </md-filled-button>
+          </div>
         </div>
 
-        <div style="display: flex; justify-content: flex-end; margin-top: 4px;">
-          <md-filled-button id="runAiAuditBtn">
-            <span class="material-symbols-outlined" slot="icon">auto_awesome</span>
-            Сформировать план и аудит
-          </md-filled-button>
+        <div id="coachPlanLoadingBox" style="display: none; font-size: 0.85rem; color: var(--md-sys-color-primary); padding: 8px 0;">
+          🤖 Gemini формирует биомеханический план по канонам DUP (через защищенный GAS Relay)...
         </div>
 
-        <div id="aiAuditResult" class="ai-bubble" style="display: none;"></div>
+        <div id="coachPlanViewContainer" style="display: flex; flex-direction: column; gap: 12px; margin-top: 6px;">
+          <!-- Переключатель сплитов А и Б -->
+          <div class="coach-split-chips-row">
+            <div id="coachSplitTabA" class="coach-split-chip active">Сплит А (Сила/Горизонт)</div>
+            <div id="coachSplitTabB" class="coach-split-chip">Сплит Б (Вертикаль/Руки)</div>
+          </div>
+
+          <div id="coachSplitCardsContainer" style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 12px 0;">
+              Нажмите «Рассчитать программу мезоцикла» для формирования интерактивных карточек.
+            </div>
+          </div>
+
+          <details id="coachRationaleDetails" style="background: var(--md-sys-color-surface-container-high); border-radius: 12px; padding: 12px; font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4; display: none;">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--md-sys-color-primary);">Биомеханическое обоснование порядка и методов</summary>
+            <div id="coachRationaleText" style="margin-top: 8px; white-space: pre-wrap;"></div>
+          </details>
+
+          <md-outlined-button id="copyGymUpListBtn" style="display: none;">
+            <span class="material-symbols-outlined" slot="icon">content_copy</span>
+            Скопировать список для GymUp
+          </md-outlined-button>
+        </div>
       </div>
+
     </div>
 
-    <!-- МОДУЛЬ 3: СИНХРОНИЗАЦИЯ -->
+    <!-- МОДУЛЬ 4: СИНХРОНИЗАЦИЯ -->
     <div id="tab-sync" class="tab-content">
       <div class="file-drop-zone" id="dropZone">
         <span class="material-symbols-outlined" style="font-size: 40px; color: var(--md-sys-color-primary);">upload_file</span>
@@ -1010,7 +1121,6 @@
 
       <div id="parsedContent" style="display: flex; flex-direction: column; gap: 12px;"></div>
 
-      <!-- Терминал отладки -->
       <div class="sync-terminal">
         <div class="terminal-header">
           <span style="display: flex; align-items: center; gap: 6px;">
@@ -1048,32 +1158,23 @@
     </div>
   </div>
 
-  <div id="daySummaryModal" class="modal-overlay">
-    <div class="modal-card">
-      <div class="card-title">
-        <span id="modalDayDate">Тренировка</span>
-        <md-icon-button id="closeDayModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
-      </div>
-      <div id="modalDayContent" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;"></div>
-    </div>
-  </div>
-
   <div id="settingsModal" class="modal-overlay">
     <div class="modal-card">
       <div class="card-title">
-        <span>Настройки Gemini API</span>
+        <span>Безопасность API</span>
         <md-icon-button id="closeSettingsBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
       </div>
       <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
-        Ключ API сохраняется строго в локальной памяти вашего браузера (localStorage) и не передается третьим лицам.
+        Все обращения к Gemini теперь идут через защищенный Google Apps Script Relay. При необходимости задайте токен API_TOKEN.
       </div>
-      <input type="password" id="geminiApiKeyInput" class="m3-input" placeholder="AIzaSy...">
+      <input type="password" id="apiTokenInput" class="m3-input" placeholder="Секретный токен API_TOKEN (опционально)...">
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
-        <md-filled-button id="saveApiKeyBtn">Сохранить ключ</md-filled-button>
+        <md-filled-button id="saveApiTokenBtn">Сохранить токен</md-filled-button>
       </div>
     </div>
   </div>
 
+  <!-- ЧЕТЫРЕХПОЗИЦИОННАЯ ПАНЕЛЬ НАВИГАЦИИ -->
   <nav class="navigation-bar" id="bottomNav">
     <div class="nav-item active" data-tab="overview">
       <div class="nav-pill">
@@ -1086,6 +1187,12 @@
         <span class="material-symbols-outlined">insights</span>
       </div>
       <span>Аналитика</span>
+    </div>
+    <div class="nav-item" data-tab="coach">
+      <div class="nav-pill">
+        <span class="material-symbols-outlined">psychology_alt</span>
+      </div>
+      <span>Тренер</span>
     </div>
     <div class="nav-item" data-tab="sync">
       <div class="nav-pill">
