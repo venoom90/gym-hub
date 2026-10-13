@@ -1,11 +1,11 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V36 FAULT-TOLERANT)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V37 SHARE-TARGET HARDENED)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v36';
-const SHARE_CACHE_NAME = 'gym-share-temp-v36';
+const CACHE_NAME = 'gym-hub-v37';
+const SHARE_CACHE_NAME = 'gym-share-temp-v37';
 
 const APP_ASSETS = [
   './',
@@ -25,16 +25,16 @@ const APP_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // Отказоустойчивое кэширование: 404 на отдельном файле не прерывает установку PWA
+      // Отказоустойчивая загрузка: единичный сбой ассета не блокирует активацию воркера
       await Promise.allSettled(
         APP_ASSETS.map((url) =>
           fetch(new Request(url, { cache: 'reload' }))
             .then((res) => {
               if (res.ok) return cache.put(url, res);
-              console.warn('[SW] Пропуск ассета со статусом ' + res.status + ':', url);
+              console.warn('[SW] Пропуск ассета ' + res.status + ':', url);
             })
             .catch((err) => {
-              console.warn('[SW] Не удалось загрузить ассет:', url, err);
+              console.warn('[SW] Ошибка загрузки ассета:', url, err);
             })
         )
       );
@@ -69,8 +69,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Обработка Web Share Target v2 (файл или текст из системной шторки Android)
-  if (event.request.method === 'POST' && url.pathname.endsWith('/share-target')) {
+  // 2. Обработка Web Share Target v2 (полный локальный перехват POST-запроса шторки)
+  if (event.request.method === 'POST' && url.pathname.includes('share-target')) {
     event.respondWith(
       (async () => {
         try {
@@ -88,15 +88,18 @@ self.addEventListener('fetch', (event) => {
             }));
           }
         } catch (err) {
-          console.warn('[SW] Ошибка приема данных шэринга:', err);
+          console.warn('[SW] Ошибка разбора данных Web Share Target:', err);
         }
-        return Response.redirect('./#tab-sync', 303);
+
+        // КРИТИЧНО: Response.redirect строго требует абсолютный URL, иначе вылетает 405 на сервере
+        const redirectUrl = new URL('./#tab-sync', self.location.href).href;
+        return Response.redirect(redirectUrl, 303);
       })()
     );
     return;
   }
 
-  // 3. Stale-While-Revalidate с защитой от сбоя при оффлайне
+  // 3. Stale-While-Revalidate для статики приложения и библиотек
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
