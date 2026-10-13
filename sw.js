@@ -1,11 +1,11 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V37 SHARE-TARGET HARDENED)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V38 ZERO-405 BULLETPROOF)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v37';
-const SHARE_CACHE_NAME = 'gym-share-temp-v37';
+const CACHE_NAME = 'gym-hub-v38';
+const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 const APP_ASSETS = [
   './',
@@ -25,7 +25,6 @@ const APP_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      // Отказоустойчивая загрузка: единичный сбой ассета не блокирует активацию воркера
       await Promise.allSettled(
         APP_ASSETS.map((url) =>
           fetch(new Request(url, { cache: 'reload' }))
@@ -69,37 +68,67 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. Обработка Web Share Target v2 (полный локальный перехват POST-запроса шторки)
-  if (event.request.method === 'POST' && url.pathname.includes('share-target')) {
+  // 2. ПЕРЕХВАТ ЛЮБОГО POST-ЗАПРОСА НА НАШЕМ ХОСТЕ (Web Share Target)
+  // Это полностью исключает попадание POST на GitHub Pages и возникновение ошибки 405
+  if (event.request.method === 'POST') {
     event.respondWith(
       (async () => {
         try {
           const formData = await event.request.formData();
-          const file = formData.get('report_file') || formData.get('file');
-          const textData = formData.get('text');
+          let sharedText = '';
 
-          const shareCache = await caches.open(SHARE_CACHE_NAME);
+          // Поиск файла отчета среди всех полей формы
+          for (const [key, val] of formData.entries()) {
+            if (val && typeof val !== 'string' && typeof val.text === 'function') {
+              sharedText = await val.text();
+              if (sharedText && sharedText.trim()) break;
+            }
+          }
 
-          if (file && typeof file !== 'string') {
-            await shareCache.put('shared-workout-data', new Response(file));
-          } else if (textData && typeof textData === 'string' && textData.trim()) {
-            await shareCache.put('shared-workout-data', new Response(textData, {
+          // Если бинарный файл не найден, проверяем текстовые поля
+          if (!sharedText) {
+            const textVal = formData.get('text');
+            if (textVal && typeof textVal === 'string' && textVal.trim()) {
+              sharedText = textVal.trim();
+            } else {
+              for (const [key, val] of formData.entries()) {
+                if (typeof val === 'string' && val.length > 30) {
+                  sharedText = val.trim();
+                  break;
+                }
+              }
+            }
+          }
+
+          if (sharedText) {
+            const shareCache = await caches.open(SHARE_CACHE_NAME);
+            await shareCache.put('shared-workout-data', new Response(sharedText, {
               headers: { 'Content-Type': 'text/plain;charset=utf-8' }
             }));
           }
         } catch (err) {
-          console.warn('[SW] Ошибка разбора данных Web Share Target:', err);
+          console.warn('[SW] Ошибка разбора Web Share Target:', err);
         }
 
-        // КРИТИЧНО: Response.redirect строго требует абсолютный URL, иначе вылетает 405 на сервере
-        const redirectUrl = new URL('./#tab-sync', self.location.href).href;
-        return Response.redirect(redirectUrl, 303);
+        // Чистый редирект 303 на корень приложения scope без хэша
+        const targetUrl = self.registration.scope;
+        try {
+          return Response.redirect(targetUrl, 303);
+        } catch (e) {
+          return new Response(
+            `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${targetUrl}"></head><body><script>location.replace(${JSON.stringify(targetUrl)});</script></body></html>`,
+            {
+              status: 200,
+              headers: { 'Content-Type': 'text/html;charset=utf-8' }
+            }
+          );
+        }
       })()
     );
     return;
   }
 
-  // 3. Stale-While-Revalidate для статики приложения и библиотек
+  // 3. Stale-While-Revalidate для статики и библиотек
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
