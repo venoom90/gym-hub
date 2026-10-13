@@ -6,7 +6,7 @@ import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
 
 let deferredInstallPrompt = null;
-const SHARE_CACHE_NAME = 'gym-share-temp-v34';
+const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initServiceWorker();
@@ -20,13 +20,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refreshApplicationData();
   });
 
-  // 1. Первичная проверка входящего шэринга отчета (ДО загрузки с сервера)
-  await checkSharedReportCache();
+  // 1. Проверка входящего отчета из Web Share Target ДО сетевых запросов
+  const hasSharedData = await checkSharedReportCache();
 
-  // 2. Первичная отрисовка активной вкладки из локального кэша
-  handleRouteHash();
+  // 2. Отрисовка вкладки (если был отчет — откроется вкладка синхронизации)
+  if (!hasSharedData) {
+    handleRouteHash();
+  }
 
-  // 3. Фоновое обновление базы данных с сервера Google Таблиц
+  // 3. Фоновое обновление базы с сервера Google Таблиц
   await refreshApplicationData();
 });
 
@@ -67,7 +69,7 @@ function initPwaInstall() {
   window.addEventListener('appinstalled', () => {
     if (installBtn) installBtn.style.display = 'none';
     deferredInstallPrompt = null;
-    console.log('[PWA] Приложение успешно установлено на устройство.');
+    console.log('[PWA] Приложение установлено на устройство.');
   });
 }
 
@@ -92,7 +94,6 @@ function handleRouteHash() {
   const hash = window.location.hash.replace('#', '') || 'tab-overview';
   let tabName = hash.replace('tab-', '');
 
-  // Защита от неизвестного хэша с гарантированным переходом на обзор
   if (!allowedTabs.includes(tabName)) {
     tabName = 'overview';
   }
@@ -124,7 +125,7 @@ function handleRouteHash() {
 }
 
 async function checkSharedReportCache() {
-  if (!('caches' in window)) return;
+  if (!('caches' in window)) return false;
 
   try {
     const cache = await caches.open(SHARE_CACHE_NAME);
@@ -135,12 +136,15 @@ async function checkSharedReportCache() {
 
       if (reportText && reportText.trim()) {
         window.location.hash = 'tab-sync';
+        handleRouteHash();
         handleIncomingReportText(reportText);
+        return true;
       }
     }
   } catch (err) {
-    console.warn('[App] Ошибка проверки шэринга отчета:', err);
+    console.warn('[App] Ошибка проверки входящего шэринга:', err);
   }
+  return false;
 }
 
 async function refreshApplicationData() {
@@ -160,7 +164,7 @@ async function refreshApplicationData() {
     if (curTab === 'coach') renderCoachModule();
     if (curTab === 'sync') renderSyncModule();
   } else {
-    console.warn('[App] Сервер вернул ошибку или нет сети:', res.error);
+    console.warn('[App] Сервер вернул ошибку или нет связи:', res.error);
   }
 }
 
