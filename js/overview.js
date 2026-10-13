@@ -31,6 +31,40 @@ function roundToGymStep(weight) {
   return Math.round(weight / 2.5) * 2.5;
 }
 
+/**
+ * Физиологический расчет подводящей лесенки (Warm-up Ramp)
+ * Исключает травмы и метаболическое закисление перед рабочими сетами
+ */
+function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
+  if (!targetWeight || targetWeight <= 35) {
+    return '1 легкий подход (по самочувствию)';
+  }
+
+  if (cycleMode === 'Делоад' || cycleMode === 'Разгрузка') {
+    const deloadStep = roundToGymStep(targetWeight * 0.6);
+    return `1 легкий подход × ${deloadStep} кг`;
+  }
+
+  // #1 Первое базовое движение сессии (тяжёлый компаунд верха)
+  if (order === 1) {
+    const step1 = roundToGymStep(targetWeight * 0.50);
+    const step2 = roundToGymStep(targetWeight * 0.75);
+    const step3 = roundToGymStep(targetWeight * 0.90);
+    return `${step1} кг × 8 → ${step2} кг × 3 → ${step3} кг × 1 (активация)`;
+  }
+
+  // #2 Второе базовое движение (тяга/жим в другой плоскости)
+  if (order === 2) {
+    const step1 = roundToGymStep(targetWeight * 0.60);
+    const step2 = roundToGymStep(targetWeight * 0.85);
+    return `${step1} кг × 5 → ${step2} кг × 2`;
+  }
+
+  // #3 и далее: изоляция, руки, ноги в конце
+  const calibrationStep = roundToGymStep(targetWeight * 0.65);
+  return `1 калибровочный сет × ${calibrationStep} кг (4–6 повт.)`;
+}
+
 function renderCalendarStrip() {
   const container = document.getElementById('calendarStripContainer');
   const rangeLabel = document.getElementById('calendarWeekRange');
@@ -252,7 +286,6 @@ function renderAiRecipeCard() {
         : `План дня ${nextSplit} из сохраненного мезоцикла.`;
     }
 
-    // Полный безошибочный рендер всех упражнений с поддержкой методов и заметок
     activeAiPlan.exercises.forEach((ex, idx) => {
       try {
         const step = document.createElement('div');
@@ -265,7 +298,9 @@ function renderAiRecipeCard() {
         const rirVal = String(ex.rir || '1-2');
         const methodVal = String(ex.method || 'Стандарт');
         const notesVal = ex.notes ? String(ex.notes) : '';
-        const warmupWeight = roundToGymStep(weightVal * 0.5);
+        
+        // Расчёт физиологической лесенки разминки
+        const warmupRampText = calculateWarmupRamp(orderNum, weightVal, nextMode);
 
         const methodBadgeHtml = methodVal !== 'Стандарт'
           ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">${escapeHtml(methodVal)}</span>`
@@ -282,7 +317,7 @@ function renderAiRecipeCard() {
           </div>
           <div class="recipe-warmup-row">
             <span class="material-symbols-outlined">restart_alt</span>
-            <span>Разминка: ${warmupWeight > 0 ? `1 подход × ${warmupWeight} кг` : 'Не требуется'}</span>
+            <span>Разминка: <b>${escapeHtml(warmupRampText)}</b></span>
           </div>
           ${notesVal ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(notesVal)}</div>` : ''}
         `;
@@ -349,7 +384,7 @@ function renderAiRecipeCard() {
 
   const sixtyDaysAgo = Date.now() - (60 * 24 * 3600 * 1000);
 
-  targetExercises.forEach(ex => {
+  targetExercises.forEach((ex, idx) => {
     const history = prevSplitSets.filter(s => {
       const setDate = normalizeDate(s.date);
       const isRecent = setDate && setDate.getTime() >= sixtyDaysAgo;
@@ -376,30 +411,24 @@ function renderAiRecipeCard() {
     let targetRepsBadge = '12–15 повт.';
     let rirBadgeText = 'RIR 2–3';
     let rawTargetLoad = 0;
-    let warmUpText = 'Не требуется';
 
     if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
       targetRepsBadge = '8–10 повт.';
       rirBadgeText = 'RIR 4–5 (Делоад)';
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.65) : 0;
-      const roundedDeload = roundToGymStep(rawTargetLoad);
-      warmUpText = `1 легкий подход на ${roundToGymStep(roundedDeload * 0.5)} кг`;
     } else if (nextMode === 'Сила') {
       targetRepsBadge = '4–6 повт.';
       rirBadgeText = 'RIR 1–2 (Сила)';
       const progressionStep = isNewCycleTransition ? 2.5 : 0;
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight + progressionStep) : 0;
-      const roundedStrength = roundToGymStep(rawTargetLoad);
-      warmUpText = `1 подход × ${roundToGymStep(roundedStrength * 0.5)} кг`;
     } else {
       targetRepsBadge = '12–16 повт.';
       rirBadgeText = 'RIR 2–3 (Объем)';
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.75) : 0;
-      const roundedVolume = roundToGymStep(rawTargetLoad);
-      warmUpText = `1 подход × ${roundToGymStep(roundedVolume * 0.45)} кг`;
     }
 
     const finalTargetLoad = roundToGymStep(rawTargetLoad);
+    const warmupRampText = calculateWarmupRamp(idx + 1, finalTargetLoad, nextMode);
 
     const step = document.createElement('div');
     step.className = 'recipe-step';
@@ -413,7 +442,7 @@ function renderAiRecipeCard() {
       </div>
       <div class="recipe-warmup-row">
         <span class="material-symbols-outlined">restart_alt</span>
-        <span>Разминка: ${escapeHtml(warmUpText)}</span>
+        <span>Разминка: <b>${escapeHtml(warmupRampText)}</b></span>
       </div>
     `;
     recipeBox.appendChild(step);
