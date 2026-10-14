@@ -291,7 +291,6 @@
       color: var(--md-sys-color-outline-variant);
     }
 
-    /* Кнопка запуска Live Workout */
     .start-live-workout-btn {
       width: 100%;
       min-height: 54px;
@@ -313,7 +312,6 @@
       transform: scale(0.98);
     }
 
-    /* Баннер возврата в активную тренировку */
     .recovery-banner {
       display: none;
       background: var(--md-sys-color-primary-container);
@@ -375,6 +373,35 @@
       flex: 1;
     }
 
+    .live-minimap-row {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .live-minimap-pill {
+      min-width: 38px;
+      height: 32px;
+      padding: 0 8px;
+      border-radius: 8px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .live-minimap-pill.current {
+      border-color: var(--md-sys-color-primary);
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+    }
+    .live-minimap-pill.done {
+      border-color: var(--md-sys-color-success);
+      color: var(--md-sys-color-success);
+    }
+
     .live-ex-nav-row {
       display: flex;
       align-items: center;
@@ -383,7 +410,7 @@
     }
 
     .live-nav-btn {
-      min-height: 48px;
+      min-height: 44px;
       padding: 0 14px;
       border-radius: 12px;
       border: 1px solid var(--md-sys-color-outline-variant);
@@ -454,6 +481,25 @@
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
+    }
+
+    .live-method-toggle-btn {
+      width: 100%;
+      min-height: 38px;
+      border-radius: 10px;
+      border: 1px dashed var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 10px;
+    }
+    .live-method-toggle-btn.active {
+      border-style: solid;
+      border-color: var(--md-sys-color-warning);
+      background: rgba(250, 204, 21, 0.12);
+      color: var(--md-sys-color-warning);
     }
 
     .live-stepper-block {
@@ -540,7 +586,7 @@
       border: none;
       background: var(--md-sys-color-success);
       color: #062e16;
-      font-size: 1.05rem;
+      font-size: 1rem;
       font-weight: 700;
       display: flex;
       align-items: center;
@@ -551,6 +597,35 @@
     }
     .live-record-btn:active {
       transform: scale(0.99);
+    }
+
+    .live-complete-ex-card {
+      display: none;
+      background: rgba(120, 220, 156, 0.08);
+      border: 1.5px solid var(--md-sys-color-success);
+      border-radius: 20px;
+      padding: 18px 16px;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      text-align: center;
+    }
+
+    .live-next-ex-primary-btn {
+      width: 100%;
+      min-height: 60px;
+      border-radius: 16px;
+      border: none;
+      background: linear-gradient(135deg, #00468b 0%, #1e64b4 100%);
+      color: #ffffff;
+      font-size: 0.98rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 70, 139, 0.45);
     }
 
     .live-rest-bar {
@@ -1566,6 +1641,9 @@
     <div class="live-body-container">
       <div style="font-size:0.78rem; color: var(--md-sys-color-on-surface-variant); text-align:center;" id="liveWorkoutTitle">Тренировка</div>
 
+      <!-- Мини-карта прогресса упражнений [✓ 1] [2] [3] ... -->
+      <div id="liveExMiniMap" class="live-minimap-row"></div>
+
       <!-- Навигация по упражнениям -->
       <div class="live-ex-nav-row">
         <button id="livePrevExBtn" class="live-nav-btn">
@@ -1586,7 +1664,7 @@
         <div id="liveExWarmupHint" style="font-size:0.78rem; color: var(--md-sys-color-success); display:flex; align-items:center; gap:4px; margin-top:2px;"></div>
       </div>
 
-      <!-- Подсказка для дроп-сетов и кластеров -->
+      <!-- Подсказка для дроп-сетов и кластеров (только на финальном подходе) -->
       <div id="liveIntensifierBanner" class="live-intensifier-banner"></div>
 
       <!-- Плавающий таймер отдыха -->
@@ -1605,19 +1683,39 @@
         </div>
       </div>
 
+      <!-- КАРТОЧКА ЗАВЕРШЕНИЯ УПРАЖНЕНИЯ (когда все плановые рабочие сеты выполнены) -->
+      <div id="liveExCompletedCard" class="live-complete-ex-card">
+        <div style="font-size:1rem; font-weight:700; color: var(--md-sys-color-success);" id="liveExCompletedTitle">
+          ✅ Упражнение выполнено!
+        </div>
+        <button id="liveCompleteAndNextExBtn" class="live-next-ex-primary-btn">
+          <span class="material-symbols-outlined">task_alt</span>
+          <span>ЗАВЕРШИТЬ И ПЕРЕЙТИ К СЛЕДУЮЩЕМУ</span>
+        </button>
+        <button id="liveAddBonusSetBtn" class="live-method-toggle-btn" style="margin-top:2px;">
+          + Добавить еще 1 подход сверх плана
+        </button>
+      </div>
+
       <!-- Блок управления весом, повторами и RIR без клавиатуры -->
-      <div class="live-controls-card">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span id="liveCurrentSetLabel" style="font-size:0.85rem; font-weight:700; color: var(--md-sys-color-primary);">РАБОЧИЙ ПОДХОД #1</span>
+      <div id="liveActiveSetControlsCard" class="live-controls-card">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <span id="liveCurrentSetLabel" style="font-size:0.85rem; font-weight:700; color: var(--md-sys-color-primary);">РАЗМИНКА: ШАГ 1</span>
           <button id="liveClusterPauseBtn" class="live-nav-btn" style="min-height:34px; padding:0 10px; font-size:0.75rem;">
             <span class="material-symbols-outlined" style="font-size:16px;">bolt</span>
-            <span>Кластер-пауза (20с)</span>
+            <span>Пауза 20с</span>
           </button>
         </div>
 
         <div class="live-cat-toggle-row">
-          <button id="liveCatWarmupBtn" class="live-cat-btn">Разминочный</button>
-          <button id="liveCatWorkBtn" class="live-cat-btn active">Рабочий сет</button>
+          <button id="liveCatWarmupBtn" class="live-cat-btn active">Разминка</button>
+          <button id="liveCatWorkBtn" class="live-cat-btn">Рабочий</button>
+        </div>
+
+        <div id="liveMethodToggleRow" style="display:none;">
+          <button id="liveToggleSpecialMethodBtn" class="live-method-toggle-btn">
+            Обычный рабочий сет
+          </button>
         </div>
 
         <div class="live-stepper-block">
@@ -1638,7 +1736,7 @@
           </div>
         </div>
 
-        <div class="live-stepper-block">
+        <div id="liveRirBlock" class="live-stepper-block">
           <span class="live-stepper-label">Запас сил до отказа (RIR)</span>
           <div class="live-rir-row">
             <button class="live-rir-chip" data-rir="0">

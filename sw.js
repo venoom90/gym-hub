@@ -1,10 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V39 LIVE WORKOUT READY)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V40 LIVE WORKOUT V1.2)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v39';
+const CACHE_NAME = 'gym-hub-v40';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 const APP_ASSETS = [
@@ -70,7 +70,6 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 2. ПЕРЕХВАТ ЛЮБОГО POST-ЗАПРОСА НА НАШЕМ ХОСТЕ (Web Share Target)
-  // Это полностью исключает попадание POST на GitHub Pages и возникновение ошибки 405
   if (event.request.method === 'POST') {
     event.respondWith(
       (async () => {
@@ -78,7 +77,6 @@ self.addEventListener('fetch', (event) => {
           const formData = await event.request.formData();
           let sharedText = '';
 
-          // Поиск файла отчета среди всех полей формы
           for (const [key, val] of formData.entries()) {
             if (val && typeof val !== 'string' && typeof val.text === 'function') {
               sharedText = await val.text();
@@ -86,7 +84,6 @@ self.addEventListener('fetch', (event) => {
             }
           }
 
-          // Если бинарный файл не найден, проверяем текстовые поля
           if (!sharedText) {
             const textVal = formData.get('text');
             if (textVal && typeof textVal === 'string' && textVal.trim()) {
@@ -111,7 +108,6 @@ self.addEventListener('fetch', (event) => {
           console.warn('[SW] Ошибка разбора Web Share Target:', err);
         }
 
-        // Чистый редирект 303 на корень приложения scope без хэша
         const targetUrl = self.registration.scope;
         try {
           return Response.redirect(targetUrl, 303);
