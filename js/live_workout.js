@@ -1,12 +1,12 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.2)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.3)
  * =========================================================================
  * Автономный контур проведения тренировки в зале:
+ * - Единая синхронная индикация текущего подхода (Заголовок == Кнопка таба == Кнопка записи)
  * - Автоматическое ведение по шагам разминки (Warm-up Ramp) -> Рабочие сеты
  * - Включение Кластера / Дроп-сета строго на последнем рабочем сете + ручной тоггл
- * - Мини-карта упражнений [✓ 1] [2] [3] и явная кнопка «Завершить упражнение»
- * - Screen Wake Lock API + Vibration API + Crash-Proof буфер localStorage
+ * - Расчет макро-метрик для листа 'Workouts' (плотность кг/мин, отдых сек, RIR, индекс Фостера)
  */
 
 import { state, setInitialData, formatDateDisplay, escapeHtml } from './state.js';
@@ -93,9 +93,6 @@ function parseDefaultReps(repsRaw) {
   return match ? parseInt(match[1], 10) : 6;
 }
 
-/**
- * Извлечение параметров кластера (например, из "Кластер 4+3+2" -> total: 9, firstSegment: 4)
- */
 function parseClusterScheme(methodStr, defaultWorkReps) {
   const str = String(methodStr || '');
   const plusMatch = str.match(/(\d+(?:\+\d+)+)/);
@@ -127,18 +124,11 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
   };
 }
 
-/**
- * Автоматический расчет состояния черновика подхода (draftSet) для упражнения:
- * 1) Если еще не пройдены шаги разминки -> выставляет текущий шаг разминки
- * 2) Если разминка пройдена -> выставляет рабочий подход
- * 3) Если это ПОСЛЕДНИЙ рабочий подход (например, 4 из 4) -> автоматически активирует спецметод из плана
- */
 function computeSmartDraftSetForExercise(ex) {
   const warmupDoneCount = ex.completedSets.filter(s => s.category === 'Разминка').length;
   const workDoneCount = ex.completedSets.filter(s => s.category === 'Рабочий').length;
   const warmupSteps = Array.isArray(ex.warmupSteps) && ex.warmupSteps.length > 0 ? ex.warmupSteps : [];
 
-  // Если рабочие подходы еще не начаты и остались шаги разминки — ведем по лесенке разминки
   if (workDoneCount === 0 && warmupDoneCount < warmupSteps.length) {
     const step = warmupSteps[warmupDoneCount];
     return {
@@ -150,10 +140,8 @@ function computeSmartDraftSetForExercise(ex) {
     };
   }
 
-  // Иначе — режим Рабочего подхода
   const nextWorkSetNumber = workDoneCount + 1;
   const hasPlannedSpecialMethod = ex.plannedMethod && ex.plannedMethod !== 'Стандарт';
-  // Спецметод (Кластер / Дроп-сет) по умолчанию включается ТОЛЬКО на финальном рабочем подходе!
   const isFinalPlannedWorkSet = (nextWorkSetNumber === ex.targetSets);
   const activateSpecialNow = Boolean(hasPlannedSpecialMethod && isFinalPlannedWorkSet);
 
@@ -177,9 +165,6 @@ function computeSmartDraftSetForExercise(ex) {
   };
 }
 
-/**
- * Запуск новой тренировки из подготовленного рецепта (Overview)
- */
 export function startNewLiveWorkout(recipePayload) {
   if (!recipePayload || !Array.isArray(recipePayload.exercises) || recipePayload.exercises.length === 0) {
     alert('План тренировки пуст. Сначала загрузите данные или сформируйте план у Тренера.');
@@ -236,7 +221,7 @@ export function startNewLiveWorkout(recipePayload) {
   const initialDraft = computeSmartDraftSetForExercise(firstEx);
 
   activeSession = {
-    sessionId: `live_${Date.now()}`,
+    sessionId: `w_${Date.now()}`,
     title: recipePayload.title || 'Тренировка А1 Сила',
     cycleId: recipePayload.cycleId || state.dbData.currentCycleId || 'C-2',
     splitDay: recipePayload.splitDay || 'А',
@@ -255,6 +240,7 @@ export function startNewLiveWorkout(recipePayload) {
       totalSeconds: 150,
       notified10s: false
     },
+    readinessPre: '🟢 Оптимум',
     sRPE: 8,
     isFinished: false
   };
@@ -439,7 +425,7 @@ function renderLiveWorkoutScreen() {
 
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  const totalWarmupSteps = Array.isArray(currentEx.warmupSteps) ? currentEx.warmupSteps.length : 0;
+  const totalWarmupSteps = Math.max(1, Array.isArray(currentEx.warmupSteps) ? currentEx.warmupSteps.length : 1);
 
   const titleEl = document.getElementById('liveWorkoutTitle');
   const progressBadgeEl = document.getElementById('liveExProgressBadge');
@@ -470,7 +456,6 @@ function renderLiveWorkoutScreen() {
       : '';
   }
 
-  // Навигация Пред. / След.
   const prevBtn = document.getElementById('livePrevExBtn');
   const nextBtn = document.getElementById('liveNextExBtn');
   if (prevBtn) prevBtn.disabled = (exIdx <= 0);
@@ -481,7 +466,6 @@ function renderLiveWorkoutScreen() {
   const completedCard = document.getElementById('liveExCompletedCard');
 
   if (isTargetReached) {
-    // Все плановые подходы выполнены — показываем крупный блок завершения упражнения!
     if (controlsCard) controlsCard.style.display = 'none';
     if (intensifierBannerEl) intensifierBannerEl.style.display = 'none';
     if (completedCard) {
@@ -512,14 +496,12 @@ function renderLiveWorkoutScreen() {
     return;
   }
 
-  // Обычный режим ввода подхода
   if (controlsCard) controlsCard.style.display = 'flex';
   if (completedCard) completedCard.style.display = 'none';
 
   const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
   const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
 
-  // Плашка подсказки интенсификатора показывается, когда активен спецметод
   if (intensifierBannerEl) {
     if (isSpecialActive && currentEx.isDrop) {
       const dropLoad = roundToGymStep(activeSession.draftSet.weight * 0.75);
@@ -533,41 +515,49 @@ function renderLiveWorkoutScreen() {
       intensifierBannerEl.style.display = 'flex';
       intensifierBannerEl.innerHTML = `
         <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span>
-        <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> используйте кнопку <b>«Кластер-пауза 20с»</b> между сегментами. В зачет пойдет сумма повторений (${clusterInfo.totalReps}).</div>
+        <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> используйте кнопку <b>«Пауза 20с»</b> между сегментами. В зачет идет сумма повторений (${clusterInfo.totalReps}).</div>
       `;
     } else {
       intensifierBannerEl.style.display = 'none';
     }
   }
 
-  // Заголовок текущего подхода
+  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, totalWarmupSteps);
+  const currentWorkSetNum = workSetsDone + 1;
+
+  // 1. Заголовок текущего подхода
   const setBadgeEl = document.getElementById('liveCurrentSetLabel');
   if (setBadgeEl) {
     if (isWarmupMode) {
-      const stepNum = Math.min(warmupSetsDone + 1, Math.max(1, totalWarmupSteps));
-      setBadgeEl.innerText = `РАЗМИНКА: ШАГ ${stepNum} ИЗ ${Math.max(1, totalWarmupSteps)}`;
+      setBadgeEl.innerText = `РАЗМИНКА: ШАГ ${currentWarmupStepNum} ИЗ ${totalWarmupSteps}`;
       setBadgeEl.style.color = 'var(--md-sys-color-success)';
     } else {
-      const workNum = workSetsDone + 1;
-      const finalBadge = (workNum === currentEx.targetSets) ? ' (ФИНАЛЬНЫЙ)' : '';
-      setBadgeEl.innerText = `РАБОЧИЙ ПОДХОД #${workNum} ИЗ ${currentEx.targetSets}${finalBadge}`;
+      const finalBadge = (currentWorkSetNum === currentEx.targetSets) ? ' (ФИНАЛЬНЫЙ)' : '';
+      setBadgeEl.innerText = `РАБОЧИЙ ПОДХОД #${currentWorkSetNum} ИЗ ${currentEx.targetSets}${finalBadge}`;
       setBadgeEl.style.color = 'var(--md-sys-color-primary)';
     }
   }
 
-  // Переключатели Разминочный / Рабочий
+  // 2. Кнопки переключения Разминка / Рабочий — 100% совпадение номера текущего подхода!
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
   if (catWarmupBtn && catWorkBtn) {
     catWarmupBtn.classList.toggle('active', isWarmupMode);
     catWorkBtn.classList.toggle('active', !isWarmupMode);
-    catWarmupBtn.innerText = totalWarmupSteps > 0
-      ? `Разминка (${warmupSetsDone}/${totalWarmupSteps})`
-      : `Разминка (${warmupSetsDone})`;
-    catWorkBtn.innerText = `Рабочий (${workSetsDone}/${currentEx.targetSets})`;
+
+    if (isWarmupMode) {
+      catWarmupBtn.innerText = `Разминка (Шаг ${currentWarmupStepNum}/${totalWarmupSteps})`;
+      catWorkBtn.innerText = `Рабочие (0/${currentEx.targetSets})`;
+    } else {
+      const warmupDoneMark = warmupSetsDone >= totalWarmupSteps
+        ? `✓ ${warmupSetsDone}/${totalWarmupSteps}`
+        : `${warmupSetsDone}/${totalWarmupSteps}`;
+      catWarmupBtn.innerText = `Разминка (${warmupDoneMark})`;
+      catWorkBtn.innerText = `Рабочий (Сет ${currentWorkSetNum}/${currentEx.targetSets})`;
+    }
   }
 
-  // Кнопка переключения метода на текущем рабочем подходе (Обычный <-> Кластер/Дроп)
+  // Тоггл спецметода на текущем рабочем подходе
   const methodToggleRow = document.getElementById('liveMethodToggleRow');
   const methodToggleBtn = document.getElementById('liveToggleSpecialMethodBtn');
   if (methodToggleRow && methodToggleBtn) {
@@ -585,13 +575,11 @@ function renderLiveWorkoutScreen() {
     }
   }
 
-  // Отрисовка крупных значений Веса и Повторений
   const weightValEl = document.getElementById('liveWeightValue');
   const repsValEl = document.getElementById('liveRepsValue');
   if (weightValEl) weightValEl.innerText = activeSession.draftSet.weight;
   if (repsValEl) repsValEl.innerText = activeSession.draftSet.reps;
 
-  // Блок RIR (скрываем на разминке, чтобы не перегружать внимание)
   const rirBlockEl = document.getElementById('liveRirBlock');
   if (rirBlockEl) {
     rirBlockEl.style.display = isWarmupMode ? 'none' : 'flex';
@@ -602,7 +590,6 @@ function renderLiveWorkoutScreen() {
     chip.classList.toggle('active', val === String(activeSession.draftSet.rir));
   });
 
-  // Кнопка кластерной микропаузы 20с
   const clusterPauseBtn = document.getElementById('liveClusterPauseBtn');
   if (clusterPauseBtn) {
     const prefs = getTimerPrefs();
@@ -610,21 +597,19 @@ function renderLiveWorkoutScreen() {
     clusterPauseBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">bolt</span><span>Пауза ${prefs.cluster}с</span>`;
   }
 
-  // Главная зеленая кнопка записи подхода
+  // 3. Главная зеленая кнопка записи — 100% совпадение номера текущего подхода!
   const recordBtn = document.getElementById('liveRecordSetBtn');
   if (recordBtn) {
     if (isWarmupMode) {
-      const stepNum = warmupSetsDone + 1;
       recordBtn.innerHTML = `
         <span class="material-symbols-outlined">check_circle</span>
-        <span>ЗАПИСАТЬ РАЗМИНКУ #${stepNum} (${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps})</span>
+        <span>ЗАПИСАТЬ РАЗМИНКУ #${currentWarmupStepNum} (${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps})</span>
       `;
     } else {
-      const workNum = workSetsDone + 1;
       const specLabel = isSpecialActive ? ` • ${currentEx.plannedMethod.split(' ')[0].toUpperCase()}` : '';
       recordBtn.innerHTML = `
         <span class="material-symbols-outlined">check_circle</span>
-        <span>ЗАПИСАТЬ РАБОЧИЙ СЕТ #${workNum}${specLabel} (${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps})</span>
+        <span>ЗАПИСАТЬ РАБОЧИЙ СЕТ #${currentWorkSetNum}${specLabel} (${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps})</span>
       `;
     }
   }
@@ -632,9 +617,6 @@ function renderLiveWorkoutScreen() {
   renderCompletedSetsHistory(currentEx);
 }
 
-/**
- * Отрисовка истории с раздельной нумерацией: Разм. #1, #2 и Раб. #1, #2, #3, #4
- */
 function renderCompletedSetsHistory(currentEx) {
   const listEl = document.getElementById('liveCompletedSetsList');
   if (!listEl) return;
@@ -722,7 +704,6 @@ function handleRecordCurrentSet() {
     reserve = '+3';
   }
 
-  // Метод пишется ТОЛЬКО если это рабочий подход и для него включен спецметод!
   const appliedMethod = (!isWarmup && activeSession.draftSet.useSpecialMethod && currentEx.plannedMethod !== 'Стандарт')
     ? currentEx.plannedMethod
     : '';
@@ -750,7 +731,8 @@ function handleRecordCurrentSet() {
     category: isWarmup ? 'Разминка' : 'Рабочий',
     tonnage: tonnage,
     e1rm: e1rm,
-    recordedAt: new Date().toTimeString().slice(0, 8)
+    recordedAt: new Date().toTimeString().slice(0, 8),
+    timestampMs: Date.now()
   };
 
   currentEx.completedSets.push(recordedSet);
@@ -763,10 +745,8 @@ function handleRecordCurrentSet() {
 
   triggerHaptic([80]);
 
-  // Автоматический расчет следующего шага (Разминка #2 -> #3 -> Рабочий #1 -> ... -> Финальный с кластером)
   activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
 
-  // Запуск таймера отдыха
   const prefs = getTimerPrefs();
   let restSeconds = prefs.compound;
   if (isWarmup) {
@@ -902,45 +882,103 @@ function switchActiveExercise(newIndex) {
 
 /**
  * -------------------------------------------------------------------------
- * ЗАВЕРШЕНИЕ ТРЕНИРОВКИ И СИНХРОНИЗАЦИЯ С GOOGLE SHEETS
+ * РАСЧЕТ МАКРО-СВОДКИ И ЗАВЕРШЕНИЕ ТРЕНИРОВКИ (ЛИСТ WORKOUTS)
  * -------------------------------------------------------------------------
  */
-function openCloseoutModal() {
-  if (!activeSession) return;
-
+function calculateWorkoutSummaryMetrics() {
   let totalWorkSets = 0;
   let totalWarmupSets = 0;
   let workTonnageKg = 0;
+  let rirSum = 0;
+  let rirCount = 0;
+  const allTimestamps = [];
 
   activeSession.exercises.forEach(ex => {
     ex.completedSets.forEach(s => {
+      if (s.timestampMs) {
+        allTimestamps.push(s.timestampMs);
+      }
       if (s.category === 'Рабочий') {
         totalWorkSets++;
         workTonnageKg += (s.tonnage || 0);
+        const rirClean = parseFloat(String(s.reserve || '').replace('+', ''));
+        if (!isNaN(rirClean)) {
+          rirSum += rirClean;
+          rirCount++;
+        }
       } else {
         totalWarmupSets++;
       }
     });
   });
 
-  if (totalWorkSets === 0 && totalWarmupSets === 0) {
+  const durationMin = Math.max(1, Math.round((Date.now() - activeSession.startedAtMs) / 60000));
+  const workTonnage = parseFloat(workTonnageKg.toFixed(1));
+  const density = parseFloat((workTonnage / durationMin).toFixed(1));
+  const avgRir = rirCount > 0 ? parseFloat((rirSum / rirCount).toFixed(1)) : 2.0;
+
+  // Расчет среднего фактического отдыха между подходами из разницы timestampMs
+  allTimestamps.sort((a, b) => a - b);
+  let restDiffsSum = 0;
+  let restDiffsCount = 0;
+  for (let i = 1; i < allTimestamps.length; i++) {
+    const diffSec = Math.round((allTimestamps[i] - allTimestamps[i - 1]) / 1000);
+    // Учитываем реальные паузы от 15 сек до 10 мин (исключая случайные двойные клики)
+    if (diffSec >= 15 && diffSec <= 600) {
+      restDiffsSum += diffSec;
+      restDiffsCount++;
+    }
+  }
+  const avgRestSec = restDiffsCount > 0 ? Math.round(restDiffsSum / restDiffsCount) : 120;
+  const sRPE = parseFloat(activeSession.sRPE) || 8;
+  const trainingLoad = Math.round(durationMin * sRPE);
+
+  return {
+    workoutId: activeSession.sessionId,
+    date: activeSession.date,
+    cycleId: activeSession.cycleId,
+    week: activeSession.cycleWeek || 1,
+    split: activeSession.splitDay || 'А',
+    durationMin: durationMin,
+    workTonnage: workTonnage,
+    density: density,
+    avgRestSec: avgRestSec,
+    avgRir: avgRir,
+    readinessPre: activeSession.readinessPre || '🟢 Оптимум',
+    sRPE: sRPE,
+    trainingLoad: trainingLoad,
+    totalWorkSets: totalWorkSets,
+    totalWarmupSets: totalWarmupSets
+  };
+}
+
+function openCloseoutModal() {
+  if (!activeSession) return;
+
+  const metrics = calculateWorkoutSummaryMetrics();
+  if (metrics.totalWorkSets === 0 && metrics.totalWarmupSets === 0) {
     alert('Вы еще не записали ни одного подхода!');
     return;
   }
 
-  const elapsedMin = Math.max(1, Math.round((Date.now() - activeSession.startedAtMs) / 60000));
-  const summaryBox = document.getElementById('liveCloseoutSummaryStats');
-  if (summaryBox) {
-    summaryBox.innerHTML = `
-      <div>• Тренировка: <b>${escapeHtml(activeSession.title)}</b> (${escapeHtml(activeSession.date)})</div>
-      <div>• Чистое время: <b>${elapsedMin} мин</b></div>
-      <div>• Рабочих подходов: <b>${totalWorkSets}</b> (разминочных: ${totalWarmupSets})</div>
-      <div>• Рабочий тоннаж: <b>${(workTonnageKg / 1000).toFixed(2)} т</b> (${Math.round(workTonnageKg)} кг)</div>
-    `;
-  }
+  renderCloseoutSummaryBox();
 
   const modal = document.getElementById('liveCloseoutModal');
   if (modal) modal.style.display = 'flex';
+}
+
+function renderCloseoutSummaryBox() {
+  const summaryBox = document.getElementById('liveCloseoutSummaryStats');
+  if (!summaryBox || !activeSession) return;
+
+  const m = calculateWorkoutSummaryMetrics();
+  summaryBox.innerHTML = `
+    <div>• Сессия: <b>${escapeHtml(activeSession.title)}</b> (${escapeHtml(m.date)})</div>
+    <div>• Длительность: <b>${m.durationMin} мин</b> • Плотность: <b>${m.density} кг/мин</b></div>
+    <div>• Подходы: <b>${m.totalWorkSets} рабочих</b> (разминка: ${m.totalWarmupSets}) • Ср. RIR: <b>${m.avgRir}</b></div>
+    <div>• Рабочий тоннаж: <b>${(m.workTonnage / 1000).toFixed(2)} т</b> (${Math.round(m.workTonnage)} кг)</div>
+    <div>• Средний отдых: <b>${m.avgRestSec} сек</b> • Нагрузка (Фостер): <b>${m.trainingLoad} ед.</b></div>
+  `;
 }
 
 async function finalizeAndSyncLiveWorkout() {
@@ -948,6 +986,7 @@ async function finalizeAndSyncLiveWorkout() {
   const saveBtn = document.getElementById('liveConfirmFinishBtn');
   const statusEl = document.getElementById('liveCloseoutSyncStatus');
 
+  const workoutSummary = calculateWorkoutSummaryMetrics();
   const flatSets = [];
   const allExercises = [];
   let globalIdx = 0;
@@ -973,7 +1012,7 @@ async function finalizeAndSyncLiveWorkout() {
         effort: s.effort,
         reserve: s.reserve,
         method: s.method,
-        equipment: `sRPE ${activeSession.sRPE || 8}`,
+        equipment: `sRPE ${workoutSummary.sRPE}`,
         positioning: '',
         splitDay: activeSession.splitDay,
         cycleMode: activeSession.cycleMode,
@@ -991,7 +1030,7 @@ async function finalizeAndSyncLiveWorkout() {
   if (statusEl) {
     statusEl.style.display = 'block';
     statusEl.style.color = 'var(--md-sys-color-primary)';
-    statusEl.innerText = '⏳ Отправка тренировки в Google Таблицы и обратная верификация...';
+    statusEl.innerText = '⏳ Отправка подходов (Log) и сводки тренировки (Workouts) в Google Таблицы...';
   }
 
   try {
@@ -1001,7 +1040,8 @@ async function finalizeAndSyncLiveWorkout() {
       date: activeSession.date,
       startTime: activeSession.startTime,
       sets: flatSets,
-      allExercises: allExercises
+      allExercises: allExercises,
+      workoutSummary: workoutSummary
     };
 
     await syncSetsToSheets(payload);
@@ -1026,7 +1066,7 @@ async function finalizeAndSyncLiveWorkout() {
       await onWorkoutCompletedCallback();
     }
 
-    alert('Тренировка успешно сохранена в базу данных Google Таблиц!');
+    alert('Тренировка и сводка Workouts успешно сохранены в Google Таблицы!');
   } catch (err) {
     if (statusEl) {
       statusEl.style.color = 'var(--md-sys-color-error)';
@@ -1057,7 +1097,6 @@ function bindLiveWorkoutDomEvents() {
   if (prevBtn) prevBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex - 1);
   if (nextBtn) nextBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex + 1);
 
-  // Ручное переключение на вкладку Разминка / Рабочий сет
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
   if (catWarmupBtn) {
@@ -1099,7 +1138,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Ручной тоггл спецметода (Кластер / Дроп-сет) на текущем рабочем подходе
   const toggleSpecialBtn = document.getElementById('liveToggleSpecialMethodBtn');
   if (toggleSpecialBtn) {
     toggleSpecialBtn.onclick = () => {
@@ -1119,7 +1157,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Кнопки карточки выполненного упражнения
   const completeNextBtn = document.getElementById('liveCompleteAndNextExBtn');
   const addBonusSetBtn = document.getElementById('liveAddBonusSetBtn');
   if (completeNextBtn) {
@@ -1143,7 +1180,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Степперы Веса (-2.5 / +2.5)
   const wMinus = document.getElementById('liveWeightMinusBtn');
   const wPlus = document.getElementById('liveWeightPlusBtn');
   if (wMinus) {
@@ -1165,7 +1201,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Степперы Повторений (-1 / +1)
   const rMinus = document.getElementById('liveRepsMinusBtn');
   const rPlus = document.getElementById('liveRepsPlusBtn');
   if (rMinus) {
@@ -1187,7 +1222,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Чипы RIR
   document.querySelectorAll('.live-rir-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;
@@ -1198,7 +1232,6 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
-  // Кластерная микропауза 20с
   const clusterBtn = document.getElementById('liveClusterPauseBtn');
   if (clusterBtn) {
     clusterBtn.onclick = () => {
@@ -1208,13 +1241,11 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Запись подхода
   const recordBtn = document.getElementById('liveRecordSetBtn');
   if (recordBtn) {
     recordBtn.onclick = () => handleRecordCurrentSet();
   }
 
-  // Управление таймером отдыха (-30с / +30с / Пропустить)
   const restMinusBtn = document.getElementById('liveRestMinus30Btn');
   const restPlusBtn = document.getElementById('liveRestPlus30Btn');
   const restSkipBtn = document.getElementById('liveRestSkipBtn');
@@ -1222,7 +1253,6 @@ function bindLiveWorkoutDomEvents() {
   if (restPlusBtn) restPlusBtn.onclick = () => adjustRestTimer(30);
   if (restSkipBtn) restSkipBtn.onclick = () => stopRestTimer();
 
-  // Настройки таймеров отдыха
   const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
   const timerPrefsModal = document.getElementById('liveTimerSettingsModal');
   const closeTimerPrefsBtn = document.getElementById('closeLiveTimerSettingsBtn');
@@ -1254,7 +1284,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Модальное окно завершения (Close-out)
   const closeCloseoutBtn = document.getElementById('closeLiveCloseoutModalBtn');
   const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
   const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
@@ -1265,6 +1294,18 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
+  // Выбор готовности (readiness_pre)
+  document.querySelectorAll('.live-readiness-chip').forEach(chip => {
+    chip.onclick = () => {
+      if (!activeSession) return;
+      activeSession.readinessPre = chip.getAttribute('data-readiness') || '🟢 Оптимум';
+      document.querySelectorAll('.live-readiness-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      persistActiveSession();
+    };
+  });
+
+  // Выбор тяжести (sRPE) с мгновенным пересчетом Индекса Фостера
   document.querySelectorAll('.live-srpe-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;
@@ -1272,6 +1313,7 @@ function bindLiveWorkoutDomEvents() {
       document.querySelectorAll('.live-srpe-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       persistActiveSession();
+      renderCloseoutSummaryBox();
     };
   });
 

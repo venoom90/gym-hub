@@ -9,6 +9,8 @@ function getInitialDbData() {
     catalog: [],
     cycles: [],
     exercises: [],
+    workouts: [],
+    aiPlan: null,
     currentCycleId: 'C-1'
   };
 
@@ -21,6 +23,8 @@ function getInitialDbData() {
       catalog: Array.isArray(parsed.catalog) ? parsed.catalog : [],
       cycles: Array.isArray(parsed.cycles) ? parsed.cycles : [],
       exercises: Array.isArray(parsed.exercises) ? parsed.exercises : [],
+      workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
+      aiPlan: parsed.aiPlan || null,
       currentCycleId: parsed.currentCycleId || 'C-1'
     };
   } catch (e) {
@@ -52,10 +56,16 @@ export function setDbData(data) {
     catalog: Array.isArray(safeData.catalog) ? safeData.catalog : [],
     cycles: Array.isArray(safeData.cycles) ? safeData.cycles : [],
     exercises: Array.isArray(safeData.exercises) ? safeData.exercises : [],
+    workouts: Array.isArray(safeData.workouts) ? safeData.workouts : [],
+    aiPlan: safeData.aiPlan || null,
     currentCycleId: safeData.currentCycleId || 'C-1'
   };
 
   try {
+    // Облачная синхронизация плана тренировок с листа AI_Plan
+    if (safeData.aiPlan && safeData.aiPlan.splits) {
+      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(safeData.aiPlan));
+    }
     if (state.dbData.sets.length > 0) {
       localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
     }
@@ -113,7 +123,6 @@ export function normalizeDate(dateVal) {
   }
 
   const str = String(dateVal).trim();
-  // Формат DD.MM.YYYY
   const ruMatch = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
   if (ruMatch) {
     const day = parseInt(ruMatch[1], 10);
@@ -123,7 +132,6 @@ export function normalizeDate(dateVal) {
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // Формат YYYY-MM-DD
   const isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
     const year = parseInt(isoMatch[1], 10);

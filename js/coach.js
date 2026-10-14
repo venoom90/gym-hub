@@ -1,5 +1,5 @@
 import { state, normalizeDate, escapeHtml } from './state.js';
-import { askGasGeminiCoach } from './api.js';
+import { askGasGeminiCoach, saveAiPlanToSheets } from './api.js';
 
 let activeSplitView = 'A';
 let cachedPlanData = null;
@@ -314,6 +314,12 @@ ${exSummaryB}
     localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
 
     renderStructuredCards();
+
+    // Фоновое сохранение сгенерированного плана на лист AI_Plan в Google Таблице
+    if (loadingBox) {
+      loadingBox.innerText = `☁️ Сохранение плана на лист AI_Plan в Google Таблице...`;
+    }
+    await saveAiPlanToSheets(cachedPlanData);
   } catch (err) {
     alert(`Ошибка генерации плана: ${err.message}`);
   } finally {
@@ -328,6 +334,10 @@ function loadCachedPlan() {
     const saved = localStorage.getItem('gym_ai_coach_plan');
     if (saved) {
       cachedPlanData = JSON.parse(saved);
+      renderStructuredCards();
+    } else if (state.dbData.aiPlan && state.dbData.aiPlan.splits) {
+      cachedPlanData = state.dbData.aiPlan;
+      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
       renderStructuredCards();
     }
   } catch (e) {
@@ -351,7 +361,6 @@ function renderStructuredCards() {
     badgeEl.innerText = cachedPlanData.cycleId;
   }
 
-  // Компактные кнопки-чипы в две строки (без обрезания многоточием)
   if (splitTabA && cachedPlanData.splits && cachedPlanData.splits.A) {
     const rawTitleA = cachedPlanData.splits.A.title || 'Тренировка А1';
     const waveTagA = (rawTitleA.match(/[АA]\d+/i) || ['А1'])[0];
@@ -376,7 +385,6 @@ function renderStructuredCards() {
 
   const currentSplit = cachedPlanData.splits ? cachedPlanData.splits[activeSplitView] : null;
 
-  // Развернутое название выбранного сплита над списком упражнений
   if (splitTitleEl) {
     if (currentSplit && currentSplit.title) {
       splitTitleEl.style.display = 'block';
