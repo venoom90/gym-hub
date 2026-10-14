@@ -1,10 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V40 LIVE WORKOUT V1.2)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V41 WORKOUTS & AI_PLAN SYNC)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v40';
+const CACHE_NAME = 'gym-hub-v41';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 const APP_ASSETS = [

@@ -473,7 +473,7 @@
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       cursor: pointer;
     }
@@ -698,16 +698,23 @@
       gap: 6px;
     }
 
-    .live-srpe-chip {
-      min-height: 44px;
+    .live-readiness-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .live-srpe-chip, .live-readiness-chip {
+      min-height: 42px;
       border-radius: 10px;
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface);
+      font-size: 0.82rem;
       font-weight: 700;
       cursor: pointer;
     }
-    .live-srpe-chip.active {
+    .live-srpe-chip.active, .live-readiness-chip.active {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
@@ -1772,17 +1779,26 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ (CLOSE-OUT) -->
+  <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ (CLOSE-OUT & WORKOUTS SUMMARY) -->
   <div id="liveCloseoutModal" class="modal-overlay">
     <div class="modal-card">
       <div class="card-title">
         <span>Завершение тренировки</span>
         <md-icon-button id="closeLiveCloseoutModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
       </div>
-      <div id="liveCloseoutSummaryStats" style="font-size:0.88rem; line-height:1.6; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high); padding:12px 14px; border-radius:14px;"></div>
+      <div id="liveCloseoutSummaryStats" style="font-size:0.84rem; line-height:1.65; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high); padding:12px 14px; border-radius:14px;"></div>
+
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <span style="font-size:0.8rem; font-weight:600; color: var(--md-sys-color-primary);">Самочувствие и готовность ЦНС (Readiness):</span>
+        <div class="live-readiness-grid">
+          <button class="live-readiness-chip active" data-readiness="🟢 Оптимум">🟢 Оптимум</button>
+          <button class="live-readiness-chip" data-readiness="🟡 Норма">🟡 Норма</button>
+          <button class="live-readiness-chip" data-readiness="🔴 Утомлен">🔴 Утомлен</button>
+        </div>
+      </div>
       
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <span style="font-size:0.82rem; font-weight:600; color: var(--md-sys-color-primary);">Оценка тяжести сессии (sRPE по шкале 6–10):</span>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <span style="font-size:0.8rem; font-weight:600; color: var(--md-sys-color-primary);">Оценка тяжести сессии (sRPE по шкале 6–10):</span>
         <div class="live-srpe-grid">
           <button class="live-srpe-chip" data-srpe="6">6</button>
           <button class="live-srpe-chip" data-srpe="7">7</button>
