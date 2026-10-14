@@ -4,6 +4,7 @@ import { renderOverviewModule } from './overview.js';
 import { renderAnalyticsModule } from './analytics.js';
 import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
+import { initLiveWorkoutModule } from './live_workout.js';
 
 let deferredInstallPrompt = null;
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
@@ -17,6 +18,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   initRefreshButton();
 
   initSyncModule(async () => {
+    await refreshApplicationData();
+  });
+
+  initLiveWorkoutModule(async () => {
     await refreshApplicationData();
   });
 

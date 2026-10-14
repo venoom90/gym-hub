@@ -1,7 +1,9 @@
 import { state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml } from './state.js';
 import { extractPeriodization } from './parser.js';
+import { startNewLiveWorkout } from './live_workout.js';
 
 let isOverviewInitialized = false;
+let latestPreparedWorkoutPayload = null;
 
 export function renderOverviewModule() {
   initDayModalListeners();
@@ -20,6 +22,14 @@ function initDayModalListeners() {
       if (e.target === modal) modal.style.display = 'none';
     };
   }
+
+  const startLiveBtn = document.getElementById('startLiveWorkoutBtn');
+  if (startLiveBtn) {
+    startLiveBtn.onclick = () => {
+      startNewLiveWorkout(latestPreparedWorkoutPayload);
+    };
+  }
+
   isOverviewInitialized = true;
 }
 
@@ -240,8 +250,8 @@ function renderAiRecipeCard() {
   }
 
   const nextTitle = (nextMode === 'Делоад' || nextMode === 'Разгрузка')
-    ? `Тренировка ${nextSplit} Разгрузка (Делоад)`
-    : `Тренировка ${nextSplit}${nextWave} ${nextMode}`;
+    ? `Тренировка ${nextSplit} Разгрузка (Делоад) ${nextCycleId}`
+    : `Тренировка ${nextSplit}${nextWave} ${nextMode} ${nextCycleId}`;
 
   if (cycleBadge) cycleBadge.innerText = nextCycleId;
   if (nextTag) nextTag.innerText = nextTitle;
@@ -263,13 +273,42 @@ function renderAiRecipeCard() {
 
   if (activeAiPlan && activeAiPlan.exercises.length > 0) {
     const targetMusclesList = [];
-    activeAiPlan.exercises.forEach(ex => {
+    const preparedExercises = [];
+
+    activeAiPlan.exercises.forEach((ex, idx) => {
       const catItem = catalogMap[(ex.name || '').trim()];
       const muscle = (catItem && catItem.primaryMuscle) ? catItem.primaryMuscle : (ex.target || '');
       if (muscle && !targetMusclesList.includes(muscle)) {
         targetMusclesList.push(muscle);
       }
+
+      const orderNum = parseInt(ex.order, 10) || (idx + 1);
+      const weightVal = parseFloat(ex.weight) || 0;
+      const warmupRampText = calculateWarmupRamp(orderNum, weightVal, nextMode);
+
+      preparedExercises.push({
+        order: orderNum,
+        name: ex.name || 'Упражнение',
+        target: muscle,
+        weight: weightVal,
+        sets: parseInt(ex.sets, 10) || 3,
+        reps: String(ex.reps || '4-6'),
+        rir: String(ex.rir || '1-2'),
+        method: String(ex.method || 'Стандарт'),
+        warmupText: warmupRampText,
+        notes: ex.notes ? String(ex.notes) : ''
+      });
     });
+
+    latestPreparedWorkoutPayload = {
+      title: nextTitle,
+      cycleId: nextCycleId,
+      splitDay: nextSplit,
+      cycleMode: nextMode,
+      waveIndex: nextWave,
+      cycleWeek: nextWeek,
+      exercises: preparedExercises
+    };
 
     if (muscleTagsRow && targetMusclesList.length > 0) {
       targetMusclesList.forEach(m => {
@@ -286,40 +325,32 @@ function renderAiRecipeCard() {
         : `План дня ${nextSplit} из сохраненного мезоцикла.`;
     }
 
-    activeAiPlan.exercises.forEach((ex, idx) => {
+    preparedExercises.forEach((ex) => {
       try {
         const step = document.createElement('div');
         step.className = 'recipe-step';
 
-        const orderNum = parseInt(ex.order, 10) || (idx + 1);
-        const weightVal = parseFloat(ex.weight) || 0;
-        const setsCount = parseInt(ex.sets, 10) || 3;
-        const repsRange = String(ex.reps || '4-6');
-        const rirVal = String(ex.rir || '1-2');
-        const methodVal = String(ex.method || 'Стандарт');
-        const notesVal = ex.notes ? String(ex.notes) : '';
-        
-        // Расчёт физиологической лесенки разминки
-        const warmupRampText = calculateWarmupRamp(orderNum, weightVal, nextMode);
+        const isDropMethod = ex.method.toLowerCase().includes('дроп');
+        const dropWeightVal = isDropMethod ? roundToGymStep(ex.weight * 0.75) : 0;
 
-        const methodBadgeHtml = methodVal !== 'Стандарт'
-          ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">${escapeHtml(methodVal)}</span>`
+        const methodBadgeHtml = ex.method !== 'Стандарт'
+          ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
           : '';
 
         step.innerHTML = `
-          <div class="recipe-step-header">#${orderNum} • ${escapeHtml(ex.name || 'Упражнение')}</div>
+          <div class="recipe-step-header">#${ex.order} • ${escapeHtml(ex.name)}</div>
           <div class="recipe-metrics-row">
-            <span class="recipe-sets-count">${setsCount} сета ×</span>
-            <span class="recipe-weight-highlight">${weightVal > 0 ? weightVal + ' кг' : 'рабочий вес'}</span>
-            <span class="recipe-reps-chip">${escapeHtml(repsRange)} повт.</span>
-            <span class="recipe-rir-badge">RIR ${escapeHtml(rirVal)}</span>
+            <span class="recipe-sets-count">${ex.sets} сета ×</span>
+            <span class="recipe-weight-highlight">${ex.weight > 0 ? ex.weight + ' кг' : 'рабочий вес'}</span>
+            <span class="recipe-reps-chip">${escapeHtml(ex.reps)} повт.</span>
+            <span class="recipe-rir-badge">RIR ${escapeHtml(ex.rir)}</span>
             ${methodBadgeHtml}
           </div>
           <div class="recipe-warmup-row">
             <span class="material-symbols-outlined">restart_alt</span>
-            <span>Разминка: <b>${escapeHtml(warmupRampText)}</b></span>
+            <span>Разминка: <b>${escapeHtml(ex.warmupText)}</b></span>
           </div>
-          ${notesVal ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(notesVal)}</div>` : ''}
+          ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
         `;
         recipeBox.appendChild(step);
       } catch (stepErr) {
@@ -383,6 +414,7 @@ function renderAiRecipeCard() {
   if (adviceText) adviceText.innerText = modeAdvice;
 
   const sixtyDaysAgo = Date.now() - (60 * 24 * 3600 * 1000);
+  const fallbackPreparedExercises = [];
 
   targetExercises.forEach((ex, idx) => {
     const history = prevSplitSets.filter(s => {
@@ -408,37 +440,51 @@ function renderAiRecipeCard() {
       if (fallbackSet) lastKnownWorkingWeight = parseFloat(fallbackSet.weight) || 0;
     }
 
-    let targetRepsBadge = '12–15 повт.';
-    let rirBadgeText = 'RIR 2–3';
+    let targetRepsBadge = '12–15';
+    let rirBadgeText = '2–3';
     let rawTargetLoad = 0;
 
     if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
-      targetRepsBadge = '8–10 повт.';
-      rirBadgeText = 'RIR 4–5 (Делоад)';
+      targetRepsBadge = '8–10';
+      rirBadgeText = '4–5';
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.65) : 0;
     } else if (nextMode === 'Сила') {
-      targetRepsBadge = '4–6 повт.';
-      rirBadgeText = 'RIR 1–2 (Сила)';
+      targetRepsBadge = '4–6';
+      rirBadgeText = '1–2';
       const progressionStep = isNewCycleTransition ? 2.5 : 0;
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight + progressionStep) : 0;
     } else {
-      targetRepsBadge = '12–16 повт.';
-      rirBadgeText = 'RIR 2–3 (Объем)';
+      targetRepsBadge = '12–16';
+      rirBadgeText = '2–3';
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.75) : 0;
     }
 
     const finalTargetLoad = roundToGymStep(rawTargetLoad);
     const warmupRampText = calculateWarmupRamp(idx + 1, finalTargetLoad, nextMode);
+    const catItem = catalogMap[ex.trim()];
+
+    fallbackPreparedExercises.push({
+      order: idx + 1,
+      name: ex,
+      target: catItem ? catItem.primaryMuscle : '',
+      weight: finalTargetLoad,
+      sets: 3,
+      reps: targetRepsBadge,
+      rir: rirBadgeText,
+      method: 'Стандарт',
+      warmupText: warmupRampText,
+      notes: ''
+    });
 
     const step = document.createElement('div');
     step.className = 'recipe-step';
     step.innerHTML = `
-      <div class="recipe-step-header">${escapeHtml(ex)}</div>
+      <div class="recipe-step-header">#${idx + 1} • ${escapeHtml(ex)}</div>
       <div class="recipe-metrics-row">
-        <span class="recipe-sets-count">2–3 сета ×</span>
+        <span class="recipe-sets-count">3 сета ×</span>
         <span class="recipe-weight-highlight">${finalTargetLoad > 0 ? finalTargetLoad + ' кг' : 'рабочий вес'}</span>
-        <span class="recipe-reps-chip">${targetRepsBadge}</span>
-        <span class="recipe-rir-badge">${rirBadgeText}</span>
+        <span class="recipe-reps-chip">${targetRepsBadge} повт.</span>
+        <span class="recipe-rir-badge">RIR ${rirBadgeText}</span>
       </div>
       <div class="recipe-warmup-row">
         <span class="material-symbols-outlined">restart_alt</span>
@@ -447,6 +493,16 @@ function renderAiRecipeCard() {
     `;
     recipeBox.appendChild(step);
   });
+
+  latestPreparedWorkoutPayload = {
+    title: nextTitle,
+    cycleId: nextCycleId,
+    splitDay: nextSplit,
+    cycleMode: nextMode,
+    waveIndex: nextWave,
+    cycleWeek: nextWeek,
+    exercises: fallbackPreparedExercises
+  };
 }
 
 function renderMuscleMannequin() {
