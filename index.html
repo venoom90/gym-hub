@@ -209,7 +209,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
 
     .muscle-tag {
@@ -220,6 +220,64 @@
       padding: 2px 8px;
       border-radius: 6px;
       border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Компактная интерактивная карточка-превью тренировки на главном экране */
+    .plan-preview-trigger-card {
+      background: var(--md-sys-color-surface-container-high);
+      border: 1px solid rgba(168, 200, 255, 0.18);
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+      user-select: none;
+    }
+    .plan-preview-trigger-card:hover {
+      background: var(--md-sys-color-surface-container-highest);
+      border-color: var(--md-sys-color-primary);
+    }
+    .plan-preview-trigger-card:active {
+      transform: scale(0.99);
+    }
+
+    .plan-preview-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .plan-preview-title {
+      font-size: 0.96rem;
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.25;
+    }
+
+    .plan-preview-metrics {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--md-sys-color-primary);
+    }
+
+    .plan-preview-hint {
+      font-size: 0.72rem;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+
+    .plan-preview-chevron {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      background: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
 
     .recipe-step {
@@ -720,7 +778,9 @@
       border-color: var(--md-sys-color-primary);
     }
 
-    /* Стандартные стили манекена, аналитики и синхронизации */
+    /* =========================================================
+     * АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 (TODO-06)
+     * ========================================================= */
     .mannequin-container {
       display: flex;
       flex-direction: column;
@@ -735,7 +795,7 @@
       width: 100%;
       background: var(--md-sys-color-surface-container-high);
       border-radius: 16px;
-      padding: 12px 6px;
+      padding: 14px 6px;
     }
 
     .mannequin-figure {
@@ -747,22 +807,22 @@
     }
 
     .mannequin-label {
-      font-size: 0.75rem;
-      font-weight: 500;
+      font-size: 0.72rem;
+      font-weight: 600;
       color: var(--md-sys-color-on-surface-variant);
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.6px;
     }
 
     .mannequin-svg {
       width: 100%;
-      max-height: 250px;
+      max-height: 265px;
     }
 
     @keyframes neonPulse {
-      0% { stroke: #ffffff; stroke-width: 2px; filter: drop-shadow(0 0 3px #a8c8ff); }
-      50% { stroke: #a8c8ff; stroke-width: 3px; filter: drop-shadow(0 0 8px #a8c8ff); }
-      100% { stroke: #ffffff; stroke-width: 2px; filter: drop-shadow(0 0 3px #a8c8ff); }
+      0% { stroke: #ffffff; stroke-width: 1.8px; filter: drop-shadow(0 0 3px #a8c8ff); }
+      50% { stroke: #a8c8ff; stroke-width: 2.6px; filter: drop-shadow(0 0 8px #a8c8ff); }
+      100% { stroke: #ffffff; stroke-width: 1.8px; filter: drop-shadow(0 0 3px #a8c8ff); }
     }
 
     @keyframes spin {
@@ -772,7 +832,9 @@
 
     .muscle-path {
       cursor: pointer;
-      transition: fill 0.25s ease, stroke 0.2s ease, filter 0.2s ease;
+      stroke: rgba(17, 19, 24, 0.65);
+      stroke-width: 0.8px;
+      transition: fill 0.3s ease, stroke 0.2s ease, filter 0.2s ease;
     }
 
     .muscle-path.selected {
@@ -780,9 +842,51 @@
     }
 
     .body-silhouette {
-      fill: #22252a;
-      stroke: #33363d;
-      stroke-width: 1.5px;
+      fill: #202329;
+      stroke: #323640;
+      stroke-width: 1.2px;
+    }
+
+    /* Непрерывная спектральная шкала 0% -> 100% под манекеном */
+    .thermal-spectrum-box {
+      width: 100%;
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: 12px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .thermal-bar-track {
+      position: relative;
+      height: 10px;
+      width: 100%;
+      border-radius: 5px;
+      background: linear-gradient(90deg, #3b4262 0%, #10b981 35%, #facc15 70%, #ff4d4f 100%);
+    }
+
+    .thermal-scale-marker {
+      position: absolute;
+      top: -4px;
+      width: 10px;
+      height: 18px;
+      border-radius: 4px;
+      background: #ffffff;
+      border: 2px solid #111318;
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+      transform: translateX(-50%);
+      transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      left: 30%;
+      display: none;
+    }
+
+    .thermal-legend-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.68rem;
+      color: var(--md-sys-color-on-surface-variant);
+      font-weight: 500;
     }
 
     .muscle-info-card {
@@ -1174,12 +1278,14 @@
     .modal-card {
       background: var(--md-sys-color-surface-container);
       border-radius: 24px;
-      padding: 24px;
+      padding: 20px;
       width: 100%;
-      max-width: 480px;
+      max-width: 500px;
+      max-height: 88vh;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
     }
   </style>
 </head>
@@ -1230,6 +1336,7 @@
         <div id="calendarStripContainer" class="calendar-strip"></div>
       </div>
 
+      <!-- КОМПАКТНАЯ КАРТОЧКА ПЛАНА БУДУЩЕЙ ТРЕНИРОВКИ -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -1237,95 +1344,150 @@
             План тренировки
           </span>
           <div class="plan-header-badges">
-            <span id="overviewCycleBadge" class="plan-cycle-chip">C-1</span>
+            <span id="overviewCycleBadge" class="plan-cycle-chip">C-2</span>
             <span id="overviewNextTag" class="plan-mode-chip">...</span>
           </div>
         </div>
+
         <div id="overviewMuscleTagsRow" class="muscle-tags-row"></div>
-        <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4;" id="overviewAiAdviceText">
-          Загрузка актуального плана мезоцикла...
+
+        <!-- Интерактивная плашка: клик открывает окно со списком всех упражнений -->
+        <div id="overviewPlanPreviewCard" class="plan-preview-trigger-card" title="Открыть полный перечень упражнений">
+          <div class="plan-preview-left">
+            <div id="overviewPlanPreviewTitle" class="plan-preview-title">Загрузка программы...</div>
+            <div id="overviewPlanPreviewMetrics" class="plan-preview-metrics">Подготовка списка упражнений</div>
+            <div class="plan-preview-hint">Нажмите на карточку, чтобы открыть список упражнений</div>
+          </div>
+          <div class="plan-preview-chevron">
+            <span class="material-symbols-outlined">format_list_bulleted</span>
+          </div>
         </div>
 
         <button id="startLiveWorkoutBtn" class="start-live-workout-btn">
           <span class="material-symbols-outlined">play_circle</span>
-          <span>НАЧАТЬ ТРЕНИРОВКУ У СТАНКА</span>
+          <span>НАЧАТЬ ТРЕНИРОВКУ</span>
         </button>
-
-        <div id="overviewRecipeContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
       </div>
 
+      <!-- АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 (TODO-06) -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined">accessibility_new</span>
-            Мышечная готовность
+            Мышечная готовность 2.0
           </span>
-          <span style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Интерактивная карта</span>
+          <span style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant);">Спектральный атлас</span>
         </div>
         
         <div class="mannequin-container">
           <div class="mannequin-views-row">
+            <!-- ФИГУРА СПЕРЕДИ (ДЕТАЛИЗИРОВАННЫЕ ПУЧКИ) -->
             <div class="mannequin-figure">
               <span class="mannequin-label">Спереди</span>
-              <svg id="mannequinFront" class="mannequin-svg" viewBox="0 0 100 210">
-                <circle cx="50" cy="14" r="10" class="body-silhouette" />
-                <path d="M46 24 L54 24 L54 30 L46 30 Z" class="body-silhouette" />
-                
-                <path id="front-shoulders-left" class="muscle-path" data-muscle="Средняя дельта" d="M30 32 C26 34, 23 42, 24 50 C28 48, 32 44, 33 36 Z" fill="#33353a" />
-                <path id="front-shoulders-right" class="muscle-path" data-muscle="Средняя дельта" d="M70 32 C74 34, 77 42, 76 50 C72 48, 68 44, 67 36 Z" fill="#33353a" />
+              <svg id="mannequinFront" class="mannequin-svg" viewBox="0 0 100 215">
+                <!-- Голова и шея -->
+                <circle cx="50" cy="13" r="9.5" class="body-silhouette" />
+                <path d="M45 22 L55 22 L57 29 L43 29 Z" class="body-silhouette" />
 
-                <path id="front-chest-left" class="muscle-path" data-muscle="Грудь" d="M34 33 C42 33, 49 35, 49 48 C42 51, 33 48, 32 38 Z" fill="#33353a" />
-                <path id="front-chest-right" class="muscle-path" data-muscle="Грудь" d="M66 33 C58 33, 51 35, 51 48 C58 51, 67 48, 68 38 Z" fill="#33353a" />
+                <!-- Передняя дельта -->
+                <path class="muscle-path" data-muscle="Передняя дельта" d="M33 30 C30 32, 29 39, 32 45 C35 42, 36 35, 35 30 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Передняя дельта" d="M67 30 C70 32, 71 39, 68 45 C65 42, 64 35, 65 30 Z" fill="#3b4262" />
 
-                <path id="front-biceps-left" class="muscle-path" data-muscle="Руки" d="M23 52 C21 58, 20 66, 23 72 C26 70, 28 62, 27 54 Z" fill="#33353a" />
-                <path id="front-biceps-right" class="muscle-path" data-muscle="Руки" d="M77 52 C79 58, 80 66, 77 72 C74 70, 72 62, 73 54 Z" fill="#33353a" />
-                <path d="M22 74 L19 96 L16 100 L20 102 L25 80 Z" class="body-silhouette" />
-                <path d="M78 74 L81 96 L84 100 L80 102 L75 80 Z" class="body-silhouette" />
+                <!-- Средняя дельта (латеральные пучки) -->
+                <path class="muscle-path" data-muscle="Средняя дельта" d="M29 31 C24 34, 22 42, 24 49 C27 48, 29 44, 31 36 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Средняя дельта" d="M71 31 C76 34, 78 42, 76 49 C73 48, 71 44, 69 36 Z" fill="#3b4262" />
 
-                <path id="front-abs" class="muscle-path" data-muscle="Кор" d="M42 51 L58 51 L56 78 L44 78 Z" fill="#33353a" />
+                <!-- Грудь (ключичная и стернальная доли) -->
+                <path class="muscle-path" data-muscle="Грудь" d="M35 30 C42 30, 49 32, 49.5 49 C41 51, 33 47, 32 38 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Грудь" d="M65 30 C58 30, 51 32, 50.5 49 C59 51, 67 47, 68 38 Z" fill="#3b4262" />
 
-                <path id="front-quads-left" class="muscle-path" data-muscle="Квадрицепс" d="M36 82 C34 94, 34 118, 38 135 C43 135, 47 115, 47 88 Z" fill="#33353a" />
-                <path id="front-quads-right" class="muscle-path" data-muscle="Квадрицепс" d="M64 82 C66 94, 66 118, 62 135 C57 135, 53 115, 53 88 Z" fill="#33353a" />
+                <!-- Бицепс и брахиалис -->
+                <path class="muscle-path" data-muscle="Бицепс" d="M23.5 50 C21 57, 20.5 66, 23.5 73 C27 71, 28.5 63, 27.5 52 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Бицепс" d="M76.5 50 C79 57, 79.5 66, 76.5 73 C73 71, 71.5 63, 72.5 52 Z" fill="#3b4262" />
 
-                <path d="M37 138 C35 155, 36 178, 38 190 L34 196 L44 196 L43 140 Z" class="body-silhouette" />
-                <path d="M63 138 C65 155, 64 178, 62 190 L66 196 L56 196 L57 140 Z" class="body-silhouette" />
+                <!-- Предплечья (силуэт) -->
+                <path d="M22.5 74 L18.5 96 L16 101 L20.5 103 L26 80 Z" class="body-silhouette" />
+                <path d="M77.5 74 L81.5 96 L84 101 L79.5 103 L74 80 Z" class="body-silhouette" />
+
+                <!-- Кор (прямая и косые мышцы живота) -->
+                <path class="muscle-path" data-muscle="Кор" d="M40 50 L60 50 L57 82 L43 82 Z" fill="#3b4262" />
+
+                <!-- Квадрицепс (латеральная, прямая и медиальная головки) -->
+                <path class="muscle-path" data-muscle="Квадрицепс" d="M35 84 C32 98, 33 120, 37.5 138 C43.5 138, 47.5 118, 48 86 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Квадрицепс" d="M65 84 C68 98, 67 120, 62.5 138 C56.5 138, 52.5 118, 52 86 Z" fill="#3b4262" />
+
+                <!-- Голень спереди (Икры / Камбаловидная) -->
+                <path class="muscle-path" data-muscle="Икры" d="M37 142 C34.5 156, 35.5 176, 38 190 L43.5 190 C44.5 174, 44.5 156, 43 142 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Икры" d="M63 142 C65.5 156, 64.5 176, 62 190 L56.5 190 C55.5 174, 55.5 156, 57 142 Z" fill="#3b4262" />
+
+                <!-- Стопы -->
+                <path d="M37 191 L34 198 L44 198 L43.5 191 Z" class="body-silhouette" />
+                <path d="M63 191 L66 198 L56 198 L56.5 191 Z" class="body-silhouette" />
               </svg>
             </div>
 
+            <!-- ФИГУРА СЗАДИ (ДЕТАЛИЗИРОВАННЫЕ ПУЧКИ) -->
             <div class="mannequin-figure">
               <span class="mannequin-label">Сзади</span>
-              <svg id="mannequinBack" class="mannequin-svg" viewBox="0 0 100 210">
-                <circle cx="50" cy="14" r="10" class="body-silhouette" />
-                
-                <path id="back-upper" class="muscle-path" data-muscle="Верх спины" d="M44 24 L56 24 L66 34 L50 46 L34 34 Z" fill="#33353a" />
+              <svg id="mannequinBack" class="mannequin-svg" viewBox="0 0 100 215">
+                <circle cx="50" cy="13" r="9.5" class="body-silhouette" />
 
-                <path id="back-lats-left" class="muscle-path" data-muscle="Широчайшие" d="M34 36 C38 48, 41 62, 47 70 C41 68, 36 56, 33 46 Z" fill="#33353a" />
-                <path id="back-lats-right" class="muscle-path" data-muscle="Широчайшие" d="M66 36 C62 48, 59 62, 53 70 C59 68, 64 56, 67 46 Z" fill="#33353a" />
+                <!-- Верх спины (трапеции и ромбовидные) -->
+                <path class="muscle-path" data-muscle="Верх спины" d="M43 22 L57 22 L66 32 L50 51 L34 32 Z" fill="#3b4262" />
 
-                <path id="back-triceps-left" class="muscle-path" data-muscle="Руки" d="M24 38 C22 46, 20 58, 22 68 C25 66, 27 58, 27 46 Z" fill="#33353a" />
-                <path id="back-triceps-right" class="muscle-path" data-muscle="Руки" d="M76 38 C78 46, 80 58, 78 68 C75 66, 73 58, 73 46 Z" fill="#33353a" />
-                <path d="M22 70 L17 96 L21 100 L26 78 Z" class="body-silhouette" />
-                <path d="M78 70 L83 96 L79 100 L74 78 Z" class="body-silhouette" />
+                <!-- Задняя дельта -->
+                <path class="muscle-path" data-muscle="Задняя дельта" d="M33 32 C27 34, 24 40, 26 46 C30 45, 33 41, 35 35 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Задняя дельта" d="M67 32 C73 34, 76 40, 74 46 C70 45, 67 41, 65 35 Z" fill="#3b4262" />
 
-                <path d="M37 72 C43 72, 49 75, 49 85 C42 88, 36 84, 36 76 Z" class="body-silhouette" />
-                <path d="M63 72 C57 72, 51 75, 51 85 C58 88, 64 84, 64 76 Z" class="body-silhouette" />
+                <!-- Широчайшие мышцы спины -->
+                <path class="muscle-path" data-muscle="Широчайшие" d="M34 38 C39 50, 42 64, 48.5 74 C41 72, 35 59, 32.5 47 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Широчайшие" d="M66 38 C61 50, 58 64, 51.5 74 C59 72, 65 59, 67.5 47 Z" fill="#3b4262" />
 
-                <path id="back-hamstrings-left" class="muscle-path" data-muscle="Бицепс бедра" d="M36 88 C35 102, 36 118, 39 135 C44 135, 48 116, 48 88 Z" fill="#33353a" />
-                <path id="back-hamstrings-right" class="muscle-path" data-muscle="Бицепс бедра" d="M64 88 C65 102, 64 118, 61 135 C56 135, 52 116, 52 88 Z" fill="#33353a" />
+                <!-- Трицепс (длинная и латеральная головки) -->
+                <path class="muscle-path" data-muscle="Трицепс" d="M24.5 46 C21.5 53, 20.5 63, 23 72 C26.5 70, 28 62, 28 48 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Трицепс" d="M75.5 46 C78.5 53, 79.5 63, 77 72 C73.5 70, 72 62, 72 48 Z" fill="#3b4262" />
 
-                <path id="back-calves-left" class="muscle-path" data-muscle="Икры" d="M38 140 C34 152, 35 172, 39 188 C44 186, 45 168, 44 140 Z" fill="#33353a" />
-                <path id="back-calves-right" class="muscle-path" data-muscle="Икры" d="M62 140 C66 152, 65 172, 61 188 C56 186, 55 168, 56 140 Z" fill="#33353a" />
+                <path d="M22.5 73 L17.5 96 L21.5 100 L26.5 79 Z" class="body-silhouette" />
+                <path d="M77.5 73 L82.5 96 L78.5 100 L73.5 79 Z" class="body-silhouette" />
+
+                <!-- Ягодичные мышцы -->
+                <path class="muscle-path" data-muscle="Ягодичные" d="M36 74 C43 73, 49.5 76, 49.5 90 C41 93, 34.5 87, 35 78 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Ягодичные" d="M64 74 C57 73, 50.5 76, 50.5 90 C59 93, 65.5 87, 65 78 Z" fill="#3b4262" />
+
+                <!-- Бицепс бедра (задняя поверхность) -->
+                <path class="muscle-path" data-muscle="Бицепс бедра" d="M36 92 C34.5 106, 35.5 122, 38.5 138 C44 138, 48 120, 48.5 92 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Бицепс бедра" d="M64 92 C65.5 106, 64.5 122, 61.5 138 C56 138, 52 120, 51.5 92 Z" fill="#3b4262" />
+
+                <!-- Икроножная и камбаловидная мышцы -->
+                <path class="muscle-path" data-muscle="Икры" d="M38 141 C33.5 153, 34.5 173, 38.5 190 C44 188, 45.5 170, 44 141 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Икры" d="M62 141 C66.5 153, 65.5 173, 61.5 190 C56 188, 54.5 170, 56 141 Z" fill="#3b4262" />
+
+                <path d="M38 191 L35 198 L44 198 L43.5 191 Z" class="body-silhouette" />
+                <path d="M62 191 L65 198 L56 198 L56.5 191 Z" class="body-silhouette" />
               </svg>
+            </div>
+          </div>
+
+          <!-- Непрерывная спектральная шкала нагрузки (0% -> 100%) -->
+          <div class="thermal-spectrum-box">
+            <div class="thermal-bar-track">
+              <div id="thermalScaleMarker" class="thermal-scale-marker"></div>
+            </div>
+            <div class="thermal-legend-labels">
+              <span>0% Покой</span>
+              <span style="color: #78dc9c;">Готов (MAV)</span>
+              <span style="color: #facc15;">Регенерация</span>
+              <span style="color: #ff4d4f;">100% Пик</span>
             </div>
           </div>
 
           <div id="mannequinInfoCard" class="muscle-info-card">
             <div class="muscle-card-header">
-              <span id="mannequinMuscleName" class="muscle-card-title">Выберите мышцу</span>
-              <span id="mannequinMuscleBadge" class="muscle-card-status-badge" style="color: var(--md-sys-color-primary);">Интерактив</span>
+              <span id="mannequinMuscleName" class="muscle-card-title">Выберите пучок мышц</span>
+              <span id="mannequinMuscleBadge" class="muscle-card-status-badge" style="color: var(--md-sys-color-primary);">Спектр 2.0</span>
             </div>
             <div id="mannequinMuscleDetails" class="muscle-card-details">
-              Нажмите на любую мышечную группу на манекене для просмотра упражнения, объема и статуса восстановления.
+              Нажмите на любую из 12 анатомических зон на манекене для просмотра индекса нагрузки, рабочего упражнения и статуса суперкомпенсации.
             </div>
           </div>
         </div>
@@ -1646,6 +1808,32 @@
   </main>
 
   <!-- =========================================================================
+       МОДАЛЬНОЕ ОКНО: ПОЛНЫЙ ПЕРЕЧЕНЬ УПРАЖНЕНИЙ ТРЕНИРОВКИ (ПО КЛИКУ НА КАРТОЧКУ)
+       ========================================================================= -->
+  <div id="workoutPlanDetailsModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span id="modalPlanTitle" style="color: var(--md-sys-color-primary);">Перечень упражнений</span>
+        <md-icon-button id="closeWorkoutPlanModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+
+      <div class="coach-split-chips-row" id="modalPlanSplitSwitcher" style="display: none;">
+        <div id="modalPlanTabA" class="coach-split-chip active" style="min-height: 40px; padding: 6px;">День А</div>
+        <div id="modalPlanTabB" class="coach-split-chip" style="min-height: 40px; padding: 6px;">День Б</div>
+      </div>
+
+      <div id="modalPlanAdviceText" style="font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4;"></div>
+
+      <div id="modalRecipeContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
+
+      <button id="modalStartLiveWorkoutBtn" class="start-live-workout-btn" style="margin-top: 4px;">
+        <span class="material-symbols-outlined">play_circle</span>
+        <span>НАЧАТЬ ТРЕНИРОВКУ</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- =========================================================================
        ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY)
        ========================================================================= -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay">
@@ -1876,7 +2064,7 @@
         <span id="modalDayDate" style="color: var(--md-sys-color-primary);">Дата</span>
         <md-icon-button id="closeDaySummaryModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
       </div>
-      <div id="modalDayContent" style="font-size: 0.9rem; line-height: 1.5; color: var(--md-sys-color-on-surface-variant); display: flex; flex-direction: column; gap: 8px;"></div>
+      <div id="modalDayContent" style="font-size: 0.88rem; line-height: 1.5; color: var(--md-sys-color-on-surface-variant); display: flex; flex-direction: column; gap: 10px;"></div>
     </div>
   </div>
 

@@ -1,10 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V42 ARCHIVE MANAGEMENT & CLOUD PLAN)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V43 MANNEQUIN 2.0 & MODAL PLAN UX)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v42';
+const CACHE_NAME = 'gym-hub-v43';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 const APP_ASSETS = [
