@@ -150,7 +150,7 @@ function initCyclePlanner() {
   const genBtn = document.getElementById('generateCyclePlanBtn');
   const splitTabA = document.getElementById('coachSplitTabA');
   const splitTabB = document.getElementById('coachSplitTabB');
-  const copyBtn = document.getElementById('copyGymUpListBtn');
+  const syncCloudBtn = document.getElementById('syncCachedPlanToCloudBtn');
 
   if (intentInput) {
     const saved = localStorage.getItem('gym_ai_block_intent');
@@ -180,11 +180,34 @@ function initCyclePlanner() {
     genBtn.onclick = () => generateMesocyclePlan();
   }
 
-  if (copyBtn) {
-    copyBtn.onclick = () => copyPlanToClipboard();
+  if (syncCloudBtn) {
+    syncCloudBtn.onclick = () => syncCachedPlanToSheets();
   }
 
   isCoachInitialized = true;
+}
+
+async function syncCachedPlanToSheets() {
+  const syncCloudBtn = document.getElementById('syncCachedPlanToCloudBtn');
+  if (!cachedPlanData || !cachedPlanData.splits) {
+    alert('Нет сохраненного плана мезоцикла для отправки.');
+    return;
+  }
+
+  if (syncCloudBtn) syncCloudBtn.disabled = true;
+
+  try {
+    const res = await saveAiPlanToSheets(cachedPlanData);
+    if (res && res.success) {
+      alert(`✅ Оба тренировочных дня (День А + День Б, всего ${res.savedRows || 14} упр.) успешно сохранены на лист AI_Plan в Google Таблице!`);
+    } else {
+      alert('Ошибка сохранения плана: ' + (res?.error || 'Неизвестная ошибка'));
+    }
+  } catch (err) {
+    alert('Сбой при отправке плана: ' + err.message);
+  } finally {
+    if (syncCloudBtn) syncCloudBtn.disabled = false;
+  }
 }
 
 async function generateMesocyclePlan() {
@@ -315,9 +338,8 @@ ${exSummaryB}
 
     renderStructuredCards();
 
-    // Фоновое сохранение сгенерированного плана на лист AI_Plan в Google Таблице
     if (loadingBox) {
-      loadingBox.innerText = `☁️ Сохранение плана на лист AI_Plan в Google Таблице...`;
+      loadingBox.innerText = `☁️ Автосохранение плана (День А + День Б) на лист AI_Plan...`;
     }
     await saveAiPlanToSheets(cachedPlanData);
   } catch (err) {
@@ -349,7 +371,7 @@ function renderStructuredCards() {
   const container = document.getElementById('coachSplitCardsContainer');
   const rationaleBox = document.getElementById('coachRationaleDetails');
   const rationaleText = document.getElementById('coachRationaleText');
-  const copyBtn = document.getElementById('copyGymUpListBtn');
+  const syncCloudBtn = document.getElementById('syncCachedPlanToCloudBtn');
   const badgeEl = document.getElementById('coachPlanCycleBadge');
   const splitTabA = document.getElementById('coachSplitTabA');
   const splitTabB = document.getElementById('coachSplitTabB');
@@ -428,20 +450,7 @@ function renderStructuredCards() {
     rationaleText.innerText = cachedPlanData.rationale;
   }
 
-  if (copyBtn) copyBtn.style.display = 'inline-flex';
-}
-
-function copyPlanToClipboard() {
-  if (!cachedPlanData || !cachedPlanData.splits) return;
-  const split = cachedPlanData.splits[activeSplitView];
-  if (!split) return;
-
-  const lines = [`📋 ${split.title}:`];
-  (split.exercises || []).forEach(ex => {
-    lines.push(`${ex.order}. ${ex.name} — ${ex.weight}кг (${ex.sets}x${ex.reps}, RIR ${ex.rir}) [${ex.method}]`);
-  });
-
-  navigator.clipboard.writeText(lines.join('\n'))
-    .then(() => alert(`Список упражнений Дня ${activeSplitView} скопирован в буфер обмена для GymUp!`))
-    .catch(() => alert('Не удалось скопировать текст.'));
+  if (syncCloudBtn) {
+    syncCloudBtn.style.display = 'inline-flex';
+  }
 }

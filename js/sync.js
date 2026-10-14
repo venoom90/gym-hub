@@ -1,19 +1,22 @@
-import { state, setParsedWorkout, setInitialData, getDateKey, escapeHtml } from './state.js';
+import { state, setParsedWorkout, setInitialData, normalizeDate, getDateKey, escapeHtml } from './state.js';
 import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData, fetchServerDebugLogs } from './api.js';
 
 let terminalLogsBuffer = [];
 let isSyncModuleInitialized = false;
+let onGlobalSyncSuccessCallback = null;
 
 /**
  * Первичная инициализация слушателей событий вкладки синхронизации
  */
 export function initSyncModule(onSyncSuccess) {
+  onGlobalSyncSuccessCallback = onSyncSuccess;
   if (isSyncModuleInitialized) return;
 
   const fileInput = document.getElementById('fileInput');
   const dropZone = document.getElementById('dropZone');
   const syncBtn = document.getElementById('syncAllBtn');
+  const deleteByDateBtn = document.getElementById('deleteWorkoutByDateBtn');
   const copyLogBtn = document.getElementById('copySyncLogBtn');
   const fetchServerLogsBtn = document.getElementById('fetchServerLogsBtn');
   const clearLogBtn = document.getElementById('clearSyncLogBtn');
@@ -46,7 +49,13 @@ export function initSyncModule(onSyncSuccess) {
 
   if (syncBtn) {
     syncBtn.addEventListener('click', async () => {
-      await executeSync(onSyncSuccess);
+      await executeSync(onGlobalSyncSuccessCallback);
+    });
+  }
+
+  if (deleteByDateBtn) {
+    deleteByDateBtn.addEventListener('click', async () => {
+      await handleDeleteWorkoutByDate();
     });
   }
 
@@ -79,11 +88,121 @@ export function initSyncModule(onSyncSuccess) {
 }
 
 /**
- * Отрисовка превью разобранного отчета
+ * Отрисовка вкладки синхронизации (превью отчета + селектор удаления тренировок)
  */
 export function renderSyncModule() {
+  populateDeleteWorkoutSelector();
   if (state.parsedWorkout && state.parsedWorkout.sets && state.parsedWorkout.sets.length > 0) {
     renderParsedWorkoutView();
+  }
+}
+
+/**
+ * Заполнение выпадающего списка дат и названий тренировок для удаления
+ */
+function populateDeleteWorkoutSelector() {
+  const selectEl = document.getElementById('deleteWorkoutDateSelect');
+  const deleteBtn = document.getElementById('deleteWorkoutByDateBtn');
+  if (!selectEl) return;
+
+  const sets = state.dbData.sets || [];
+  const sessionsByDate = {};
+
+  sets.forEach(s => {
+    const dateStr = String(s.date || '').trim();
+    if (!dateStr) return;
+
+    if (!sessionsByDate[dateStr]) {
+      const d = normalizeDate(dateStr);
+      sessionsByDate[dateStr] = {
+        date: dateStr,
+        timestamp: d ? d.getTime() : 0,
+        title: s.workout || 'Тренировка',
+        totalSets: 0,
+        workSets: 0
+      };
+    }
+
+    sessionsByDate[dateStr].totalSets++;
+    if (s.category === 'Рабочий' && s.effort !== 'Размин.') {
+      sessionsByDate[dateStr].workSets++;
+    }
+  });
+
+  const sortedSessions = Object.values(sessionsByDate).sort((a, b) => b.timestamp - a.timestamp);
+
+  selectEl.innerHTML = '';
+
+  if (sortedSessions.length === 0) {
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.disabled = true;
+    emptyOpt.selected = true;
+    emptyOpt.textContent = 'В базе нет записанных тренировок';
+    selectEl.appendChild(emptyOpt);
+    if (deleteBtn) deleteBtn.disabled = true;
+    return;
+  }
+
+  if (deleteBtn) deleteBtn.disabled = false;
+
+  sortedSessions.forEach((sess, idx) => {
+    const opt = document.createElement('option');
+    opt.value = sess.date;
+    opt.textContent = `${sess.date} — ${sess.title} (${sess.totalSets} подх.)`;
+    if (idx === 0) opt.selected = true;
+    selectEl.appendChild(opt);
+  });
+}
+
+/**
+ * Полное удаление выбранной тренировки из листов Log и Workouts
+ */
+async function handleDeleteWorkoutByDate() {
+  const selectEl = document.getElementById('deleteWorkoutDateSelect');
+  const deleteBtn = document.getElementById('deleteWorkoutByDateBtn');
+  if (!selectEl || !selectEl.value) {
+    alert('Выберите дату тренировки для удаления.');
+    return;
+  }
+
+  const dateToDelete = selectEl.value;
+  const selectedLabel = selectEl.options[selectEl.selectedIndex]?.textContent || dateToDelete;
+
+  const confirmed = confirm(`Вы действительно хотите ПОЛНОСТЬЮ УДАЛИТЬ тренировку:\n"${selectedLabel}"\nиз листов Log и Workouts?`);
+  if (!confirmed) return;
+
+  if (deleteBtn) deleteBtn.disabled = true;
+  logToTerminal('DELETE_START', `Запрос на удаление тренировки за ${dateToDelete}...`, 'info');
+
+  try {
+    const payload = {
+      action: 'sync_sets',
+      overwrite: true,
+      date: dateToDelete,
+      sets: []
+    };
+
+    const res = await syncSetsToSheets(payload);
+    logToTerminal('DELETE_OK', res.message || `Тренировка за ${dateToDelete} удалена с сервера.`, 'success');
+
+    logToTerminal('REFRESH_DB', 'Обновление локального кэша после удаления...', 'info');
+    const freshData = await fetchAnalyticsData();
+    if (freshData.success && freshData.data) {
+      setInitialData(freshData.data);
+    }
+
+    populateDeleteWorkoutSelector();
+    if (typeof onGlobalSyncSuccessCallback === 'function') {
+      await onGlobalSyncSuccessCallback();
+    }
+
+    alert(`Тренировка за ${dateToDelete} успешно удалена из базы данных!`);
+  } catch (err) {
+    logToTerminal('DELETE_ERROR', `Ошибка удаления: ${err.message}`, 'error');
+    alert('Ошибка при удалении тренировки: ' + err.message);
+  } finally {
+    if (deleteBtn) deleteBtn.disabled = false;
   }
 }
 
@@ -251,14 +370,12 @@ async function executeSync(onSyncSuccess) {
       allExercises: workout.allExercises
     };
 
-    // 1. Физическая запись на сервер с получением JSON-ответа
     const t0 = performance.now();
     logToTerminal('STEP_1_POST', `Отправка POST в Google Apps Script...`, 'info');
     const syncRes = await syncSetsToSheets(payload);
     const postDuration = Math.round(performance.now() - t0);
     logToTerminal('STEP_1_OK', `Записано ${syncRes.insertedCount || workout.sets.length} строк за ${postDuration} мс.`, 'success');
 
-    // 2. Обратная проверка целостности (Reverse Verification)
     logToTerminal('STEP_2_VERIFY', `Запрос актуальных данных для верификации записи...`, 'info');
     const fetchResult = await fetchAnalyticsData();
     if (!fetchResult.success) {
@@ -277,7 +394,6 @@ async function executeSync(onSyncSuccess) {
 
     logToTerminal('VERIFY_SUCCESS', `Успешно верифицировано ${verifiedSets.length} подходов в базе данных!`, 'success');
 
-    // 3. Выставление статуса успешной синхронизации
     workout.sets.forEach((s, idx) => {
       s.syncStatus = 'synced';
       const box = document.getElementById(`set-status-box-${idx}`);
@@ -286,6 +402,7 @@ async function executeSync(onSyncSuccess) {
       }
     });
 
+    populateDeleteWorkoutSelector();
     if (typeof onSyncSuccess === 'function') onSyncSuccess();
   } catch (err) {
     logToTerminal('SYNC_ERROR', `Сбой синхронизации: ${err.message}`, 'error');
