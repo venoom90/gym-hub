@@ -291,6 +291,354 @@
       color: var(--md-sys-color-outline-variant);
     }
 
+    /* Кнопка запуска Live Workout */
+    .start-live-workout-btn {
+      width: 100%;
+      min-height: 54px;
+      border-radius: 14px;
+      border: none;
+      background: linear-gradient(135deg, #00468b 0%, #1e64b4 100%);
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 70, 139, 0.45);
+      transition: transform 0.15s ease, opacity 0.2s ease;
+    }
+    .start-live-workout-btn:active {
+      transform: scale(0.98);
+    }
+
+    /* Баннер возврата в активную тренировку */
+    .recovery-banner {
+      display: none;
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      padding: 12px 16px;
+      border-radius: 16px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--md-sys-color-primary);
+    }
+
+    /* =========================================================
+     * LIVE WORKOUT OVERLAY (ZERO-FRICTION GYM INTERFACE)
+     * ========================================================= */
+    .live-workout-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--md-sys-color-background);
+      z-index: 500;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow-y: auto;
+      padding-bottom: env(safe-area-inset-bottom, 12px);
+    }
+
+    .live-top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--md-sys-color-surface-container);
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .live-timer-pill {
+      font-family: monospace;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--md-sys-color-success);
+      background: rgba(120, 220, 156, 0.12);
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(120, 220, 156, 0.3);
+    }
+
+    .live-body-container {
+      max-width: 600px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .live-ex-nav-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .live-nav-btn {
+      min-height: 48px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface);
+      font-weight: 600;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+    .live-nav-btn:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .live-ex-header-card {
+      background: var(--md-sys-color-surface-container);
+      border-radius: 18px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .live-intensifier-banner {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: rgba(250, 204, 21, 0.1);
+      border: 1px solid rgba(250, 204, 21, 0.35);
+      color: var(--md-sys-color-on-surface);
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+
+    .live-controls-card {
+      background: var(--md-sys-color-surface-container);
+      border-radius: 20px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      border: 1px solid rgba(168, 200, 255, 0.12);
+    }
+
+    .live-cat-toggle-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .live-cat-btn {
+      min-height: 44px;
+      border-radius: 10px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .live-cat-btn.active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+
+    .live-stepper-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .live-stepper-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      text-align: center;
+    }
+
+    .live-stepper-row {
+      display: grid;
+      grid-template-columns: 88px 1fr 88px;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .live-step-btn {
+      height: 58px;
+      border-radius: 14px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+      font-size: 1.15rem;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+    }
+    .live-step-btn:active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+    }
+
+    .live-step-display {
+      height: 58px;
+      border-radius: 14px;
+      background: var(--md-sys-color-surface-container-high);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.85rem;
+      font-weight: 700;
+      color: var(--md-sys-color-primary);
+      letter-spacing: -0.5px;
+    }
+
+    .live-rir-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .live-rir-chip {
+      min-height: 48px;
+      border-radius: 12px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface-variant);
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .live-rir-chip.active {
+      background: var(--md-sys-color-secondary-container);
+      color: var(--md-sys-color-on-secondary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+
+    .live-record-btn {
+      width: 100%;
+      min-height: 64px;
+      border-radius: 16px;
+      border: none;
+      background: var(--md-sys-color-success);
+      color: #062e16;
+      font-size: 1.05rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(120, 220, 156, 0.3);
+    }
+    .live-record-btn:active {
+      transform: scale(0.99);
+    }
+
+    .live-rest-bar {
+      display: none;
+      background: #10243e;
+      border: 2px solid var(--md-sys-color-primary);
+      border-radius: 16px;
+      padding: 12px 14px;
+      flex-direction: column;
+      gap: 10px;
+      animation: fadeIn 0.25s ease;
+    }
+
+    .live-rest-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .live-rest-countdown {
+      font-family: monospace;
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--md-sys-color-primary);
+    }
+
+    .live-rest-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.2fr;
+      gap: 8px;
+    }
+
+    .live-rest-chip-btn {
+      min-height: 44px;
+      border-radius: 10px;
+      border: 1px solid rgba(168, 200, 255, 0.35);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--md-sys-color-on-surface);
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .live-history-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--md-sys-color-surface-container-high);
+      font-size: 0.85rem;
+    }
+
+    .live-delete-set-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--md-sys-color-error);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .live-srpe-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+
+    .live-srpe-chip {
+      min-height: 44px;
+      border-radius: 10px;
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .live-srpe-chip.active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+
+    /* Стандартные стили манекена, аналитики и синхронизации */
     .mannequin-container {
       display: flex;
       flex-direction: column;
@@ -372,7 +720,7 @@
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      padding-bottom: 8px;
+      padding: 0 0 8px 0;
     }
 
     .muscle-card-title {
@@ -776,6 +1124,15 @@
   </header>
 
   <main class="container">
+
+    <!-- БАННЕР ВОЗВРАТА В АКТИВНУЮ ТРЕНИРОВКУ -->
+    <div id="liveWorkoutRecoveryBanner" class="recovery-banner">
+      <div>
+        <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">⚡ Идет тренировка</div>
+        <div id="liveWorkoutRecoveryText" style="font-size: 0.9rem; font-weight: 500; margin-top: 2px;">Тренировка активна</div>
+      </div>
+      <md-filled-button id="liveResumeBannerBtn">Вернуться</md-filled-button>
+    </div>
     
     <!-- МОДУЛЬ 1: ОБЗОР -->
     <div id="tab-overview" class="tab-content active">
@@ -806,6 +1163,12 @@
         <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4;" id="overviewAiAdviceText">
           Загрузка актуального плана мезоцикла...
         </div>
+
+        <button id="startLiveWorkoutBtn" class="start-live-workout-btn">
+          <span class="material-symbols-outlined">play_circle</span>
+          <span>НАЧАТЬ ТРЕНИРОВКУ У СТАНКА</span>
+        </button>
+
         <div id="overviewRecipeContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
       </div>
 
@@ -1180,7 +1543,199 @@
 
   </main>
 
-  <!-- МОДАЛЬНЫЕ ОКНА -->
+  <!-- =========================================================================
+       ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY)
+       ========================================================================= -->
+  <div id="liveWorkoutOverlay" class="live-workout-overlay">
+    <div class="live-top-bar">
+      <button id="liveMinimizeBtn" class="live-nav-btn" title="Свернуть экран">
+        <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span>
+        <span>Свернуть</span>
+      </button>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span id="liveHeaderTimer" class="live-timer-pill">00:00</span>
+        <md-icon-button id="liveOpenTimerSettingsBtn" title="Настроить тайминги отдыха">
+          <span class="material-symbols-outlined">timer</span>
+        </md-icon-button>
+      </div>
+      <button id="liveOpenFinishModalBtn" class="live-nav-btn" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); border-color: var(--md-sys-color-primary);">
+        <span>Финиш</span>
+      </button>
+    </div>
+
+    <div class="live-body-container">
+      <div style="font-size:0.78rem; color: var(--md-sys-color-on-surface-variant); text-align:center;" id="liveWorkoutTitle">Тренировка</div>
+
+      <!-- Навигация по упражнениям -->
+      <div class="live-ex-nav-row">
+        <button id="livePrevExBtn" class="live-nav-btn">
+          <span class="material-symbols-outlined" style="font-size:18px;">chevron_left</span>
+          <span>Пред.</span>
+        </button>
+        <span id="liveExProgressBadge" style="font-size:0.82rem; font-weight:700; color: var(--md-sys-color-primary);">Упражнение 1 из 7</span>
+        <button id="liveNextExBtn" class="live-nav-btn">
+          <span>След.</span>
+          <span class="material-symbols-outlined" style="font-size:18px;">chevron_right</span>
+        </button>
+      </div>
+
+      <!-- Карточка активного упражнения -->
+      <div class="live-ex-header-card">
+        <div id="liveExName" style="font-size:1.15rem; font-weight:700; color: var(--md-sys-color-on-surface);">Упражнение</div>
+        <div id="liveExTargetSubtitle" style="font-size:0.85rem; color: var(--md-sys-color-on-surface-variant);">Цель: ...</div>
+        <div id="liveExWarmupHint" style="font-size:0.78rem; color: var(--md-sys-color-success); display:flex; align-items:center; gap:4px; margin-top:2px;"></div>
+      </div>
+
+      <!-- Подсказка для дроп-сетов и кластеров -->
+      <div id="liveIntensifierBanner" class="live-intensifier-banner"></div>
+
+      <!-- Плавающий таймер отдыха -->
+      <div id="liveRestTimerBar" class="live-rest-bar">
+        <div class="live-rest-top">
+          <div>
+            <div style="font-size:0.72rem; text-transform:uppercase; color: var(--md-sys-color-on-surface-variant); font-weight:700;">⏱ Таймер отдыха</div>
+            <div style="font-size:0.78rem; color: var(--md-sys-color-on-surface);">Восстановление АТФ-КрФ перед подходом</div>
+          </div>
+          <span id="liveRestCountdown" class="live-rest-countdown">02:30</span>
+        </div>
+        <div class="live-rest-actions">
+          <button id="liveRestMinus30Btn" class="live-rest-chip-btn">- 30 сек</button>
+          <button id="liveRestPlus30Btn" class="live-rest-chip-btn">+ 30 сек</button>
+          <button id="liveRestSkipBtn" class="live-rest-chip-btn" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Пропустить >></button>
+        </div>
+      </div>
+
+      <!-- Блок управления весом, повторами и RIR без клавиатуры -->
+      <div class="live-controls-card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span id="liveCurrentSetLabel" style="font-size:0.85rem; font-weight:700; color: var(--md-sys-color-primary);">РАБОЧИЙ ПОДХОД #1</span>
+          <button id="liveClusterPauseBtn" class="live-nav-btn" style="min-height:34px; padding:0 10px; font-size:0.75rem;">
+            <span class="material-symbols-outlined" style="font-size:16px;">bolt</span>
+            <span>Кластер-пауза (20с)</span>
+          </button>
+        </div>
+
+        <div class="live-cat-toggle-row">
+          <button id="liveCatWarmupBtn" class="live-cat-btn">Разминочный</button>
+          <button id="liveCatWorkBtn" class="live-cat-btn active">Рабочий сет</button>
+        </div>
+
+        <div class="live-stepper-block">
+          <span class="live-stepper-label">Вес снаряда (шаг 2.5 кг)</span>
+          <div class="live-stepper-row">
+            <button id="liveWeightMinusBtn" class="live-step-btn">- 2.5</button>
+            <div id="liveWeightValue" class="live-step-display">100</div>
+            <button id="liveWeightPlusBtn" class="live-step-btn">+ 2.5</button>
+          </div>
+        </div>
+
+        <div class="live-stepper-block">
+          <span class="live-stepper-label">Выполнено повторений</span>
+          <div class="live-stepper-row">
+            <button id="liveRepsMinusBtn" class="live-step-btn">- 1</button>
+            <div id="liveRepsValue" class="live-step-display">6</div>
+            <button id="liveRepsPlusBtn" class="live-step-btn">+ 1</button>
+          </div>
+        </div>
+
+        <div class="live-stepper-block">
+          <span class="live-stepper-label">Запас сил до отказа (RIR)</span>
+          <div class="live-rir-row">
+            <button class="live-rir-chip" data-rir="0">
+              <span>0</span>
+              <span style="font-size:0.65rem; font-weight:400;">Отказ</span>
+            </button>
+            <button class="live-rir-chip" data-rir="1">
+              <span>1</span>
+              <span style="font-size:0.65rem; font-weight:400;">Тяжело</span>
+            </button>
+            <button class="live-rir-chip active" data-rir="2">
+              <span>2</span>
+              <span style="font-size:0.65rem; font-weight:400;">Оптимум</span>
+            </button>
+            <button class="live-rir-chip" data-rir="3+">
+              <span>3+</span>
+              <span style="font-size:0.65rem; font-weight:400;">Запас</span>
+            </button>
+          </div>
+        </div>
+
+        <button id="liveRecordSetBtn" class="live-record-btn">
+          <span class="material-symbols-outlined">check_circle</span>
+          <span>ЗАПИСАТЬ ПОДХОД</span>
+        </button>
+      </div>
+
+      <!-- Список выполненных подходов текущего упражнения -->
+      <div class="m3-card" style="padding:14px;">
+        <div style="font-size:0.82rem; font-weight:700; color: var(--md-sys-color-on-surface-variant); text-transform:uppercase;">Записанные подходы сегодня:</div>
+        <div id="liveCompletedSetsList" style="display:flex; flex-direction:column; gap:8px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ (CLOSE-OUT) -->
+  <div id="liveCloseoutModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span>Завершение тренировки</span>
+        <md-icon-button id="closeLiveCloseoutModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+      <div id="liveCloseoutSummaryStats" style="font-size:0.88rem; line-height:1.6; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high); padding:12px 14px; border-radius:14px;"></div>
+      
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <span style="font-size:0.82rem; font-weight:600; color: var(--md-sys-color-primary);">Оценка тяжести сессии (sRPE по шкале 6–10):</span>
+        <div class="live-srpe-grid">
+          <button class="live-srpe-chip" data-srpe="6">6</button>
+          <button class="live-srpe-chip" data-srpe="7">7</button>
+          <button class="live-srpe-chip active" data-srpe="8">8</button>
+          <button class="live-srpe-chip" data-srpe="9">9</button>
+          <button class="live-srpe-chip" data-srpe="10">10</button>
+        </div>
+      </div>
+
+      <div id="liveCloseoutSyncStatus" style="display:none; font-size:0.82rem; line-height:1.4;"></div>
+
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
+        <md-filled-button id="liveConfirmFinishBtn">
+          <span class="material-symbols-outlined" slot="icon">cloud_upload</span>
+          Сохранить в базу Google Таблиц
+        </md-filled-button>
+        <md-outlined-button id="liveDiscardWorkoutBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
+          Удалить тренировку без сохранения
+        </md-outlined-button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО НАСТРОЙКИ ТАЙМИНГОВ ОТДЫХА -->
+  <div id="liveTimerSettingsModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="card-title">
+        <span>Тайминги отдыха (сек)</span>
+        <md-icon-button id="closeLiveTimerSettingsBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div>
+          <label style="font-size:0.8rem; color: var(--md-sys-color-on-surface-variant);">Базовые компаунды (#1–#2), сек:</label>
+          <input type="number" id="prefTimerCompound" class="m3-input" value="150" step="10">
+        </div>
+        <div>
+          <label style="font-size:0.8rem; color: var(--md-sys-color-on-surface-variant);">Изоляция, руки и ноги (#3+), сек:</label>
+          <input type="number" id="prefTimerIsolation" class="m3-input" value="90" step="10">
+        </div>
+        <div>
+          <label style="font-size:0.8rem; color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза, сек:</label>
+          <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5">
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+        <md-filled-button id="saveLiveTimerSettingsBtn">Сохранить тайминги</md-filled-button>
+      </div>
+    </div>
+  </div>
+
+  <!-- СТАНДАРТНЫЕ МОДАЛЬНЫЕ ОКНА -->
   <div id="daySummaryModal" class="modal-overlay">
     <div class="modal-card">
       <div class="card-title">

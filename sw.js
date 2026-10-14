@@ -1,10 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V38 ZERO-405 BULLETPROOF)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V39 LIVE WORKOUT READY)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v38';
+const CACHE_NAME = 'gym-hub-v39';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 const APP_ASSETS = [
@@ -19,7 +19,8 @@ const APP_ASSETS = [
   './js/overview.js',
   './js/analytics.js',
   './js/sync.js',
-  './js/parser.js'
+  './js/parser.js',
+  './js/live_workout.js'
 ];
 
 self.addEventListener('install', (event) => {
