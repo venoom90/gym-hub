@@ -4,25 +4,74 @@ import { startNewLiveWorkout } from './live_workout.js';
 
 let isOverviewInitialized = false;
 let latestPreparedWorkoutPayload = null;
+let cachedBothSplitsPayloads = { A: null, B: null };
+let activeModalSplitKey = 'A';
 
 export function renderOverviewModule() {
-  initDayModalListeners();
+  initOverviewModalListeners();
   renderCalendarStrip();
   renderAiRecipeCard();
   renderMuscleMannequin();
 }
 
-function initDayModalListeners() {
+function initOverviewModalListeners() {
   if (isOverviewInitialized) return;
-  const modal = document.getElementById('daySummaryModal');
-  const closeBtn = document.getElementById('closeDaySummaryModalBtn');
-  if (closeBtn && modal) {
-    closeBtn.onclick = () => { modal.style.display = 'none'; };
-    modal.onclick = (e) => {
-      if (e.target === modal) modal.style.display = 'none';
+
+  // Модальное окно сводки дня из календаря
+  const dayModal = document.getElementById('daySummaryModal');
+  const closeDayBtn = document.getElementById('closeDaySummaryModalBtn');
+  if (closeDayBtn && dayModal) {
+    closeDayBtn.onclick = () => { dayModal.style.display = 'none'; };
+    dayModal.onclick = (e) => {
+      if (e.target === dayModal) dayModal.style.display = 'none';
     };
   }
 
+  // Модальное окно полного списка упражнений предстоящей тренировки
+  const planModal = document.getElementById('workoutPlanDetailsModal');
+  const closePlanBtn = document.getElementById('closeWorkoutPlanModalBtn');
+  const previewCard = document.getElementById('overviewPlanPreviewCard');
+  const modalTabA = document.getElementById('modalPlanTabA');
+  const modalTabB = document.getElementById('modalPlanTabB');
+  const modalStartBtn = document.getElementById('modalStartLiveWorkoutBtn');
+
+  if (previewCard && planModal) {
+    previewCard.onclick = () => {
+      openWorkoutPlanDetailsModal();
+    };
+  }
+
+  if (closePlanBtn && planModal) {
+    closePlanBtn.onclick = () => { planModal.style.display = 'none'; };
+    planModal.onclick = (e) => {
+      if (e.target === planModal) planModal.style.display = 'none';
+    };
+  }
+
+  if (modalTabA && modalTabB) {
+    modalTabA.onclick = () => {
+      activeModalSplitKey = 'A';
+      modalTabA.classList.add('active');
+      modalTabB.classList.remove('active');
+      renderModalSplitExercises(cachedBothSplitsPayloads.A || latestPreparedWorkoutPayload);
+    };
+    modalTabB.onclick = () => {
+      activeModalSplitKey = 'B';
+      modalTabB.classList.add('active');
+      modalTabA.classList.remove('active');
+      renderModalSplitExercises(cachedBothSplitsPayloads.B || latestPreparedWorkoutPayload);
+    };
+  }
+
+  if (modalStartBtn && planModal) {
+    modalStartBtn.onclick = () => {
+      planModal.style.display = 'none';
+      const chosenPayload = cachedBothSplitsPayloads[activeModalSplitKey] || latestPreparedWorkoutPayload;
+      startNewLiveWorkout(chosenPayload);
+    };
+  }
+
+  // Главная кнопка запуска тренировки на дашборде
   const startLiveBtn = document.getElementById('startLiveWorkoutBtn');
   if (startLiveBtn) {
     startLiveBtn.onclick = () => {
@@ -33,17 +82,11 @@ function initDayModalListeners() {
   isOverviewInitialized = true;
 }
 
-/**
- * Округление расчетного веса до шага 2.5 кг
- */
 function roundToGymStep(weight) {
   if (!weight || weight <= 0) return 0;
   return Math.round(weight / 2.5) * 2.5;
 }
 
-/**
- * Построение детерминированного массива шагов разминки для трекера у станка
- */
 function buildWarmupStepsArray(order, targetWeight, cycleMode = 'Сила') {
   if (!targetWeight || targetWeight <= 30) {
     return [{ weight: Math.max(10, roundToGymStep(targetWeight * 0.6)), reps: 8 }];
@@ -54,7 +97,6 @@ function buildWarmupStepsArray(order, targetWeight, cycleMode = 'Сила') {
     return [{ weight: deloadStep, reps: 8 }];
   }
 
-  // #1 Первое базовое движение сессии (тяжёлый компаунд верха: 3 шага)
   if (order === 1) {
     return [
       { weight: roundToGymStep(targetWeight * 0.50), reps: 8 },
@@ -63,7 +105,6 @@ function buildWarmupStepsArray(order, targetWeight, cycleMode = 'Сила') {
     ];
   }
 
-  // #2 Второе базовое движение (тяга/жим в другой плоскости: 2 шага)
   if (order === 2) {
     return [
       { weight: roundToGymStep(targetWeight * 0.60), reps: 5 },
@@ -71,15 +112,11 @@ function buildWarmupStepsArray(order, targetWeight, cycleMode = 'Сила') {
     ];
   }
 
-  // #3 и далее: изоляция, руки, ноги в конце (1 калибровочный сет)
   return [
     { weight: roundToGymStep(targetWeight * 0.65), reps: 5 }
   ];
 }
 
-/**
- * Физиологический расчет подводящей лесенки (Warm-up Ramp) в текстовом виде
- */
 function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
   if (!targetWeight || targetWeight <= 30) {
     return '1 легкий подход (по самочувствию)';
@@ -101,6 +138,11 @@ function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
   return `1 калибровочный сет × ${steps[0].weight} кг (${steps[0].reps} повт.)`;
 }
 
+/**
+ * -------------------------------------------------------------------------
+ * 1. КАЛЕНДАРНАЯ ПОЛОСА С ПОДРОБНЫМ ДНЕВНИКОМ ДНЯ ПО КЛИКУ
+ * -------------------------------------------------------------------------
+ */
 function renderCalendarStrip() {
   const container = document.getElementById('calendarStripContainer');
   const rangeLabel = document.getElementById('calendarWeekRange');
@@ -137,13 +179,30 @@ function renderCalendarStrip() {
         split: s.splitDay || p.splitDay || 'А',
         workout: s.workout || 'Тренировка',
         setsCount: 0,
-        tonnage: 0
+        tonnage: 0,
+        exercisesMap: {}
       };
     }
     
     if (isWork) {
       sessionDatesMap[key].setsCount++;
       sessionDatesMap[key].tonnage += (s.tonnage || 0);
+
+      const exName = (s.exercise || 'Упражнение').trim();
+      if (!sessionDatesMap[key].exercisesMap[exName]) {
+        sessionDatesMap[key].exercisesMap[exName] = {
+          sets: 0,
+          maxWeight: 0,
+          bestReps: 0
+        };
+      }
+      sessionDatesMap[key].exercisesMap[exName].sets++;
+      const w = parseFloat(s.weight) || 0;
+      const r = parseInt(s.reps, 10) || 0;
+      if (w >= sessionDatesMap[key].exercisesMap[exName].maxWeight) {
+        sessionDatesMap[key].exercisesMap[exName].maxWeight = w;
+        sessionDatesMap[key].exercisesMap[exName].bestReps = r;
+      }
     }
   });
 
@@ -184,94 +243,156 @@ function openDaySummaryModal(date, session) {
   title.innerText = `${formatDateDisplay(date)} (${date.toLocaleDateString('ru-RU', { weekday: 'long' })})`;
 
   if (session && session.setsCount > 0) {
+    const exEntries = Object.entries(session.exercisesMap || {});
+    const exListHtml = exEntries.map(([name, info], idx) => `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; background:var(--md-sys-color-surface-container-high); border-radius:8px; font-size:0.82rem;">
+        <span style="color:var(--md-sys-color-on-surface); font-weight:500;">${idx + 1}. ${escapeHtml(name)}</span>
+        <span style="color:var(--md-sys-color-primary); font-weight:700; white-space:nowrap; margin-left:8px;">${info.maxWeight} кг × ${info.bestReps} (${info.sets} с.)</span>
+      </div>
+    `).join('');
+
     content.innerHTML = `
-      <div style="font-weight: 600; color: var(--md-sys-color-primary);">${escapeHtml(session.workout)}</div>
-      <div><b>Сплит:</b> День ${escapeHtml(session.split)}</div>
-      <div><b>Рабочих подходов:</b> ${session.setsCount}</div>
-      <div><b>Рабочий тоннаж:</b> ${(session.tonnage / 1000).toFixed(2)} т</div>
+      <div style="font-weight: 700; font-size: 0.95rem; color: var(--md-sys-color-primary);">${escapeHtml(session.workout)}</div>
+      <div style="display:flex; gap:12px; flex-wrap:wrap; font-size:0.84rem;">
+        <span><b>Сплит:</b> День ${escapeHtml(session.split)}</span>
+        <span><b>Рабочих сетов:</b> ${session.setsCount}</span>
+        <span><b>Тоннаж:</b> ${(session.tonnage / 1000).toFixed(2)} т</span>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
+        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:var(--md-sys-color-on-surface-variant);">Выполненные упражнения:</div>
+        ${exListHtml}
+      </div>
     `;
   } else {
-    content.innerHTML = `<div style="color: var(--md-sys-color-on-surface-variant);">В этот день тренировок не зафиксировано (день отдыха).</div>`;
+    content.innerHTML = `<div style="color: var(--md-sys-color-on-surface-variant);">В этот день тренировок не зафиксировано (день отдыха и суперкомпенсации).</div>`;
   }
 
   modal.style.display = 'flex';
 }
 
+/**
+ * -------------------------------------------------------------------------
+ * 2. КОМПАКТНАЯ КАРТОЧКА ПЛАНА + МОДАЛЬНОЕ ОКНО СПИСКА УПРАЖНЕНИЙ
+ * -------------------------------------------------------------------------
+ */
+function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode, waveIndex, cycleWeek, catalogMap) {
+  if (!splitObj || !Array.isArray(splitObj.exercises)) return null;
+
+  const preparedExercises = [];
+  const targetMusclesList = [];
+
+  splitObj.exercises.forEach((ex, idx) => {
+    const catItem = catalogMap[(ex.name || '').trim()];
+    const muscle = (catItem && catItem.primaryMuscle) ? catItem.primaryMuscle : (ex.target || '');
+    if (muscle && !targetMusclesList.includes(muscle)) {
+      targetMusclesList.push(muscle);
+    }
+
+    const orderNum = parseInt(ex.order, 10) || (idx + 1);
+    const weightVal = parseFloat(ex.weight) || 0;
+    const warmupRampText = calculateWarmupRamp(orderNum, weightVal, cycleMode);
+    const warmupSteps = buildWarmupStepsArray(orderNum, weightVal, cycleMode);
+
+    preparedExercises.push({
+      order: orderNum,
+      name: ex.name || 'Упражнение',
+      target: muscle,
+      weight: weightVal,
+      sets: parseInt(ex.sets, 10) || 3,
+      reps: String(ex.reps || '4-6'),
+      rir: String(ex.rir || '1-2'),
+      method: String(ex.method || 'Стандарт'),
+      warmupText: warmupRampText,
+      warmupSteps: warmupSteps,
+      notes: ex.notes ? String(ex.notes) : ''
+    });
+  });
+
+  const title = splitObj.title || `Тренировка ${splitLetter}${waveIndex} ${cycleMode} ${cycleId}`;
+
+  return {
+    title: title,
+    cycleId: cycleId,
+    splitDay: splitLetter,
+    cycleMode: cycleMode,
+    waveIndex: waveIndex,
+    cycleWeek: cycleWeek,
+    targetMuscles: targetMusclesList,
+    exercises: preparedExercises
+  };
+}
+
 function renderAiRecipeCard() {
   const sets = state.dbData.sets || [];
   const catalog = state.dbData.catalog || [];
-  const recipeBox = document.getElementById('overviewRecipeContainer');
-  const adviceText = document.getElementById('overviewAiAdviceText');
   const muscleTagsRow = document.getElementById('overviewMuscleTagsRow');
   const cycleBadge = document.getElementById('overviewCycleBadge');
   const nextTag = document.getElementById('overviewNextTag');
-  if (!recipeBox) return;
-  recipeBox.innerHTML = '';
-  if (muscleTagsRow) muscleTagsRow.innerHTML = '';
+  const previewTitleEl = document.getElementById('overviewPlanPreviewTitle');
+  const previewMetricsEl = document.getElementById('overviewPlanPreviewMetrics');
 
-  if (sets.length === 0) {
-    if (adviceText) adviceText.innerText = 'Загрузите историю тренировок для формирования рецепта.';
-    return;
-  }
+  if (muscleTagsRow) muscleTagsRow.innerHTML = '';
 
   const catalogMap = {};
   catalog.forEach(item => {
     if (item && item.name) catalogMap[item.name.trim()] = item;
   });
 
-  const sortedSets = [...sets].sort((a, b) => {
-    const da = normalizeDate(a.date);
-    const db = normalizeDate(b.date);
-    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
-  });
-
-  const latestSet = sortedSets[0];
-  const fallbackParsed = extractPeriodization(latestSet.workout);
-
-  let currentWeek = parseInt(latestSet.cycleWeek || fallbackParsed.cycleWeek, 10) || 1;
-  let currentMode = latestSet.cycleMode || fallbackParsed.cycleMode || 'Сила';
-  let currentSplit = (latestSet.splitDay || fallbackParsed.splitDay || 'А').toUpperCase();
-  let currentWave = String(latestSet.waveIndex || fallbackParsed.waveIndex || '1');
-  let currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-1';
-
-  const lastWorkoutTitle = String(latestSet.workout || '').toLowerCase();
-  if (lastWorkoutTitle.includes('разгруз') || lastWorkoutTitle.includes('делоад') || lastWorkoutTitle.includes('deload')) {
-    currentMode = 'Делоад';
-    currentWeek = 5;
-  }
-
   let nextSplit = 'А';
   let nextWeek = 1;
   let nextMode = 'Сила';
   let nextWave = '1';
-  let nextCycleId = currentCycleId;
+  let nextCycleId = state.dbData.currentCycleId || 'C-2';
   let isNewCycleTransition = false;
 
-  if (currentSplit === 'А' || currentSplit === 'A') {
-    nextSplit = 'Б';
-    nextWeek = currentWeek;
-    nextMode = currentMode;
-    nextWave = currentWave;
-    nextCycleId = currentCycleId;
-  } else {
-    if (currentMode === 'Делоад' || currentWeek >= 5) {
-      nextSplit = 'А';
-      nextWeek = 1;
-      nextMode = 'Сила';
-      nextWave = '1';
-      isNewCycleTransition = true;
+  if (sets.length > 0) {
+    const sortedSets = [...sets].sort((a, b) => {
+      const da = normalizeDate(a.date);
+      const db = normalizeDate(b.date);
+      return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+    });
 
-      const cycleNumMatch = currentCycleId.match(/\d+/);
-      const nextNum = cycleNumMatch ? (parseInt(cycleNumMatch[0], 10) + 1) : 2;
-      nextCycleId = `C-${nextNum}`;
-    } else {
-      nextSplit = 'А';
-      nextWeek = currentWeek + 1;
+    const latestSet = sortedSets[0];
+    const fallbackParsed = extractPeriodization(latestSet.workout);
+
+    let currentWeek = parseInt(latestSet.cycleWeek || fallbackParsed.cycleWeek, 10) || 1;
+    let currentMode = latestSet.cycleMode || fallbackParsed.cycleMode || 'Сила';
+    let currentSplit = (latestSet.splitDay || fallbackParsed.splitDay || 'А').toUpperCase();
+    let currentWave = String(latestSet.waveIndex || fallbackParsed.waveIndex || '1');
+    let currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-2';
+
+    const lastWorkoutTitle = String(latestSet.workout || '').toLowerCase();
+    if (lastWorkoutTitle.includes('разгруз') || lastWorkoutTitle.includes('делоад') || lastWorkoutTitle.includes('deload')) {
+      currentMode = 'Делоад';
+      currentWeek = 5;
+    }
+
+    if (currentSplit === 'А' || currentSplit === 'A') {
+      nextSplit = 'Б';
+      nextWeek = currentWeek;
+      nextMode = currentMode;
+      nextWave = currentWave;
       nextCycleId = currentCycleId;
-      if (nextWeek === 2) { nextMode = 'Объем'; nextWave = '1'; }
-      else if (nextWeek === 3) { nextMode = 'Сила'; nextWave = '2'; }
-      else if (nextWeek === 4) { nextMode = 'Объем'; nextWave = '2'; }
-      else if (nextWeek >= 5) { nextMode = 'Делоад'; nextWave = 'Делоад'; }
+    } else {
+      if (currentMode === 'Делоад' || currentWeek >= 5) {
+        nextSplit = 'А';
+        nextWeek = 1;
+        nextMode = 'Сила';
+        nextWave = '1';
+        isNewCycleTransition = true;
+
+        const cycleNumMatch = currentCycleId.match(/\d+/);
+        const nextNum = cycleNumMatch ? (parseInt(cycleNumMatch[0], 10) + 1) : 2;
+        nextCycleId = `C-${nextNum}`;
+      } else {
+        nextSplit = 'А';
+        nextWeek = currentWeek + 1;
+        nextCycleId = currentCycleId;
+        if (nextWeek === 2) { nextMode = 'Объем'; nextWave = '1'; }
+        else if (nextWeek === 3) { nextMode = 'Сила'; nextWave = '2'; }
+        else if (nextWeek === 4) { nextMode = 'Объем'; nextWave = '2'; }
+        else if (nextWeek >= 5) { nextMode = 'Делоад'; nextWave = 'Делоад'; }
+      }
     }
   }
 
@@ -282,122 +403,60 @@ function renderAiRecipeCard() {
   if (cycleBadge) cycleBadge.innerText = nextCycleId;
   if (nextTag) nextTag.innerText = nextTitle;
 
+  activeModalSplitKey = (nextSplit === 'А' || nextSplit === 'A') ? 'A' : 'B';
+  cachedBothSplitsPayloads = { A: null, B: null };
+
   // 1. ПРИОРИТЕТ: ЧТЕНИЕ СОХРАНЕННОГО ПЛАНА МЕЗОЦИКЛА (AI COPILOT)
-  let activeAiPlan = null;
   try {
     const rawAiPlan = localStorage.getItem('gym_ai_coach_plan');
     if (rawAiPlan) {
       const parsedPlan = JSON.parse(rawAiPlan);
-      const planSplitKey = (nextSplit === 'А' || nextSplit === 'A') ? 'A' : 'B';
-      if (parsedPlan && parsedPlan.splits && parsedPlan.splits[planSplitKey] && Array.isArray(parsedPlan.splits[planSplitKey].exercises)) {
-        activeAiPlan = parsedPlan.splits[planSplitKey];
+      if (parsedPlan && parsedPlan.splits) {
+        if (parsedPlan.splits.A) {
+          cachedBothSplitsPayloads.A = prepareSplitPayloadFromAiPlan(
+            parsedPlan.splits.A, 'А', nextCycleId, nextMode, nextWave, nextWeek, catalogMap
+          );
+        }
+        if (parsedPlan.splits.B) {
+          cachedBothSplitsPayloads.B = prepareSplitPayloadFromAiPlan(
+            parsedPlan.splits.B, 'Б', nextCycleId, nextMode, nextWave, nextWeek, catalogMap
+          );
+        }
       }
     }
   } catch (err) {
     console.warn('[Overview] Не удалось распарсить сохраненный план ИИ:', err);
   }
 
-  if (activeAiPlan && activeAiPlan.exercises.length > 0) {
-    const targetMusclesList = [];
-    const preparedExercises = [];
+  const activeAiSplitPayload = cachedBothSplitsPayloads[activeModalSplitKey];
 
-    activeAiPlan.exercises.forEach((ex, idx) => {
-      const catItem = catalogMap[(ex.name || '').trim()];
-      const muscle = (catItem && catItem.primaryMuscle) ? catItem.primaryMuscle : (ex.target || '');
-      if (muscle && !targetMusclesList.includes(muscle)) {
-        targetMusclesList.push(muscle);
-      }
-
-      const orderNum = parseInt(ex.order, 10) || (idx + 1);
-      const weightVal = parseFloat(ex.weight) || 0;
-      const warmupRampText = calculateWarmupRamp(orderNum, weightVal, nextMode);
-      const warmupSteps = buildWarmupStepsArray(orderNum, weightVal, nextMode);
-
-      preparedExercises.push({
-        order: orderNum,
-        name: ex.name || 'Упражнение',
-        target: muscle,
-        weight: weightVal,
-        sets: parseInt(ex.sets, 10) || 3,
-        reps: String(ex.reps || '4-6'),
-        rir: String(ex.rir || '1-2'),
-        method: String(ex.method || 'Стандарт'),
-        warmupText: warmupRampText,
-        warmupSteps: warmupSteps,
-        notes: ex.notes ? String(ex.notes) : ''
-      });
-    });
-
-    latestPreparedWorkoutPayload = {
-      title: nextTitle,
-      cycleId: nextCycleId,
-      splitDay: nextSplit,
-      cycleMode: nextMode,
-      waveIndex: nextWave,
-      cycleWeek: nextWeek,
-      exercises: preparedExercises
-    };
-
-    if (muscleTagsRow && targetMusclesList.length > 0) {
-      targetMusclesList.forEach(m => {
-        const chip = document.createElement('span');
-        chip.className = 'muscle-tag';
-        chip.innerText = m;
-        muscleTagsRow.appendChild(chip);
-      });
-    }
-
-    if (adviceText) {
-      adviceText.innerText = activeAiPlan.title 
-        ? `План мезоцикла: ${activeAiPlan.title}. Рассчитан ИИ-тренером с учетом DUP и канонов восстановления.`
-        : `План дня ${nextSplit} из сохраненного мезоцикла.`;
-    }
-
-    preparedExercises.forEach((ex) => {
-      try {
-        const step = document.createElement('div');
-        step.className = 'recipe-step';
-
-        const isDropMethod = ex.method.toLowerCase().includes('дроп');
-        const dropWeightVal = isDropMethod ? roundToGymStep(ex.weight * 0.75) : 0;
-
-        const methodBadgeHtml = ex.method !== 'Стандарт'
-          ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Финальный сет: ${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
-          : '';
-
-        step.innerHTML = `
-          <div class="recipe-step-header">#${ex.order} • ${escapeHtml(ex.name)}</div>
-          <div class="recipe-metrics-row">
-            <span class="recipe-sets-count">${ex.sets} сета ×</span>
-            <span class="recipe-weight-highlight">${ex.weight > 0 ? ex.weight + ' кг' : 'рабочий вес'}</span>
-            <span class="recipe-reps-chip">${escapeHtml(ex.reps)} повт.</span>
-            <span class="recipe-rir-badge">RIR ${escapeHtml(ex.rir)}</span>
-            ${methodBadgeHtml}
-          </div>
-          <div class="recipe-warmup-row">
-            <span class="material-symbols-outlined">restart_alt</span>
-            <span>Разминка: <b>${escapeHtml(ex.warmupText)}</b></span>
-          </div>
-          ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
-        `;
-        recipeBox.appendChild(step);
-      } catch (stepErr) {
-        console.warn('[Overview] Ошибка отрисовки шага упражнения:', stepErr, ex);
-      }
-    });
-
+  if (activeAiSplitPayload && activeAiSplitPayload.exercises.length > 0) {
+    latestPreparedWorkoutPayload = activeAiSplitPayload;
+    updatePlanPreviewCardUI(activeAiSplitPayload);
     return;
   }
 
-  // 2. FALLBACK: РАСЧЕТ ОТ РЕАЛЬНОГО РАБОЧЕГО ВЕСА
+  // 2. FALLBACK: РАСЧЕТ ОТ АРХИВНЫХ ТРЕНИРОВОК
+  if (sets.length === 0) {
+    if (previewTitleEl) previewTitleEl.innerText = 'План еще не сформирован';
+    if (previewMetricsEl) previewMetricsEl.innerText = 'Сгенерируйте план во вкладке «Тренер» или загрузите отчет';
+    return;
+  }
+
+  const sortedSets = [...sets].sort((a, b) => {
+    const da = normalizeDate(a.date);
+    const db = normalizeDate(b.date);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+  });
+
   const prevSplitSets = sortedSets.filter(s => {
     const sSplit = (s.splitDay || extractPeriodization(s.workout).splitDay || '').toUpperCase();
     return sSplit === nextSplit;
   });
 
   if (prevSplitSets.length === 0) {
-    if (adviceText) adviceText.innerText = `Нет исторических данных для формирования плана Дня ${nextSplit}.`;
-    recipeBox.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8;">Выполните и синхронизируйте тренировку ${nextSplit}.</div>`;
+    if (previewTitleEl) previewTitleEl.innerText = `День ${nextSplit} (Нет архивных записей)`;
+    if (previewMetricsEl) previewMetricsEl.innerText = 'Рассчитайте план во вкладке «Тренер»';
     return;
   }
 
@@ -419,28 +478,6 @@ function renderAiRecipeCard() {
     }
   });
 
-  if (muscleTagsRow && targetMusclesList.length > 0) {
-    targetMusclesList.forEach(m => {
-      const chip = document.createElement('span');
-      chip.className = 'muscle-tag';
-      chip.innerText = m;
-      muscleTagsRow.appendChild(chip);
-    });
-  }
-
-  let modeAdvice = '';
-  if (isNewCycleTransition) {
-    modeAdvice = `Старт нового мезоцикла ${nextCycleId}! Силовой режим: сохраняйте проверенный рабочий вес с прогрессией +2.5 кг.`;
-  } else if (nextMode === 'Делоад' || nextMode === 'Разгрузка') {
-    modeAdvice = 'Разгрузочная тренировка (RIR +4..+5). Сниженный вес (~65%), работа без мышечного отказа для восстановления ЦНС и суставов.';
-  } else if (nextMode === 'Сила') {
-    modeAdvice = 'Тяжелый силовой режим (RIR +1..+2). Максимальная взрывная концентрация в позитивной фазе.';
-  } else {
-    modeAdvice = 'Многоповторный объемный режим (RIR +2..+3). Фокус на постоянное натяжение и памп.';
-  }
-
-  if (adviceText) adviceText.innerText = modeAdvice;
-
   const sixtyDaysAgo = Date.now() - (60 * 24 * 3600 * 1000);
   const fallbackPreparedExercises = [];
 
@@ -453,7 +490,6 @@ function renderAiRecipeCard() {
     });
 
     let lastKnownWorkingWeight = 0;
-
     const regularSets = history.filter(h => {
       const isSpecial = (h.method || '').toLowerCase().includes('дроп') || (h.method || '').toLowerCase().includes('кластер');
       return !isSpecial;
@@ -505,23 +541,6 @@ function renderAiRecipeCard() {
       warmupSteps: warmupSteps,
       notes: ''
     });
-
-    const step = document.createElement('div');
-    step.className = 'recipe-step';
-    step.innerHTML = `
-      <div class="recipe-step-header">#${idx + 1} • ${escapeHtml(ex)}</div>
-      <div class="recipe-metrics-row">
-        <span class="recipe-sets-count">3 сета ×</span>
-        <span class="recipe-weight-highlight">${finalTargetLoad > 0 ? finalTargetLoad + ' кг' : 'рабочий вес'}</span>
-        <span class="recipe-reps-chip">${targetRepsBadge} повт.</span>
-        <span class="recipe-rir-badge">RIR ${rirBadgeText}</span>
-      </div>
-      <div class="recipe-warmup-row">
-        <span class="material-symbols-outlined">restart_alt</span>
-        <span>Разминка: <b>${escapeHtml(warmupRampText)}</b></span>
-      </div>
-    `;
-    recipeBox.appendChild(step);
   });
 
   latestPreparedWorkoutPayload = {
@@ -531,8 +550,176 @@ function renderAiRecipeCard() {
     cycleMode: nextMode,
     waveIndex: nextWave,
     cycleWeek: nextWeek,
+    targetMuscles: targetMusclesList,
     exercises: fallbackPreparedExercises
   };
+
+  updatePlanPreviewCardUI(latestPreparedWorkoutPayload);
+}
+
+function updatePlanPreviewCardUI(payload) {
+  const muscleTagsRow = document.getElementById('overviewMuscleTagsRow');
+  const previewTitleEl = document.getElementById('overviewPlanPreviewTitle');
+  const previewMetricsEl = document.getElementById('overviewPlanPreviewMetrics');
+
+  if (muscleTagsRow) {
+    muscleTagsRow.innerHTML = '';
+    (payload.targetMuscles || []).forEach(m => {
+      const chip = document.createElement('span');
+      chip.className = 'muscle-tag';
+      chip.innerText = m;
+      muscleTagsRow.appendChild(chip);
+    });
+  }
+
+  const exCount = payload.exercises.length;
+  const totalWorkSets = payload.exercises.reduce((acc, ex) => acc + (parseInt(ex.sets, 10) || 3), 0);
+  const specialCount = payload.exercises.filter(ex => ex.method && ex.method !== 'Стандарт').length;
+
+  if (previewTitleEl) {
+    previewTitleEl.innerText = payload.title || `Тренировка Дня ${payload.splitDay}`;
+  }
+  if (previewMetricsEl) {
+    const specBadge = specialCount > 0 ? ` • ⚡ Интенсификаторов: ${specialCount}` : '';
+    previewMetricsEl.innerText = `${exCount} упражнений • ${totalWorkSets} рабочих подходов${specBadge}`;
+  }
+}
+
+function openWorkoutPlanDetailsModal() {
+  const modal = document.getElementById('workoutPlanDetailsModal');
+  const switcher = document.getElementById('modalPlanSplitSwitcher');
+  const tabA = document.getElementById('modalPlanTabA');
+  const tabB = document.getElementById('modalPlanTabB');
+  if (!modal) return;
+
+  if (!latestPreparedWorkoutPayload || !latestPreparedWorkoutPayload.exercises) {
+    alert('План тренировки еще не загружен.');
+    return;
+  }
+
+  if (switcher && tabA && tabB) {
+    if (cachedBothSplitsPayloads.A && cachedBothSplitsPayloads.B) {
+      switcher.style.display = 'flex';
+      tabA.classList.toggle('active', activeModalSplitKey === 'A');
+      tabB.classList.toggle('active', activeModalSplitKey === 'B');
+    } else {
+      switcher.style.display = 'none';
+    }
+  }
+
+  const currentPayload = cachedBothSplitsPayloads[activeModalSplitKey] || latestPreparedWorkoutPayload;
+  renderModalSplitExercises(currentPayload);
+  modal.style.display = 'flex';
+}
+
+function renderModalSplitExercises(payload) {
+  const titleEl = document.getElementById('modalPlanTitle');
+  const adviceEl = document.getElementById('modalPlanAdviceText');
+  const container = document.getElementById('modalRecipeContainer');
+  if (!container || !payload) return;
+
+  if (titleEl) {
+    titleEl.innerText = payload.title || `День ${payload.splitDay}`;
+  }
+
+  if (adviceEl) {
+    const totalSets = payload.exercises.reduce((acc, ex) => acc + (parseInt(ex.sets, 10) || 3), 0);
+    adviceEl.innerText = `Всего ${payload.exercises.length} упражнений (${totalSets} рабочих подходов). Разминочные подходы рассчитаны автоматически.`;
+  }
+
+  container.innerHTML = '';
+
+  payload.exercises.forEach(ex => {
+    const step = document.createElement('div');
+    step.className = 'recipe-step';
+
+    const isDropMethod = String(ex.method || '').toLowerCase().includes('дроп');
+    const dropWeightVal = isDropMethod ? roundToGymStep(ex.weight * 0.75) : 0;
+
+    const methodBadgeHtml = (ex.method && ex.method !== 'Стандарт')
+      ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Финал: ${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
+      : '';
+
+    step.innerHTML = `
+      <div class="recipe-step-header">#${ex.order} • ${escapeHtml(ex.name)}</div>
+      <div class="recipe-metrics-row">
+        <span class="recipe-sets-count">${ex.sets} сета ×</span>
+        <span class="recipe-weight-highlight">${ex.weight > 0 ? ex.weight + ' кг' : 'рабочий вес'}</span>
+        <span class="recipe-reps-chip">${escapeHtml(ex.reps)} повт.</span>
+        <span class="recipe-rir-badge">RIR ${escapeHtml(ex.rir)}</span>
+        ${methodBadgeHtml}
+      </div>
+      <div class="recipe-warmup-row">
+        <span class="material-symbols-outlined">restart_alt</span>
+        <span>Разминка: <b>${escapeHtml(ex.warmupText)}</b></span>
+      </div>
+      ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
+    `;
+
+    container.appendChild(step);
+  });
+}
+
+/**
+ * -------------------------------------------------------------------------
+ * 3. АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 (СПЕКТРАЛЬНЫЙ ГРАДИЕНТ 0% -> 100%)
+ * -------------------------------------------------------------------------
+ */
+function interpolateHexColor(hex1, hex2, factor) {
+  const f = Math.max(0, Math.min(1, factor));
+  const c1 = parseInt(hex1.slice(1), 16);
+  const c2 = parseInt(hex2.slice(1), 16);
+
+  const r1 = (c1 >> 16) & 255, g1 = (c1 >> 8) & 255, b1 = c1 & 255;
+  const r2 = (c2 >> 16) & 255, g2 = (c2 >> 8) & 255, b2 = c2 & 255;
+
+  const r = Math.round(r1 + (r2 - r1) * f);
+  const g = Math.round(g1 + (g2 - g1) * f);
+  const b = Math.round(b1 + (b2 - b1) * f);
+
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
+/**
+ * Непрерывный спектр: 0% (Индиго #3b4262) -> 35% (Изумруд #10b981) -> 70% (Янтарь #facc15) -> 100% (Алый #ff4d4f)
+ */
+function getSpectralThermalColor(percent) {
+  const p = Math.max(0, Math.min(100, percent));
+  if (p <= 35) {
+    return interpolateHexColor('#3b4262', '#10b981', p / 35);
+  }
+  if (p <= 70) {
+    return interpolateHexColor('#10b981', '#facc15', (p - 35) / 35);
+  }
+  return interpolateHexColor('#facc15', '#ff4d4f', (p - 70) / 30);
+}
+
+function resolveDetailedMuscleRegion(rawMuscle, exerciseName) {
+  const m = String(rawMuscle || '').trim();
+  const ex = String(exerciseName || '').toLowerCase();
+
+  if (m === 'Грудь') return 'Грудь';
+  if (m === 'Широчайшие') return 'Широчайшие';
+  if (m === 'Верх спины') return 'Верх спины';
+  if (m === 'Передняя дельта') return 'Передняя дельта';
+  if (m === 'Задняя дельта') return 'Задняя дельта';
+  if (m === 'Средняя дельта') {
+    if (ex.includes('задн') || ex.includes('обратн')) return 'Задняя дельта';
+    if (ex.includes('передн') || ex.includes('армейск') || ex.includes('жим')) return 'Передняя дельта';
+    return 'Средняя дельта';
+  }
+  if (m === 'Бицепс') return 'Бицепс';
+  if (m === 'Трицепс') return 'Трицепс';
+  if (m === 'Руки') {
+    if (ex.includes('трицепс') || ex.includes('разгибан') || ex.includes('француз') || ex.includes('брусь')) return 'Трицепс';
+    return 'Бицепс';
+  }
+  if (m === 'Квадрицепс') return 'Квадрицепс';
+  if (m === 'Бицепс бедра') return 'Бицепс бедра';
+  if (m === 'Ягодичные') return 'Ягодичные';
+  if (m === 'Икры') return 'Икры';
+  if (m.includes('Кор') || m.includes('Пресс')) return 'Кор';
+  return m;
 }
 
 function renderMuscleMannequin() {
@@ -542,17 +729,17 @@ function renderMuscleMannequin() {
     if (item && item.name) catalogMap[item.name.trim()] = item;
   });
 
-  const muscleData = {
-    'Грудь': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Широчайшие': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Верх спины': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Средняя дельта': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Руки': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Квадрицепс': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Бицепс бедра': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Икры': { lastKey: null, lastExercise: '', weeklyVolume: 0 },
-    'Кор': { lastKey: null, lastExercise: '', weeklyVolume: 0 }
-  };
+  const regionsList = [
+    'Грудь', 'Широчайшие', 'Верх спины',
+    'Передняя дельта', 'Средняя дельта', 'Задняя дельта',
+    'Бицепс', 'Трицепс', 'Кор',
+    'Ягодичные', 'Квадрицепс', 'Бицепс бедра', 'Икры'
+  ];
+
+  const muscleData = {};
+  regionsList.forEach(r => {
+    muscleData[r] = { lastKey: null, lastExercise: '', weeklyVolume: 0 };
+  });
 
   const today = new Date();
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0).getTime();
@@ -562,10 +749,10 @@ function renderMuscleMannequin() {
     const key = getDateKey(s.date);
     if (!key) return;
 
-    const item = catalogMap[(s.exercise || '').trim()];
+    const exName = (s.exercise || '').trim();
+    const item = catalogMap[exName];
     if (!item || item.status === 'Требует разметки') return;
 
-    const exName = (s.exercise || '').trim();
     const isWork = (s.category === 'Рабочий') && (s.effort !== 'Размин.');
 
     const parts = key.split('-');
@@ -574,16 +761,12 @@ function renderMuscleMannequin() {
 
     const matchTargets = [
       { muscle: item.primaryMuscle, ratio: parseFloat(item.primaryRatio) || 1.0 },
-      { muscle: item.secondaryMuscle, ratio: parseFloat(item.secondaryRatio) || 0.5 }
+      { muscle: item.secondaryMuscle, ratio: parseFloat(item.secondaryRatio) || 0.5 },
+      { muscle: item.tertiaryMuscle, ratio: parseFloat(item.tertiaryRatio) || 0.25 }
     ].filter(t => Boolean(t.muscle));
 
     matchTargets.forEach(target => {
-      let region = target.muscle;
-      if (region === 'Бицепс' || region === 'Трицепс') region = 'Руки';
-      if (region === 'Передняя дельта' || region === 'Задняя дельта') region = 'Средняя дельта';
-      if (region === 'Ягодичные') region = 'Бицепс бедра';
-      if (region.includes('Кор') || region.includes('Пресс')) region = 'Кор';
-
+      const region = resolveDetailedMuscleRegion(target.muscle, exName);
       if (muscleData[region]) {
         if (!muscleData[region].lastKey || key > muscleData[region].lastKey) {
           muscleData[region].lastKey = key;
@@ -600,58 +783,71 @@ function renderMuscleMannequin() {
 
   Object.keys(muscleData).forEach(muscle => {
     const info = muscleData[muscle];
-    let color = '#78dc9c';
-    let label = 'Свежие (Готовы)';
-    let timeAgoText = 'Нагрузка давно';
+    const vol = parseFloat(info.weeklyVolume.toFixed(1));
+    const isLegMaintenance = (muscle === 'Квадрицепс' || muscle === 'Бицепс бедра' || muscle === 'Ягодичные');
 
-    if (muscle === 'Квадрицепс' || muscle === 'Бицепс бедра') {
-      color = '#64748b';
-      label = 'Поддержание (2 сета)';
-    }
+    let daysDiff = 99;
+    let timeAgoText = 'Нагрузка > 7 дн. назад';
 
     if (info.lastKey) {
       const parts = info.lastKey.split('-');
       const workoutMidnight = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0).getTime();
-      const daysDiff = Math.round((todayMidnight - workoutMidnight) / (1000 * 60 * 60 * 24));
-
-      if (daysDiff === 0) {
-        color = '#ffb4ab';
-        label = 'Сегодня (В нагрузке)';
-        timeAgoText = 'Сегодня';
-      } else if (daysDiff === 1) {
-        color = '#facc15';
-        label = 'Активное восстановление';
-        timeAgoText = 'Вчера';
-      } else if (daysDiff === 2) {
-        color = '#a3e635';
-        label = 'Регенерация (48 ч)';
-        timeAgoText = '2 дн. назад';
-      } else {
-        timeAgoText = `${daysDiff} дн. назад`;
-      }
+      daysDiff = Math.round((todayMidnight - workoutMidnight) / (1000 * 60 * 60 * 24));
+      if (daysDiff === 0) timeAgoText = 'Сегодня';
+      else if (daysDiff === 1) timeAgoText = 'Вчера (24 ч)';
+      else if (daysDiff === 2) timeAgoText = '2 дня назад (48 ч)';
+      else timeAgoText = `${daysDiff} дн. назад`;
     }
 
-    const vol = parseFloat(info.weeklyVolume.toFixed(1));
-    let zone = 'Maintenance';
-    let barColor = '#64748b';
-    if (vol >= 6 && vol < 12) { zone = 'MEV'; barColor = '#78dc9c'; }
-    else if (vol >= 12 && vol <= 18) { zone = 'MAV'; barColor = '#a8c8ff'; }
-    else if (vol > 18) { zone = 'MRV ⚠️'; barColor = '#facc15'; }
+    // Расчет непрерывного спектрального индекса 0..100% на основе давности + недельного объема
+    let thermalPercent = 10;
+    let label = 'Покой / Резерв';
 
-    const barWidthPercent = Math.min(Math.round((vol / 20) * 100), 100);
+    const targetMav = isLegMaintenance ? 4 : 14;
+    const volumeSaturation = Math.min(1, vol / targetMav);
+
+    if (daysDiff === 0) {
+      thermalPercent = Math.round(85 + (volumeSaturation * 15)); // 85..100% (Алый пик)
+      label = `В нагрузке сегодня (${thermalPercent}%)`;
+    } else if (daysDiff === 1) {
+      thermalPercent = Math.round(62 + (volumeSaturation * 18)); // 62..80% (Янтарь: активное восстановление)
+      label = `Регенерация 24ч (${thermalPercent}%)`;
+    } else if (daysDiff === 2) {
+      thermalPercent = Math.round(45 + (volumeSaturation * 15)); // 45..60% (Переход к суперкомпенсации)
+      label = `Суперкомпенсация 48ч (${thermalPercent}%)`;
+    } else if (vol > 0) {
+      thermalPercent = Math.round(28 + (volumeSaturation * 14)); // 28..42% (Изумруд: полная боевая готовность)
+      label = `Готов к бою (${thermalPercent}%)`;
+    } else {
+      thermalPercent = isLegMaintenance ? 15 : 8; // 8..15% (Индиго: полный покой)
+      label = isLegMaintenance ? 'Поддержание (Maintenance)' : 'Полный покой (Свежие)';
+    }
+
+    const color = getSpectralThermalColor(thermalPercent);
+
+    let zone = 'Maintenance';
+    if (isLegMaintenance) {
+      if (vol >= 2 && vol <= 5) zone = 'Maintenance (Оптимум)';
+      else if (vol > 5) zone = 'MEV/MAV';
+    } else {
+      if (vol >= 6 && vol < 12) zone = 'MEV';
+      else if (vol >= 12 && vol <= 18) zone = 'MAV (Оптимум)';
+      else if (vol > 18) zone = 'MRV ⚠️';
+    }
 
     muscleStatusData[muscle] = {
       color,
+      thermalPercent,
       label,
       timeAgoText,
-      lastExercise: info.lastExercise || 'Базовые тяги/жимы',
-      volumeText: `${vol} сетов (${zone})`,
-      barColor,
-      barWidthPercent
+      lastExercise: info.lastExercise || 'Базовые движения сплита',
+      volumeText: `${vol} сетов/нед (${zone})`
     };
   });
 
   const paths = document.querySelectorAll('.muscle-path');
+  const scaleMarker = document.getElementById('thermalScaleMarker');
+
   paths.forEach(p => {
     const muscleName = p.getAttribute('data-muscle');
     const data = muscleStatusData[muscleName];
@@ -663,7 +859,6 @@ function renderMuscleMannequin() {
       e.stopPropagation();
 
       paths.forEach(el => el.classList.remove('selected'));
-
       document.querySelectorAll(`.muscle-path[data-muscle="${muscleName}"]`).forEach(el => {
         el.classList.add('selected');
       });
@@ -677,11 +872,16 @@ function renderMuscleMannequin() {
         badgeBox.innerText = data.label;
         badgeBox.style.color = data.color;
 
+        if (scaleMarker) {
+          scaleMarker.style.display = 'block';
+          scaleMarker.style.left = `${data.thermalPercent}%`;
+        }
+
         detailsBox.innerHTML = `
-          <div>• Последняя тренировка: <b>${escapeHtml(data.timeAgoText)}</b> (${escapeHtml(data.lastExercise)})</div>
-          <div>• Объем за неделю: <b>${escapeHtml(data.volumeText)}</b></div>
+          <div>• Последняя стимуляция: <b>${escapeHtml(data.timeAgoText)}</b> (${escapeHtml(data.lastExercise)})</div>
+          <div>• Недельный объем: <b>${escapeHtml(data.volumeText)}</b></div>
           <div style="height: 6px; background: var(--md-sys-color-surface-container); border-radius: 3px; overflow: hidden; margin-top: 6px;">
-            <div style="width: ${data.barWidthPercent}%; background-color: ${data.barColor}; height: 100%; transition: width 0.3s ease;"></div>
+            <div style="width: ${data.thermalPercent}%; background-color: ${data.color}; height: 100%; transition: width 0.35s ease;"></div>
           </div>
         `;
       }
