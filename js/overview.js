@@ -42,37 +42,63 @@ function roundToGymStep(weight) {
 }
 
 /**
- * Физиологический расчет подводящей лесенки (Warm-up Ramp)
- * Исключает травмы и метаболическое закисление перед рабочими сетами
+ * Построение детерминированного массива шагов разминки для трекера у станка
  */
-function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
-  if (!targetWeight || targetWeight <= 35) {
-    return '1 легкий подход (по самочувствию)';
+function buildWarmupStepsArray(order, targetWeight, cycleMode = 'Сила') {
+  if (!targetWeight || targetWeight <= 30) {
+    return [{ weight: Math.max(10, roundToGymStep(targetWeight * 0.6)), reps: 8 }];
   }
 
   if (cycleMode === 'Делоад' || cycleMode === 'Разгрузка') {
     const deloadStep = roundToGymStep(targetWeight * 0.6);
-    return `1 легкий подход × ${deloadStep} кг`;
+    return [{ weight: deloadStep, reps: 8 }];
   }
 
-  // #1 Первое базовое движение сессии (тяжёлый компаунд верха)
+  // #1 Первое базовое движение сессии (тяжёлый компаунд верха: 3 шага)
   if (order === 1) {
-    const step1 = roundToGymStep(targetWeight * 0.50);
-    const step2 = roundToGymStep(targetWeight * 0.75);
-    const step3 = roundToGymStep(targetWeight * 0.90);
-    return `${step1} кг × 8 → ${step2} кг × 3 → ${step3} кг × 1 (активация)`;
+    return [
+      { weight: roundToGymStep(targetWeight * 0.50), reps: 8 },
+      { weight: roundToGymStep(targetWeight * 0.75), reps: 3 },
+      { weight: roundToGymStep(targetWeight * 0.90), reps: 1 }
+    ];
   }
 
-  // #2 Второе базовое движение (тяга/жим в другой плоскости)
+  // #2 Второе базовое движение (тяга/жим в другой плоскости: 2 шага)
   if (order === 2) {
-    const step1 = roundToGymStep(targetWeight * 0.60);
-    const step2 = roundToGymStep(targetWeight * 0.85);
-    return `${step1} кг × 5 → ${step2} кг × 2`;
+    return [
+      { weight: roundToGymStep(targetWeight * 0.60), reps: 5 },
+      { weight: roundToGymStep(targetWeight * 0.85), reps: 2 }
+    ];
   }
 
-  // #3 и далее: изоляция, руки, ноги в конце
-  const calibrationStep = roundToGymStep(targetWeight * 0.65);
-  return `1 калибровочный сет × ${calibrationStep} кг (4–6 повт.)`;
+  // #3 и далее: изоляция, руки, ноги в конце (1 калибровочный сет)
+  return [
+    { weight: roundToGymStep(targetWeight * 0.65), reps: 5 }
+  ];
+}
+
+/**
+ * Физиологический расчет подводящей лесенки (Warm-up Ramp) в текстовом виде
+ */
+function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
+  if (!targetWeight || targetWeight <= 30) {
+    return '1 легкий подход (по самочувствию)';
+  }
+
+  const steps = buildWarmupStepsArray(order, targetWeight, cycleMode);
+  if (cycleMode === 'Делоад' || cycleMode === 'Разгрузка') {
+    return `1 легкий подход × ${steps[0].weight} кг (${steps[0].reps} повт.)`;
+  }
+
+  if (order === 1 && steps.length === 3) {
+    return `${steps[0].weight} кг × ${steps[0].reps} → ${steps[1].weight} кг × ${steps[1].reps} → ${steps[2].weight} кг × ${steps[2].reps} (активация)`;
+  }
+
+  if (order === 2 && steps.length === 2) {
+    return `${steps[0].weight} кг × ${steps[0].reps} → ${steps[1].weight} кг × ${steps[1].reps}`;
+  }
+
+  return `1 калибровочный сет × ${steps[0].weight} кг (${steps[0].reps} повт.)`;
 }
 
 function renderCalendarStrip() {
@@ -285,6 +311,7 @@ function renderAiRecipeCard() {
       const orderNum = parseInt(ex.order, 10) || (idx + 1);
       const weightVal = parseFloat(ex.weight) || 0;
       const warmupRampText = calculateWarmupRamp(orderNum, weightVal, nextMode);
+      const warmupSteps = buildWarmupStepsArray(orderNum, weightVal, nextMode);
 
       preparedExercises.push({
         order: orderNum,
@@ -296,6 +323,7 @@ function renderAiRecipeCard() {
         rir: String(ex.rir || '1-2'),
         method: String(ex.method || 'Стандарт'),
         warmupText: warmupRampText,
+        warmupSteps: warmupSteps,
         notes: ex.notes ? String(ex.notes) : ''
       });
     });
@@ -334,7 +362,7 @@ function renderAiRecipeCard() {
         const dropWeightVal = isDropMethod ? roundToGymStep(ex.weight * 0.75) : 0;
 
         const methodBadgeHtml = ex.method !== 'Стандарт'
-          ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
+          ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Финальный сет: ${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
           : '';
 
         step.innerHTML = `
@@ -461,6 +489,7 @@ function renderAiRecipeCard() {
 
     const finalTargetLoad = roundToGymStep(rawTargetLoad);
     const warmupRampText = calculateWarmupRamp(idx + 1, finalTargetLoad, nextMode);
+    const warmupSteps = buildWarmupStepsArray(idx + 1, finalTargetLoad, nextMode);
     const catItem = catalogMap[ex.trim()];
 
     fallbackPreparedExercises.push({
@@ -473,6 +502,7 @@ function renderAiRecipeCard() {
       rir: rirBadgeText,
       method: 'Стандарт',
       warmupText: warmupRampText,
+      warmupSteps: warmupSteps,
       notes: ''
     });
 
