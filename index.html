@@ -1566,10 +1566,10 @@
             <div id="coachRationaleText" style="margin-top: 8px; white-space: pre-wrap;"></div>
           </details>
 
-          <md-outlined-button id="copyGymUpListBtn" style="display: none;">
-            <span class="material-symbols-outlined" slot="icon">content_copy</span>
-            Скопировать список для GymUp
-          </md-outlined-button>
+          <md-filled-button id="syncCachedPlanToCloudBtn" style="display: none; width: 100%;">
+            <span class="material-symbols-outlined" slot="icon">cloud_upload</span>
+            Отправить план (День А + День Б) в таблицу
+          </md-filled-button>
         </div>
       </div>
 
@@ -1597,6 +1597,26 @@
       </div>
 
       <div id="parsedContent" style="display: flex; flex-direction: column; gap: 12px;"></div>
+
+      <!-- БЛОК УДАЛЕНИЯ ТРЕНИРОВКИ ИЗ БАЗЫ ПО ДАТЕ И НАЗВАНИЮ -->
+      <div class="m3-card" style="border: 1px solid rgba(255, 180, 171, 0.2);">
+        <div class="card-title" style="color: var(--md-sys-color-error);">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined">delete_sweep</span>
+            Удаление тренировки из базы
+          </span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.35;">
+          Выберите записанную тренировку для полного удаления из листов <b>Log</b> и <b>Workouts</b> с пересчетом сводки цикла:
+        </div>
+        <select id="deleteWorkoutDateSelect" class="m3-select">
+          <option value="" disabled selected>Загрузка списка тренировок...</option>
+        </select>
+        <md-outlined-button id="deleteWorkoutByDateBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
+          <span class="material-symbols-outlined" slot="icon">delete_forever</span>
+          Удалить выбранную тренировку
+        </md-outlined-button>
+      </div>
 
       <div class="sync-terminal">
         <div class="terminal-header">
