@@ -1,10 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V43 MANNEQUIN 2.0 & MODAL PLAN UX)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V47 READ-THROUGH CACHE & NOTIFY)
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v43';
+const CACHE_NAME = 'gym-hub-v47';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 
 const APP_ASSETS = [
@@ -26,18 +26,18 @@ const APP_ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      await Promise.allSettled(
-        APP_ASSETS.map((url) =>
-          fetch(new Request(url, { cache: 'reload' }))
-            .then((res) => {
-              if (res.ok) return cache.put(url, res);
-              console.warn('[SW] Пропуск ассета ' + res.status + ':', url);
-            })
-            .catch((err) => {
-              console.warn('[SW] Ошибка загрузки ассета:', url, err);
-            })
-        )
-      );
+      for (const url of APP_ASSETS) {
+        try {
+          const res = await fetch(new Request(url, { cache: 'reload' }));
+          if (res.ok) {
+            await cache.put(url, res);
+          } else {
+            console.warn(`[SW] Не удалось предзагрузить ${url}: HTTP ${res.status}`);
+          }
+        } catch (err) {
+          console.warn(`[SW] Сбой сети при предзагрузке ${url}:`, err);
+        }
+      }
     }).then(() => {
       return self.skipWaiting();
     })
@@ -56,6 +56,11 @@ self.addEventListener('activate', (event) => {
       );
     }).then(() => {
       return self.clients.claim();
+    }).then(async () => {
+      const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      clientsList.forEach((client) => {
+        client.postMessage({ type: 'SW_UPDATED', version: CACHE_NAME });
+      });
     })
   );
 });
@@ -69,7 +74,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. ПЕРЕХВАТ ЛЮБОГО POST-ЗАПРОСА НА НАШЕМ ХОСТЕ (Web Share Target)
+  // 2. Web Share Target
   if (event.request.method === 'POST') {
     event.respondWith(
       (async () => {
@@ -125,7 +130,29 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Stale-While-Revalidate для статики и библиотек
+  // 3. Cache-First с ignoreSearch: true и автоматическим восполнением при промахе (Read-Through)
+  const isSameOrigin = (url.origin === self.location.origin);
+  if (isSameOrigin && event.request.method === 'GET') {
+    event.respondWith(
+      caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        return fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.ok) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, copy);
+            });
+          }
+          return networkResponse;
+        });
+      })
+    );
+    return;
+  }
+
+  // 4. Stale-While-Revalidate для внешних CDN-ресурсов
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
