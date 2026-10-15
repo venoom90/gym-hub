@@ -1,12 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.3)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.4.1)
  * =========================================================================
- * Автономный контур проведения тренировки в зале:
  * - Единая синхронная индикация текущего подхода (Заголовок == Кнопка таба == Кнопка записи)
- * - Автоматическое ведение по шагам разминки (Warm-up Ramp) -> Рабочие сеты
- * - Включение Кластера / Дроп-сета строго на последнем рабочем сете + ручной тоггл
- * - Расчет макро-метрик для листа 'Workouts' (плотность кг/мин, отдых сек, RIR, индекс Фостера)
+ * - Хронометраж durationMin по последнему выполненному подходу (защита от забытого таймера)
+ * - Передача явных dropWeight и dropReps на сервер для верифицированного расчета тоннажа
  */
 
 import { state, setInitialData, formatDateDisplay, escapeHtml } from './state.js';
@@ -22,10 +20,10 @@ let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
 
 const DEFAULT_TIMERS = {
-  compound: 150, // 2:30 для базовых движений
-  isolation: 90, // 1:30 для изоляции и рук
-  cluster: 20,   // 0:20 для кластерных микропауз
-  warmup: 60     // 1:00 для разминки
+  compound: 150,
+  isolation: 90,
+  cluster: 20,
+  warmup: 60
 };
 
 export function initLiveWorkoutModule(onComplete) {
@@ -386,11 +384,6 @@ function startDurationTicker() {
   workoutDurationInterval = setInterval(updateClock, 1000);
 }
 
-/**
- * -------------------------------------------------------------------------
- * ОТРИСОВКА МИНИ-КАРТЫ И ЭКРАНА «У СТАНКА»
- * -------------------------------------------------------------------------
- */
 function renderExerciseMiniMap() {
   const mapBox = document.getElementById('liveExMiniMap');
   if (!mapBox || !activeSession) return;
@@ -508,7 +501,7 @@ function renderLiveWorkoutScreen() {
       intensifierBannerEl.style.display = 'flex';
       intensifierBannerEl.innerHTML = `
         <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-warning);">bolt</span>
-        <div><b>Финальный Дроп-сет:</b> после отказа сбросьте на <b>${dropLoad} кг (-25%)</b> и дожмите <b>4–6 повт.</b> без отдыха (RIR 0).</div>
+        <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха (учтется в тоннаже автоматически).</div>
       `;
     } else if (isSpecialActive && currentEx.isCluster) {
       const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
@@ -525,7 +518,6 @@ function renderLiveWorkoutScreen() {
   const currentWarmupStepNum = Math.min(warmupSetsDone + 1, totalWarmupSteps);
   const currentWorkSetNum = workSetsDone + 1;
 
-  // 1. Заголовок текущего подхода
   const setBadgeEl = document.getElementById('liveCurrentSetLabel');
   if (setBadgeEl) {
     if (isWarmupMode) {
@@ -538,7 +530,6 @@ function renderLiveWorkoutScreen() {
     }
   }
 
-  // 2. Кнопки переключения Разминка / Рабочий — 100% совпадение номера текущего подхода!
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
   if (catWarmupBtn && catWorkBtn) {
@@ -557,7 +548,6 @@ function renderLiveWorkoutScreen() {
     }
   }
 
-  // Тоггл спецметода на текущем рабочем подходе
   const methodToggleRow = document.getElementById('liveMethodToggleRow');
   const methodToggleBtn = document.getElementById('liveToggleSpecialMethodBtn');
   if (methodToggleRow && methodToggleBtn) {
@@ -597,7 +587,6 @@ function renderLiveWorkoutScreen() {
     clusterPauseBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">bolt</span><span>Пауза ${prefs.cluster}с</span>`;
   }
 
-  // 3. Главная зеленая кнопка записи — 100% совпадение номера текущего подхода!
   const recordBtn = document.getElementById('liveRecordSetBtn');
   if (recordBtn) {
     if (isWarmupMode) {
@@ -670,11 +659,6 @@ function renderCompletedSetsHistory(currentEx) {
   });
 }
 
-/**
- * -------------------------------------------------------------------------
- * ЗАПИСЬ ПОДХОДА И УМНЫЙ ПЕРЕХОД ПО ШАГАМ
- * -------------------------------------------------------------------------
- */
 function handleRecordCurrentSet() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -709,14 +693,24 @@ function handleRecordCurrentSet() {
     : '';
 
   let firstSegmentReps = reps;
+  let totalTonnage = weight * reps;
+  let dropWeight = 0;
+  let dropReps = 0;
+
   if (appliedMethod && currentEx.isCluster) {
     const clusterInfo = parseClusterScheme(appliedMethod, currentEx.defaultReps);
     firstSegmentReps = clusterInfo.firstSegmentReps;
+  } else if (appliedMethod && currentEx.isDrop) {
+    firstSegmentReps = reps;
+    dropWeight = roundToGymStep(weight * 0.75);
+    dropReps = 5;
+    totalTonnage += (dropWeight * dropReps);
   }
 
   const setNum = currentEx.completedSets.length + 1;
-  const tonnage = parseFloat((weight * reps).toFixed(1));
-  const e1rm = (!isWarmup && firstSegmentReps > 0 && weight > 0)
+  const tonnage = parseFloat(totalTonnage.toFixed(1));
+
+  const e1rm = (!isWarmup && firstSegmentReps > 0 && firstSegmentReps <= 8 && weight > 0)
     ? (firstSegmentReps === 1 ? weight : parseFloat((weight * (1 + firstSegmentReps / 30)).toFixed(1)))
     : 0.0;
 
@@ -725,6 +719,8 @@ function handleRecordCurrentSet() {
     weight: weight,
     reps: reps,
     firstSegmentReps: firstSegmentReps,
+    dropWeight: dropWeight,
+    dropReps: dropReps,
     effort: effort,
     reserve: reserve,
     method: appliedMethod,
@@ -880,11 +876,6 @@ function switchActiveExercise(newIndex) {
   renderLiveWorkoutScreen();
 }
 
-/**
- * -------------------------------------------------------------------------
- * РАСЧЕТ МАКРО-СВОДКИ И ЗАВЕРШЕНИЕ ТРЕНИРОВКИ (ЛИСТ WORKOUTS)
- * -------------------------------------------------------------------------
- */
 function calculateWorkoutSummaryMetrics() {
   let totalWorkSets = 0;
   let totalWarmupSets = 0;
@@ -912,24 +903,28 @@ function calculateWorkoutSummaryMetrics() {
     });
   });
 
-  const durationMin = Math.max(1, Math.round((Date.now() - activeSession.startedAtMs) / 60000));
+  allTimestamps.sort((a, b) => a - b);
+
+  const endTimestampMs = allTimestamps.length > 0
+    ? allTimestamps[allTimestamps.length - 1] + 120000
+    : Date.now();
+  const startReferenceMs = Math.min(activeSession.startedAtMs, allTimestamps[0] || activeSession.startedAtMs);
+
+  const durationMin = Math.max(1, Math.round((endTimestampMs - startReferenceMs) / 60000));
   const workTonnage = parseFloat(workTonnageKg.toFixed(1));
   const density = parseFloat((workTonnage / durationMin).toFixed(1));
   const avgRir = rirCount > 0 ? parseFloat((rirSum / rirCount).toFixed(1)) : 2.0;
 
-  // Расчет среднего фактического отдыха между подходами из разницы timestampMs
-  allTimestamps.sort((a, b) => a - b);
   let restDiffsSum = 0;
   let restDiffsCount = 0;
   for (let i = 1; i < allTimestamps.length; i++) {
     const diffSec = Math.round((allTimestamps[i] - allTimestamps[i - 1]) / 1000);
-    // Учитываем реальные паузы от 15 сек до 10 мин (исключая случайные двойные клики)
     if (diffSec >= 15 && diffSec <= 600) {
       restDiffsSum += diffSec;
       restDiffsCount++;
     }
   }
-  const avgRestSec = restDiffsCount > 0 ? Math.round(restDiffsSum / restDiffsCount) : 120;
+  const avgRestSec = restDiffsCount > 0 ? Math.round(restDiffsSum / restDiffsCount) : 0;
   const sRPE = parseFloat(activeSession.sRPE) || 8;
   const trainingLoad = Math.round(durationMin * sRPE);
 
@@ -977,7 +972,7 @@ function renderCloseoutSummaryBox() {
     <div>• Длительность: <b>${m.durationMin} мин</b> • Плотность: <b>${m.density} кг/мин</b></div>
     <div>• Подходы: <b>${m.totalWorkSets} рабочих</b> (разминка: ${m.totalWarmupSets}) • Ср. RIR: <b>${m.avgRir}</b></div>
     <div>• Рабочий тоннаж: <b>${(m.workTonnage / 1000).toFixed(2)} т</b> (${Math.round(m.workTonnage)} кг)</div>
-    <div>• Средний отдых: <b>${m.avgRestSec} сек</b> • Нагрузка (Фостер): <b>${m.trainingLoad} ед.</b></div>
+    <div>• Средний отдых: <b>${m.avgRestSec > 0 ? m.avgRestSec + ' сек' : 'н/д'}</b> • Нагрузка (Фостер): <b>${m.trainingLoad} ед.</b></div>
   `;
 }
 
@@ -1009,6 +1004,8 @@ async function finalizeAndSyncLiveWorkout() {
         weight: s.weight,
         reps: s.reps,
         firstSegmentReps: s.firstSegmentReps || s.reps,
+        dropWeight: s.dropWeight || 0,
+        dropReps: s.dropReps || 0,
         effort: s.effort,
         reserve: s.reserve,
         method: s.method,
@@ -1077,11 +1074,6 @@ async function finalizeAndSyncLiveWorkout() {
   }
 }
 
-/**
- * -------------------------------------------------------------------------
- * ПРИВЯЗКА СОБЫТИЙ ИНТЕРФЕЙСА И НАСТРОЕК ТАЙМЕРОВ
- * -------------------------------------------------------------------------
- */
 function bindLiveWorkoutDomEvents() {
   const resumeBtn = document.getElementById('liveResumeBannerBtn');
   if (resumeBtn) resumeBtn.onclick = () => openLiveWorkoutOverlay();
@@ -1294,7 +1286,6 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Выбор готовности (readiness_pre)
   document.querySelectorAll('.live-readiness-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;
@@ -1305,7 +1296,6 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
-  // Выбор тяжести (sRPE) с мгновенным пересчетом Индекса Фостера
   document.querySelectorAll('.live-srpe-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;

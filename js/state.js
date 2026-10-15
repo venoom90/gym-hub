@@ -62,19 +62,34 @@ export function setDbData(data) {
   };
 
   try {
-    // Облачная синхронизация плана тренировок с листа AI_Plan
+    // Защита от тихой перезаписи локального плана (P0 Fix)
     if (safeData.aiPlan && safeData.aiPlan.splits) {
-      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(safeData.aiPlan));
+      let shouldOverwriteLocal = true;
+      try {
+        const localRaw = localStorage.getItem('gym_ai_coach_plan');
+        if (localRaw) {
+          const localPlan = JSON.parse(localRaw);
+          // Если у локального плана есть флаг неотправленности или он сгенерирован позже
+          if (localPlan._pendingCloudSync) {
+            shouldOverwriteLocal = false;
+          } else if (localPlan.generatedAt && safeData.aiPlan.generatedAt && localPlan.generatedAt > safeData.aiPlan.generatedAt) {
+            shouldOverwriteLocal = false;
+          }
+        }
+      } catch (e) {}
+
+      if (shouldOverwriteLocal) {
+        localStorage.setItem('gym_ai_coach_plan', JSON.stringify(safeData.aiPlan));
+      }
     }
-    if (state.dbData.sets.length > 0) {
-      localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
-    }
+
+    // Кэш сохраняется ВСЕГДА (даже если база стала пустой после удаления)
+    localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
   } catch (e) {
     console.warn('[State] Не удалось сохранить кэш БД в localStorage:', e);
   }
 }
 
-// Экспорт алиаса для обратной совместимости
 export const setInitialData = setDbData;
 
 export function setParsedWorkout(workout) {
@@ -87,9 +102,6 @@ export function setParsedWorkout(workout) {
   };
 }
 
-/**
- * Санитизация HTML-строк для защиты от XSS при выводе в DOM
- */
 export function escapeHtml(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -100,9 +112,6 @@ export function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-/**
- * Нормализация строковых чисел с запятой в Float с сохранением явного нуля
- */
 export function parseRuFloat(val) {
   if (val === null || val === undefined || val === '') return 0.0;
   if (typeof val === 'number') return isNaN(val) ? 0.0 : val;
@@ -111,9 +120,6 @@ export function parseRuFloat(val) {
   return isNaN(num) ? 0.0 : num;
 }
 
-/**
- * Приведение любой даты к полудню локального времени (12:00) для защиты от часовых поясов
- */
 export function normalizeDate(dateVal) {
   if (!dateVal) return null;
   if (dateVal instanceof Date) {
@@ -149,9 +155,6 @@ export function normalizeDate(dateVal) {
   return null;
 }
 
-/**
- * Ключ даты для группировки YYYY-MM-DD
- */
 export function getDateKey(dateVal) {
   const d = normalizeDate(dateVal);
   if (!d) return '';
@@ -161,9 +164,6 @@ export function getDateKey(dateVal) {
   return `${y}-${m}-${day}`;
 }
 
-/**
- * Форматирование для интерфейса: DD.MM.YYYY
- */
 export function formatDateDisplay(dateVal) {
   const d = normalizeDate(dateVal);
   if (!d) return '';

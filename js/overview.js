@@ -17,7 +17,6 @@ export function renderOverviewModule() {
 function initOverviewModalListeners() {
   if (isOverviewInitialized) return;
 
-  // Модальное окно сводки дня из календаря
   const dayModal = document.getElementById('daySummaryModal');
   const closeDayBtn = document.getElementById('closeDaySummaryModalBtn');
   if (closeDayBtn && dayModal) {
@@ -27,7 +26,6 @@ function initOverviewModalListeners() {
     };
   }
 
-  // Модальное окно полного списка упражнений предстоящей тренировки
   const planModal = document.getElementById('workoutPlanDetailsModal');
   const closePlanBtn = document.getElementById('closeWorkoutPlanModalBtn');
   const previewCard = document.getElementById('overviewPlanPreviewCard');
@@ -71,7 +69,6 @@ function initOverviewModalListeners() {
     };
   }
 
-  // Главная кнопка запуска тренировки на дашборде
   const startLiveBtn = document.getElementById('startLiveWorkoutBtn');
   if (startLiveBtn) {
     startLiveBtn.onclick = () => {
@@ -138,11 +135,6 @@ function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
   return `1 калибровочный сет × ${steps[0].weight} кг (${steps[0].reps} повт.)`;
 }
 
-/**
- * -------------------------------------------------------------------------
- * 1. КАЛЕНДАРНАЯ ПОЛОСА С ПОДРОБНЫМ ДНЕВНИКОМ ДНЯ ПО КЛИКУ
- * -------------------------------------------------------------------------
- */
 function renderCalendarStrip() {
   const container = document.getElementById('calendarStripContainer');
   const rangeLabel = document.getElementById('calendarWeekRange');
@@ -270,16 +262,24 @@ function openDaySummaryModal(date, session) {
   modal.style.display = 'flex';
 }
 
-/**
- * -------------------------------------------------------------------------
- * 2. КОМПАКТНАЯ КАРТОЧКА ПЛАНА + МОДАЛЬНОЕ ОКНО СПИСКА УПРАЖНЕНИЙ
- * -------------------------------------------------------------------------
- */
+function isMaintenanceExercise(ex, muscle) {
+  const m = String(muscle || '').toLowerCase();
+  const notes = String(ex.notes || '').toLowerCase();
+  const rir = String(ex.rir || '');
+  const isLegGroup = (m.includes('квадрицепс') || m.includes('бедр') || m.includes('ягодиц'));
+  const hasMaintNote = notes.includes('поддерж') || notes.includes('maintenance') || rir.includes('3');
+  return isLegGroup && hasMaintNote;
+}
+
 function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode, waveIndex, cycleWeek, catalogMap) {
   if (!splitObj || !Array.isArray(splitObj.exercises)) return null;
 
   const preparedExercises = [];
   const targetMusclesList = [];
+
+  const dynamicTitle = (cycleMode === 'Делоад' || cycleMode === 'Разгрузка')
+    ? `Тренировка ${splitLetter} Делоад ${cycleId}`
+    : `Тренировка ${splitLetter}${waveIndex} ${cycleMode} ${cycleId}`;
 
   splitObj.exercises.forEach((ex, idx) => {
     const catItem = catalogMap[(ex.name || '').trim()];
@@ -289,29 +289,75 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
     }
 
     const orderNum = parseInt(ex.order, 10) || (idx + 1);
-    const weightVal = parseFloat(ex.weight) || 0;
-    const warmupRampText = calculateWarmupRamp(orderNum, weightVal, cycleMode);
-    const warmupSteps = buildWarmupStepsArray(orderNum, weightVal, cycleMode);
+    const baseWeight = parseFloat(ex.weight) || 0;
+    const baseSets = parseInt(ex.sets, 10) || 3;
+    const baseReps = String(ex.reps || '6-8');
+    const baseRir = String(ex.rir || '+1..+2');
+    const baseMethod = String(ex.method || 'Стандарт');
+    const isMaint = isMaintenanceExercise(ex, muscle);
+
+    let calculatedWeight = baseWeight;
+    let finalSets = baseSets;
+    let finalReps = baseReps;
+    let finalRir = baseRir;
+    let finalMethod = baseMethod;
+
+    if (cycleMode === 'Делоад' || cycleMode === 'Разгрузка') {
+      calculatedWeight = roundToGymStep(baseWeight * 0.65);
+      finalSets = 2;
+      finalReps = '8-10';
+      finalRir = '+3..+4';
+      finalMethod = 'Стандарт';
+    } else if (cycleMode === 'Объем') {
+      if (isMaint) {
+        calculatedWeight = baseWeight;
+        finalSets = baseSets;
+        finalReps = baseReps;
+        finalRir = baseRir;
+        finalMethod = 'Стандарт';
+      } else {
+        calculatedWeight = roundToGymStep(baseWeight * 0.75);
+        finalReps = '12-16';
+        finalRir = '+2..+3';
+        if (baseMethod.toLowerCase().includes('кластер')) {
+          finalMethod = 'Стандарт';
+        }
+      }
+    } else {
+      // Режим «Сила» (Неделя 1 или Неделя 3):
+      // Во 2-й волне (Неделя 3) шаг +2.5 кг добавляется только к движениям с весом >= 50 кг (около +2.5..5%),
+      // чтобы не перегружать легкую изоляцию с гантелями (12.5-20 кг).
+      if (String(waveIndex) === '2' && !isMaint && baseWeight >= 50) {
+        calculatedWeight = roundToGymStep(baseWeight + 2.5);
+      } else {
+        calculatedWeight = roundToGymStep(baseWeight);
+      }
+      finalSets = baseSets;
+      finalReps = baseReps;
+      finalRir = baseRir;
+      finalMethod = baseMethod;
+    }
+
+    const warmupRampText = calculateWarmupRamp(orderNum, calculatedWeight, cycleMode);
+    const warmupSteps = buildWarmupStepsArray(orderNum, calculatedWeight, cycleMode);
 
     preparedExercises.push({
       order: orderNum,
       name: ex.name || 'Упражнение',
       target: muscle,
-      weight: weightVal,
-      sets: parseInt(ex.sets, 10) || 3,
-      reps: String(ex.reps || '4-6'),
-      rir: String(ex.rir || '1-2'),
-      method: String(ex.method || 'Стандарт'),
+      weight: calculatedWeight,
+      sets: finalSets,
+      reps: finalReps,
+      rir: finalRir,
+      method: finalMethod,
       warmupText: warmupRampText,
       warmupSteps: warmupSteps,
       notes: ex.notes ? String(ex.notes) : ''
     });
   });
 
-  const title = splitObj.title || `Тренировка ${splitLetter}${waveIndex} ${cycleMode} ${cycleId}`;
-
   return {
-    title: title,
+    title: dynamicTitle,
     cycleId: cycleId,
     splitDay: splitLetter,
     cycleMode: cycleMode,
@@ -342,7 +388,7 @@ function renderAiRecipeCard() {
   let nextWeek = 1;
   let nextMode = 'Сила';
   let nextWave = '1';
-  let nextCycleId = state.dbData.currentCycleId || 'C-2';
+  let nextCycleId = state.dbData.currentCycleId || 'C-1';
   let isNewCycleTransition = false;
 
   if (sets.length > 0) {
@@ -359,7 +405,7 @@ function renderAiRecipeCard() {
     let currentMode = latestSet.cycleMode || fallbackParsed.cycleMode || 'Сила';
     let currentSplit = (latestSet.splitDay || fallbackParsed.splitDay || 'А').toUpperCase();
     let currentWave = String(latestSet.waveIndex || fallbackParsed.waveIndex || '1');
-    let currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-2';
+    let currentCycleId = latestSet.cycleId || state.dbData.currentCycleId || 'C-1';
 
     const lastWorkoutTitle = String(latestSet.workout || '').toLowerCase();
     if (lastWorkoutTitle.includes('разгруз') || lastWorkoutTitle.includes('делоад') || lastWorkoutTitle.includes('deload')) {
@@ -397,7 +443,7 @@ function renderAiRecipeCard() {
   }
 
   const nextTitle = (nextMode === 'Делоад' || nextMode === 'Разгрузка')
-    ? `Тренировка ${nextSplit} Разгрузка (Делоад) ${nextCycleId}`
+    ? `Тренировка ${nextSplit} Делоад ${nextCycleId}`
     : `Тренировка ${nextSplit}${nextWave} ${nextMode} ${nextCycleId}`;
 
   if (cycleBadge) cycleBadge.innerText = nextCycleId;
@@ -406,7 +452,6 @@ function renderAiRecipeCard() {
   activeModalSplitKey = (nextSplit === 'А' || nextSplit === 'A') ? 'A' : 'B';
   cachedBothSplitsPayloads = { A: null, B: null };
 
-  // 1. ПРИОРИТЕТ: ЧТЕНИЕ СОХРАНЕННОГО ПЛАНА МЕЗОЦИКЛА (AI COPILOT)
   try {
     const rawAiPlan = localStorage.getItem('gym_ai_coach_plan');
     if (rawAiPlan) {
@@ -436,7 +481,6 @@ function renderAiRecipeCard() {
     return;
   }
 
-  // 2. FALLBACK: РАСЧЕТ ОТ АРХИВНЫХ ТРЕНИРОВОК
   if (sets.length === 0) {
     if (previewTitleEl) previewTitleEl.innerText = 'План еще не сформирован';
     if (previewMetricsEl) previewMetricsEl.innerText = 'Сгенерируйте план во вкладке «Тренер» или загрузите отчет';
@@ -515,7 +559,7 @@ function renderAiRecipeCard() {
     } else if (nextMode === 'Сила') {
       targetRepsBadge = '4–6';
       rirBadgeText = '1–2';
-      const progressionStep = isNewCycleTransition ? 2.5 : 0;
+      const progressionStep = ((isNewCycleTransition || String(nextWave) === '2') && lastKnownWorkingWeight >= 50) ? 2.5 : 0;
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight + progressionStep) : 0;
     } else {
       targetRepsBadge = '12–16';
@@ -533,7 +577,7 @@ function renderAiRecipeCard() {
       name: ex,
       target: catItem ? catItem.primaryMuscle : '',
       weight: finalTargetLoad,
-      sets: 3,
+      sets: (nextMode === 'Делоад') ? 2 : 3,
       reps: targetRepsBadge,
       rir: rirBadgeText,
       method: 'Стандарт',
@@ -624,7 +668,7 @@ function renderModalSplitExercises(payload) {
 
   if (adviceEl) {
     const totalSets = payload.exercises.reduce((acc, ex) => acc + (parseInt(ex.sets, 10) || 3), 0);
-    adviceEl.innerText = `Всего ${payload.exercises.length} упражнений (${totalSets} рабочих подходов). Разминочные подходы рассчитаны автоматически.`;
+    adviceEl.innerText = `Режим: ${payload.cycleMode} (${payload.cycleWeek} нед.). Всего ${payload.exercises.length} упражнений (${totalSets} рабочих подходов).`;
   }
 
   container.innerHTML = '';
@@ -660,11 +704,6 @@ function renderModalSplitExercises(payload) {
   });
 }
 
-/**
- * -------------------------------------------------------------------------
- * 3. АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 (СПЕКТРАЛЬНЫЙ ГРАДИЕНТ 0% -> 100%)
- * -------------------------------------------------------------------------
- */
 function interpolateHexColor(hex1, hex2, factor) {
   const f = Math.max(0, Math.min(1, factor));
   const c1 = parseInt(hex1.slice(1), 16);
@@ -680,9 +719,6 @@ function interpolateHexColor(hex1, hex2, factor) {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
 
-/**
- * Непрерывный спектр: 0% (Индиго #3b4262) -> 35% (Изумруд #10b981) -> 70% (Янтарь #facc15) -> 100% (Алый #ff4d4f)
- */
 function getSpectralThermalColor(percent) {
   const p = Math.max(0, Math.min(100, percent));
   if (p <= 35) {
@@ -799,7 +835,6 @@ function renderMuscleMannequin() {
       else timeAgoText = `${daysDiff} дн. назад`;
     }
 
-    // Расчет непрерывного спектрального индекса 0..100% на основе давности + недельного объема
     let thermalPercent = 10;
     let label = 'Покой / Резерв';
 
@@ -807,19 +842,19 @@ function renderMuscleMannequin() {
     const volumeSaturation = Math.min(1, vol / targetMav);
 
     if (daysDiff === 0) {
-      thermalPercent = Math.round(85 + (volumeSaturation * 15)); // 85..100% (Алый пик)
+      thermalPercent = Math.round(85 + (volumeSaturation * 15));
       label = `В нагрузке сегодня (${thermalPercent}%)`;
     } else if (daysDiff === 1) {
-      thermalPercent = Math.round(62 + (volumeSaturation * 18)); // 62..80% (Янтарь: активное восстановление)
+      thermalPercent = Math.round(62 + (volumeSaturation * 18));
       label = `Регенерация 24ч (${thermalPercent}%)`;
     } else if (daysDiff === 2) {
-      thermalPercent = Math.round(45 + (volumeSaturation * 15)); // 45..60% (Переход к суперкомпенсации)
+      thermalPercent = Math.round(45 + (volumeSaturation * 15));
       label = `Суперкомпенсация 48ч (${thermalPercent}%)`;
     } else if (vol > 0) {
-      thermalPercent = Math.round(28 + (volumeSaturation * 14)); // 28..42% (Изумруд: полная боевая готовность)
+      thermalPercent = Math.round(28 + (volumeSaturation * 14));
       label = `Готов к бою (${thermalPercent}%)`;
     } else {
-      thermalPercent = isLegMaintenance ? 15 : 8; // 8..15% (Индиго: полный покой)
+      thermalPercent = isLegMaintenance ? 15 : 8;
       label = isLegMaintenance ? 'Поддержание (Maintenance)' : 'Полный покой (Свежие)';
     }
 

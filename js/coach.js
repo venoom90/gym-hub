@@ -12,9 +12,7 @@ export function renderCoachModule() {
 }
 
 /**
- * -------------------------------------------------------------
- * 1. SOS-АВТОРЕГУЛЯТОР У СТАНКА (РЕАЛЬНОЕ ВРЕМЯ)
- * -------------------------------------------------------------
+ * 1. SOS-АВТОРЕГУЛЯТОР У СТАНКА
  */
 function initSosCalculator() {
   const selectEl = document.getElementById('coachSosExerciseSelect');
@@ -139,9 +137,7 @@ function renderSosSuccess(container, weight, reps) {
 }
 
 /**
- * -------------------------------------------------------------
  * 2. СТРАТЕГИЧЕСКИЙ ПЛАНИРОВЩИК МЕЗОЦИКЛА (AI COPILOT)
- * -------------------------------------------------------------
  */
 function initCyclePlanner() {
   if (isCoachInitialized) return;
@@ -197,11 +193,17 @@ async function syncCachedPlanToSheets() {
   if (syncCloudBtn) syncCloudBtn.disabled = true;
 
   try {
-    const res = await saveAiPlanToSheets(cachedPlanData);
+    // Очистка служебного флага ДО отправки на сервер (исключает утечку _pendingCloudSync в M2)
+    const { _pendingCloudSync, ...cleanPlan } = cachedPlanData;
+    const res = await saveAiPlanToSheets(cleanPlan);
+
     if (res && res.success) {
+      cachedPlanData = cleanPlan;
+      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
+      renderStructuredCards();
       alert(`✅ Оба тренировочных дня (День А + День Б, всего ${res.savedRows || 14} упр.) успешно сохранены на лист AI_Plan в Google Таблице!`);
     } else {
-      alert('Ошибка сохранения плана: ' + (res?.error || 'Неизвестная ошибка'));
+      alert('Ошибка сохранения плана: ' + (res?.error || 'Неизвестная ошибка на сервере'));
     }
   } catch (err) {
     alert('Сбой при отправке плана: ' + err.message);
@@ -228,13 +230,26 @@ async function generateMesocyclePlan() {
 
     const w = parseFloat(s.weight) || 0;
     const r = parseInt(s.reps, 10) || 0;
-    const e1rm = parseFloat(s.e1rm) || (r === 1 ? w : w * (1 + r / 30));
+    const serverE1 = parseFloat(s.e1rm);
 
     if (!exerciseStatsMap[ex]) {
       exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: (s.splitDay || s.split || '').toUpperCase() };
     }
-    if (w > exerciseStatsMap[ex].maxWeight) exerciseStatsMap[ex].maxWeight = w;
-    if (e1rm > exerciseStatsMap[ex].max1RM) exerciseStatsMap[ex].max1RM = parseFloat(e1rm.toFixed(1));
+    if (w > exerciseStatsMap[ex].maxWeight) {
+      exerciseStatsMap[ex].maxWeight = w;
+    }
+
+    // 1ПМ учитывается только на подходах до 8 повторений (многоповторка пропускается без занижения)
+    let validE1 = 0;
+    if (!isNaN(serverE1) && serverE1 > 0) {
+      validE1 = serverE1;
+    } else if (r > 0 && r <= 8 && w > 0) {
+      validE1 = r === 1 ? w : parseFloat((w * (1 + r / 30)).toFixed(1));
+    }
+
+    if (validE1 > exerciseStatsMap[ex].max1RM) {
+      exerciseStatsMap[ex].max1RM = parseFloat(validE1.toFixed(1));
+    }
   });
 
   const dayAExercises = [];
@@ -242,7 +257,8 @@ async function generateMesocyclePlan() {
 
   Object.keys(exerciseStatsMap).forEach(ex => {
     const item = exerciseStatsMap[ex];
-    const line = `- ${ex}: макс. ${item.maxWeight} кг, 1ПМ ${item.max1RM} кг`;
+    const e1rmStr = item.max1RM > 0 ? `, 1ПМ ${item.max1RM} кг` : '';
+    const line = `- ${ex}: макс. рабочий вес ${item.maxWeight} кг${e1rmStr}`;
     if (item.split === 'Б' || item.split === 'B') {
       dayBExercises.push(line);
     } else {
@@ -272,12 +288,12 @@ ${exSummaryB}
 2. ПОРЯДОК УПРАЖНЕНИЙ:
    - Базовый компаунд верха на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
    - Прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
-   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR 2–3, без отказа).
+   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR +2..+3, без отказа, в notes указать "Поддерживающий объем").
    - Икры выполняются в финале (3–4 сета).
 3. ВЕСА И ПОВТОРЕНИЯ:
    - Все веса СТРОГО кратны шагу 2.5 кг.
    - Опирайся на реальные рабочие веса атлета из архива, не завышая теоретическим 1ПМ.
-   - RIR: для рабочих подходов +1..+2, для ног в поддержке +3..+4.
+   - Базовый план пишется под фазу "Сила" (компаунды 4-6 повт., изоляция 8-12 повт., икры 10-15 повт.).
 
 ФОРМАТ ОТВЕТА:
 Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
@@ -333,15 +349,27 @@ ${exSummaryB}
       throw new Error('Структура сгенерированного плана некорректна.');
     }
 
+    parsedPlan.generatedAt = Date.now();
+    delete parsedPlan._pendingCloudSync;
+
     cachedPlanData = parsedPlan;
     localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
 
     renderStructuredCards();
 
     if (loadingBox) {
-      loadingBox.innerText = `☁️ Автосохранение плана (День А + День Б) на лист AI_Plan...`;
+      loadingBox.innerText = `☁️ Сохранение плана на лист AI_Plan...`;
     }
-    await saveAiPlanToSheets(cachedPlanData);
+
+    const { _pendingCloudSync, ...cleanPlanToSend } = cachedPlanData;
+    const saveResult = await saveAiPlanToSheets(cleanPlanToSend);
+
+    if (!saveResult || !saveResult.success) {
+      cachedPlanData._pendingCloudSync = true;
+      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
+      renderStructuredCards();
+      alert('⚠️ План сохранен в памяти телефона, но сервер временно не смог записать его в таблицу. Нажмите «Отправить несохраненный план в таблицу» чуть позже.');
+    }
   } catch (err) {
     alert(`Ошибка генерации плана: ${err.message}`);
   } finally {
@@ -452,5 +480,16 @@ function renderStructuredCards() {
 
   if (syncCloudBtn) {
     syncCloudBtn.style.display = 'inline-flex';
+    if (cachedPlanData._pendingCloudSync) {
+      syncCloudBtn.innerHTML = `
+        <span class="material-symbols-outlined" slot="icon">sync_problem</span>
+        ⚠️ Отправить несохраненный план в таблицу
+      `;
+    } else {
+      syncCloudBtn.innerHTML = `
+        <span class="material-symbols-outlined" slot="icon">cloud_upload</span>
+        Отправить план (День А + День Б) в таблицу
+      `;
+    }
   }
 }

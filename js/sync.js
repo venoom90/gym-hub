@@ -6,9 +6,6 @@ let terminalLogsBuffer = [];
 let isSyncModuleInitialized = false;
 let onGlobalSyncSuccessCallback = null;
 
-/**
- * Первичная инициализация слушателей событий вкладки синхронизации
- */
 export function initSyncModule(onSyncSuccess) {
   onGlobalSyncSuccessCallback = onSyncSuccess;
   if (isSyncModuleInitialized) return;
@@ -87,9 +84,6 @@ export function initSyncModule(onSyncSuccess) {
   isSyncModuleInitialized = true;
 }
 
-/**
- * Отрисовка вкладки синхронизации (превью отчета + селектор удаления тренировок)
- */
 export function renderSyncModule() {
   populateDeleteWorkoutSelector();
   if (state.parsedWorkout && state.parsedWorkout.sets && state.parsedWorkout.sets.length > 0) {
@@ -97,9 +91,6 @@ export function renderSyncModule() {
   }
 }
 
-/**
- * Заполнение выпадающего списка дат и названий тренировок для удаления
- */
 function populateDeleteWorkoutSelector() {
   const selectEl = document.getElementById('deleteWorkoutDateSelect');
   const deleteBtn = document.getElementById('deleteWorkoutByDateBtn');
@@ -155,9 +146,6 @@ function populateDeleteWorkoutSelector() {
   });
 }
 
-/**
- * Полное удаление выбранной тренировки из листов Log и Workouts
- */
 async function handleDeleteWorkoutByDate() {
   const selectEl = document.getElementById('deleteWorkoutDateSelect');
   const deleteBtn = document.getElementById('deleteWorkoutByDateBtn');
@@ -333,6 +321,46 @@ function renderParsedWorkoutView() {
   }
 }
 
+function buildGymUpWorkoutSummary(workout) {
+  const sets = workout.sets || [];
+  const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
+  const warmupSets = sets.filter(s => s.category === 'Разминка' || s.effort === 'Размин.');
+
+  let workTonnage = 0;
+  let rirSum = 0;
+  let rirCount = 0;
+
+  workSets.forEach(s => {
+    workTonnage += (parseFloat(s.tonnage) || 0);
+    const rirClean = parseFloat(String(s.reserve || '').replace('+', ''));
+    if (!isNaN(rirClean)) {
+      rirSum += rirClean;
+      rirCount++;
+    }
+  });
+
+  const firstSet = sets[0] || {};
+  const estDurationMin = Math.max(20, (workSets.length * 3) + (warmupSets.length * 1.5));
+  const density = parseFloat((workTonnage / estDurationMin).toFixed(1));
+  const avgRir = rirCount > 0 ? parseFloat((rirSum / rirCount).toFixed(1)) : 2.0;
+
+  return {
+    workoutId: `w_gymup_${workout.date.replace(/\./g, '')}`,
+    date: workout.date,
+    cycleId: firstSet.cycleId || state.dbData.currentCycleId || 'C-2',
+    week: firstSet.cycleWeek || 1,
+    split: firstSet.splitDay || 'А',
+    durationMin: Math.round(estDurationMin),
+    workTonnage: parseFloat(workTonnage.toFixed(1)),
+    density: density,
+    avgRestSec: 0,
+    avgRir: avgRir,
+    readinessPre: '🟢 Оптимум',
+    sRPE: 8,
+    trainingLoad: Math.round(estDurationMin * 8)
+  };
+}
+
 async function executeSync(onSyncSuccess) {
   const syncBtn = document.getElementById('syncAllBtn');
   const workout = state.parsedWorkout;
@@ -361,13 +389,15 @@ async function executeSync(onSyncSuccess) {
   });
 
   try {
+    const workoutSummary = buildGymUpWorkoutSummary(workout);
     const payload = {
       action: 'sync_sets',
       overwrite: true,
       date: workout.date,
       startTime: workout.startTime,
       sets: workout.sets,
-      allExercises: workout.allExercises
+      allExercises: workout.allExercises,
+      workoutSummary: workoutSummary
     };
 
     const t0 = performance.now();
