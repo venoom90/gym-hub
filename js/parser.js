@@ -1,4 +1,4 @@
-import { state, parseRuFloat, formatDateDisplay } from './state.js';
+import { state, parseRuFloat, formatDateDisplay, computeE1RM } from './state.js';
 
 const EQUIP_KEYWORDS = ['Тренажер', 'Штанга', 'Гантели', 'Блок', 'Смит', 'Свободный вес', 'Свой вес', 'Гриф', 'Рукоять', 'Канат', 'Лента', 'Диск'];
 
@@ -133,7 +133,7 @@ export function parseGymUpReport(text) {
       continue;
     }
 
-    // 3. Строка подхода в оригинальном формате GymUp (например: "130 кг 6x Высокое +1", "100/75 6x", "130 кг 4+3+2x")
+    // 3. Строка подхода в оригинальном формате GymUp
     const setRegex = /^([\d.,\/]+)\s*(?:кг)?\s+([\d+\/]+)\s*[xх×]\s*(.*)$/i;
     const match = line.match(setRegex);
 
@@ -142,7 +142,6 @@ export function parseGymUpReport(text) {
       const repsRaw = match[2];
       const restOfLine = (match[3] || '').trim();
 
-      // Разбор весов (исправление строки 136: сохраняем и основной вес, и вес сброса на дроп-сете)
       const weightParts = weightRaw.split('/').map(w => parseRuFloat(w)).filter(w => w > 0);
       const cleanWeight = weightParts[0] || 0;
 
@@ -162,7 +161,6 @@ export function parseGymUpReport(text) {
         firstSegmentReps = segments[0] || 0;
 
         if (weightParts.length > 1 && segments.length === 1) {
-          // Формат GymUp "100/75 6x": основной подход 100х6 + дожим 75х6
           totalReps = firstSegmentReps;
           dropWeight = weightParts[1];
           dropReps = firstSegmentReps;
@@ -201,13 +199,10 @@ export function parseGymUpReport(text) {
       const bonusDropTonnage = (dropWeight > 0 && dropReps > 0) ? (dropWeight * dropReps) : 0;
       const tonnage = parseFloat((baseTonnage + bonusDropTonnage).toFixed(1));
 
-      // Исправление по аудиту: расчет 1ПМ строго при firstSegmentReps <= 8
-      let e1rm = 0.0;
-      if (category === 'Рабочий' && firstSegmentReps > 0 && firstSegmentReps <= 8 && cleanWeight > 0) {
-        e1rm = firstSegmentReps === 1
-          ? cleanWeight
-          : parseFloat((cleanWeight * (1 + firstSegmentReps / 30)).toFixed(1));
-      }
+      // V5.1.3: единый контракт — computeE1RM() из state.js. Порог 8 повторов.
+      const e1rm = (category === 'Рабочий')
+        ? computeE1RM(cleanWeight, firstSegmentReps)
+        : 0.0;
 
       globalIdx++;
       const uniqueId = `${workoutDate}_${startTime}_${currentExercise}_set${setCounter}_idx${globalIdx}`;

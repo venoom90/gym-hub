@@ -1,4 +1,4 @@
-import { state, setSelectedCycle, normalizeDate, formatDateDisplay, getDateKey, escapeHtml } from './state.js';
+import { state, setSelectedCycle, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, computeE1RM } from './state.js';
 import { extractPeriodization } from './parser.js';
 
 let tonnageChartInstance = null;
@@ -32,7 +32,7 @@ const METRIC_HELP_DICTIONARY = {
   },
   'help-1rm': {
     title: 'Прогресс в движении (Расчетный 1ПМ)',
-    text: 'Оценка вашего разового максимума по формуле Эпли: Вес × (1 + Повторы / 30).\n\nРассчитывается строго на силовых подходах до 8 повторений включительно (для кластеров и дроп-сетов — строго по первому сегменту без завышения).'
+    text: 'Оценка вашего разового максимума по формуле Эпли: Вес × (1 + Повторы / 30).\n\nРассчитывается строго на подходах до 8 повторений включительно. Свыше 8 повторов формула Эпли даёт >10% погрешности, поэтому такие сеты исключаются из расчёта 1ПМ (для кластеров и дроп-сетов берётся первый сегмент).'
   }
 };
 
@@ -121,15 +121,11 @@ function getFilteredSetsByCycle() {
   return allSets.filter(s => (s.cycleId || 'C-1') === state.selectedCycleId);
 }
 
-/**
- * Точный подсчет числа активных тренировочных недель (без размытия пустыми каникулами)
- */
 function calculateActiveTrainingWeeks(sets) {
   const weekBuckets = new Set();
   sets.forEach(s => {
     const d = normalizeDate(s.date);
     if (!d) return;
-    // Номер недели от эпохи (понедельник как начало)
     const weekNumber = Math.floor((d.getTime() + 3 * 86400000) / (7 * 86400000));
     weekBuckets.add(weekNumber);
   });
@@ -162,7 +158,7 @@ function renderKpiCards(sets) {
   if (adaptEl && adaptSubEl) {
     if (workSets.length === 0) {
       adaptEl.innerText = 'Свеж';
-      adaptEl.style.color = 'var(--md-sys-color-success)';
+      adaptEl.style.color = 'var(--app-color-success)';
       adaptSubEl.innerText = 'Готов к нагрузке';
       return;
     }
@@ -184,11 +180,11 @@ function renderKpiCards(sets) {
       adaptSubEl.innerText = 'Фаза суперкомпенсации';
     } else if (week === 4) {
       adaptEl.innerText = 'Пик (Нед 4)';
-      adaptEl.style.color = 'var(--md-sys-color-warning)';
+      adaptEl.style.color = 'var(--app-color-warning)';
       adaptSubEl.innerText = 'Скоро разгрузка';
     } else {
       adaptEl.innerText = `Неделя ${week}`;
-      adaptEl.style.color = 'var(--md-sys-color-success)';
+      adaptEl.style.color = 'var(--app-color-success)';
       adaptSubEl.innerText = `Режим: ${mode}`;
     }
   }
@@ -266,10 +262,10 @@ function renderPushPullBalance(sets) {
     const r = parseFloat(ratio);
     if (r >= 0.95 && r <= 1.3) {
       verdictEl.innerText = '✅ Баланс оптимален для здоровья плечевых суставов';
-      verdictEl.style.color = 'var(--md-sys-color-success)';
+      verdictEl.style.color = 'var(--app-color-success)';
     } else if (r < 0.95) {
       verdictEl.innerText = '⚠️ Доминируют жимы: добавьте тяги для задней дельты и ромбовидных';
-      verdictEl.style.color = 'var(--md-sys-color-warning)';
+      verdictEl.style.color = 'var(--app-color-warning)';
     } else {
       verdictEl.innerText = 'ℹ️ Доминируют тяговые движения (безопасно для плеч)';
       verdictEl.style.color = 'var(--md-sys-color-primary)';
@@ -478,7 +474,11 @@ function populateExerciseSelector(sets) {
 }
 
 /**
- * График прогресса 1ПМ: учитывает СТРОГО валидные силовые подходы (e1rm > 0 и reps <= 8)
+ * V5.1.3: график прогресса 1ПМ.
+ *
+ * Доверяем серверному e1rm (он рассчитан по единому контракту computeE1RM,
+ * порог 8 повторов). Fallback через computeE1RM — на случай отсутствия поля
+ * (например, старые строки до полного пересчёта таблицы).
  */
 function renderExercise1RMChart(sets, exerciseName) {
   const canvas = document.getElementById('exerciseChart');
@@ -506,13 +506,9 @@ function renderExercise1RMChart(sets, exerciseName) {
     const r = parseInt(s.reps, 10) || 0;
     const serverE1 = parseFloat(s.e1rm);
 
-    // Исключаем завышение от многоповторных подходов (> 8 повт.) и нулевых серверных значений
-    let validE1RM = 0;
-    if (!isNaN(serverE1) && serverE1 > 0) {
-      validE1RM = serverE1;
-    } else if (serverE1 === undefined && r > 0 && r <= 8 && w > 0) {
-      validE1RM = r === 1 ? w : parseFloat((w * (1 + r / 30)).toFixed(1));
-    }
+    const validE1RM = (!isNaN(serverE1) && serverE1 > 0)
+      ? serverE1
+      : computeE1RM(w, r);
 
     if (validE1RM <= 0) return;
 

@@ -1,4 +1,4 @@
-import { state, normalizeDate, escapeHtml } from './state.js';
+import { state, normalizeDate, escapeHtml, computeE1RM } from './state.js';
 import { askGasGeminiCoach, saveAiPlanToSheets } from './api.js';
 
 let activeSplitView = 'A';
@@ -95,7 +95,7 @@ function calculateAutoregulationDecision(container, weight, targetReps, actualRe
   container.innerHTML = `
     <div class="coach-sos-result-card">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <b style="color: var(--md-sys-color-warning); font-size: 0.95rem;">Решение авторегулятора (Отказ на ${actualReps} повт.)</b>
+        <b style="color: var(--app-color-warning); font-size: 0.95rem;">Решение авторегулятора (Отказ на ${actualReps} повт.)</b>
         <span class="coach-method-badge">Дефицит: -${repDeficit}</span>
       </div>
 
@@ -113,7 +113,7 @@ function calculateAutoregulationDecision(container, weight, targetReps, actualRe
       </div>
 
       <div style="background: var(--md-sys-color-surface-container-highest); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
-        <span style="font-size: 0.8rem; font-weight: 700; color: var(--md-sys-color-success);">ВАРИАНТ Б (Кластерная доработка на текущем весе):</span>
+        <span style="font-size: 0.8rem; font-weight: 700; color: var(--app-color-success);">ВАРИАНТ Б (Кластерная доработка на текущем весе):</span>
         <div style="font-size: 0.85rem;">
           Оставьте <b>${weight} кг</b> и выполните схему: 
           <b>${clusterRepsA} повт.</b> → отдых 20 сек → <b>${clusterRepsB} повт.</b> → отдых 20 сек → <b>${clusterRepsC} повт.</b>
@@ -126,8 +126,8 @@ function calculateAutoregulationDecision(container, weight, targetReps, actualRe
 function renderSosSuccess(container, weight, reps) {
   container.style.display = 'block';
   container.innerHTML = `
-    <div class="coach-sos-result-card" style="border-color: var(--md-sys-color-success);">
-      <b style="color: var(--md-sys-color-success);">План перевыполнен!</b>
+    <div class="coach-sos-result-card" style="border-color: var(--app-color-success);">
+      <b style="color: var(--app-color-success);">План перевыполнен!</b>
       <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface); margin-top: 4px;">
         Стимул максимален. В следующем сете сохраняйте <b>${weight} кг</b>. 
         На следующей тренировке запланируйте прогрессию <b>+2.5 кг</b> (${weight + 2.5} кг).
@@ -193,7 +193,6 @@ async function syncCachedPlanToSheets() {
   if (syncCloudBtn) syncCloudBtn.disabled = true;
 
   try {
-    // Очистка служебного флага ДО отправки на сервер (исключает утечку _pendingCloudSync в M2)
     const { _pendingCloudSync, ...cleanPlan } = cachedPlanData;
     const res = await saveAiPlanToSheets(cleanPlan);
 
@@ -233,263 +232,4 @@ async function generateMesocyclePlan() {
     const serverE1 = parseFloat(s.e1rm);
 
     if (!exerciseStatsMap[ex]) {
-      exerciseStatsMap[ex] = { maxWeight: 0, max1RM: 0, split: (s.splitDay || s.split || '').toUpperCase() };
-    }
-    if (w > exerciseStatsMap[ex].maxWeight) {
-      exerciseStatsMap[ex].maxWeight = w;
-    }
-
-    // 1ПМ учитывается только на подходах до 8 повторений (многоповторка пропускается без занижения)
-    let validE1 = 0;
-    if (!isNaN(serverE1) && serverE1 > 0) {
-      validE1 = serverE1;
-    } else if (r > 0 && r <= 8 && w > 0) {
-      validE1 = r === 1 ? w : parseFloat((w * (1 + r / 30)).toFixed(1));
-    }
-
-    if (validE1 > exerciseStatsMap[ex].max1RM) {
-      exerciseStatsMap[ex].max1RM = parseFloat(validE1.toFixed(1));
-    }
-  });
-
-  const dayAExercises = [];
-  const dayBExercises = [];
-
-  Object.keys(exerciseStatsMap).forEach(ex => {
-    const item = exerciseStatsMap[ex];
-    const e1rmStr = item.max1RM > 0 ? `, 1ПМ ${item.max1RM} кг` : '';
-    const line = `- ${ex}: макс. рабочий вес ${item.maxWeight} кг${e1rmStr}`;
-    if (item.split === 'Б' || item.split === 'B') {
-      dayBExercises.push(line);
-    } else {
-      dayAExercises.push(line);
-    }
-  });
-
-  const exSummaryA = dayAExercises.join('\n') || 'Нет данных';
-  const exSummaryB = dayBExercises.join('\n') || 'Нет данных';
-
-  const currentCid = state.dbData.currentCycleId || 'C-2';
-
-  const prompt = `Ты — ведущий эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
-Составь тренировочный план на мезоцикл ${currentCid}.
-
-[ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА]:
-${userIntent || 'Full-Body, верх в приоритете, ноги в конце в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
-
-[АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ А]:
-${exSummaryA}
-
-[АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ Б]:
-${exSummaryB}
-
-ПРАВИЛА И ПРИОРИТЕТЫ:
-1. ПРИОРИТЕТ УКАЗАНИЙ АТЛЕТА: Если в [ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА] запрошены кластеры, дроп-сеты или специфические методы прямо со старта цикла — ОБЯЗАТЕЛЬНО внедрить их в план! В поле "method" указать точный метод ("Кластер 4+3+2", "Дроп-сет -25%" или "Стандарт").
-2. ПОРЯДОК УПРАЖНЕНИЙ:
-   - Базовый компаунд верха на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
-   - Прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
-   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR +2..+3, без отказа, в notes указать "Поддерживающий объем").
-   - Икры выполняются в финале (3–4 сета).
-3. ВЕСА И ПОВТОРЕНИЯ:
-   - Все веса СТРОГО кратны шагу 2.5 кг.
-   - Опирайся на реальные рабочие веса атлета из архива, не завышая теоретическим 1ПМ.
-   - Базовый план пишется под фазу "Сила" (компаунды 4-6 повт., изоляция 8-12 повт., икры 10-15 повт.).
-
-ФОРМАТ ОТВЕТА:
-Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
-{
-  "cycleId": "${currentCid}",
-  "mode": "Сила / Объем",
-  "splits": {
-    "A": {
-      "title": "Тренировка А1 (Сила + Кластеры)",
-      "exercises": [
-        {
-          "order": 1,
-          "name": "Жим в тренажере",
-          "target": "Грудь",
-          "weight": 132.5,
-          "sets": 4,
-          "reps": "4-6",
-          "rir": "+1..+2",
-          "method": "Кластер 4+3+2",
-          "notes": "Кластерная схема в последнем сете"
-        }
-      ]
-    },
-    "B": {
-      "title": "Тренировка Б1 (Тяга + Дроп-сеты)",
-      "exercises": []
-    }
-  },
-  "rationale": "Краткое обоснование учета пожеланий атлета и порядка упражнений."
-}`;
-
-  let elapsedSeconds = 0;
-  let timerInterval = null;
-
-  if (loadingBox) {
-    loadingBox.style.display = 'block';
-    loadingBox.innerText = `🤖 Gemini генерирует программу мезоцикла... (0с)`;
-    timerInterval = setInterval(() => {
-      elapsedSeconds++;
-      loadingBox.innerText = `🤖 Gemini генерирует программу мезоцикла... (${elapsedSeconds}с)`;
-    }, 1000);
-  }
-
-  if (genBtn) genBtn.disabled = true;
-
-  try {
-    const rawAnswer = await askGasGeminiCoach(prompt);
-    const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Модель не вернула валидную JSON-структуру.');
-
-    const parsedPlan = JSON.parse(jsonMatch[0]);
-    if (!parsedPlan.splits || !parsedPlan.splits.A) {
-      throw new Error('Структура сгенерированного плана некорректна.');
-    }
-
-    parsedPlan.generatedAt = Date.now();
-    delete parsedPlan._pendingCloudSync;
-
-    cachedPlanData = parsedPlan;
-    localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
-
-    renderStructuredCards();
-
-    if (loadingBox) {
-      loadingBox.innerText = `☁️ Сохранение плана на лист AI_Plan...`;
-    }
-
-    const { _pendingCloudSync, ...cleanPlanToSend } = cachedPlanData;
-    const saveResult = await saveAiPlanToSheets(cleanPlanToSend);
-
-    if (!saveResult || !saveResult.success) {
-      cachedPlanData._pendingCloudSync = true;
-      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
-      renderStructuredCards();
-      alert('⚠️ План сохранен в памяти телефона, но сервер временно не смог записать его в таблицу. Нажмите «Отправить несохраненный план в таблицу» чуть позже.');
-    }
-  } catch (err) {
-    alert(`Ошибка генерации плана: ${err.message}`);
-  } finally {
-    if (timerInterval) clearInterval(timerInterval);
-    if (loadingBox) loadingBox.style.display = 'none';
-    if (genBtn) genBtn.disabled = false;
-  }
-}
-
-function loadCachedPlan() {
-  try {
-    const saved = localStorage.getItem('gym_ai_coach_plan');
-    if (saved) {
-      cachedPlanData = JSON.parse(saved);
-      renderStructuredCards();
-    } else if (state.dbData.aiPlan && state.dbData.aiPlan.splits) {
-      cachedPlanData = state.dbData.aiPlan;
-      localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
-      renderStructuredCards();
-    }
-  } catch (e) {
-    console.warn('[Coach] Ошибка восстановления сохраненного плана:', e);
-  }
-}
-
-function renderStructuredCards() {
-  const container = document.getElementById('coachSplitCardsContainer');
-  const rationaleBox = document.getElementById('coachRationaleDetails');
-  const rationaleText = document.getElementById('coachRationaleText');
-  const syncCloudBtn = document.getElementById('syncCachedPlanToCloudBtn');
-  const badgeEl = document.getElementById('coachPlanCycleBadge');
-  const splitTabA = document.getElementById('coachSplitTabA');
-  const splitTabB = document.getElementById('coachSplitTabB');
-  const splitTitleEl = document.getElementById('coachActiveSplitTitle');
-
-  if (!container || !cachedPlanData) return;
-
-  if (badgeEl && cachedPlanData.cycleId) {
-    badgeEl.innerText = cachedPlanData.cycleId;
-  }
-
-  if (splitTabA && cachedPlanData.splits && cachedPlanData.splits.A) {
-    const rawTitleA = cachedPlanData.splits.A.title || 'Тренировка А1';
-    const waveTagA = (rawTitleA.match(/[АA]\d+/i) || ['А1'])[0];
-    const modeSubA = rawTitleA.includes('Объем') ? 'Объем' : (rawTitleA.includes('Делоад') ? 'Делоад' : 'Сила');
-
-    splitTabA.innerHTML = `
-      <span style="font-size: 0.92rem; font-weight: 700;">День А</span>
-      <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">${escapeHtml(waveTagA)} • ${escapeHtml(modeSubA)}</span>
-    `;
-  }
-
-  if (splitTabB && cachedPlanData.splits && cachedPlanData.splits.B) {
-    const rawTitleB = cachedPlanData.splits.B.title || 'Тренировка Б1';
-    const waveTagB = (rawTitleB.match(/[БB]\d+/i) || ['Б1'])[0];
-    const modeSubB = rawTitleB.includes('Объем') ? 'Объем' : (rawTitleB.includes('Делоад') ? 'Делоад' : 'Сила');
-
-    splitTabB.innerHTML = `
-      <span style="font-size: 0.92rem; font-weight: 700;">День Б</span>
-      <span style="font-size: 0.72rem; opacity: 0.85; font-weight: 500;">${escapeHtml(waveTagB)} • ${escapeHtml(modeSubB)}</span>
-    `;
-  }
-
-  const currentSplit = cachedPlanData.splits ? cachedPlanData.splits[activeSplitView] : null;
-
-  if (splitTitleEl) {
-    if (currentSplit && currentSplit.title) {
-      splitTitleEl.style.display = 'block';
-      splitTitleEl.innerText = currentSplit.title;
-    } else {
-      splitTitleEl.style.display = 'none';
-    }
-  }
-
-  if (!currentSplit || !currentSplit.exercises || currentSplit.exercises.length === 0) {
-    container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Дня ${escapeHtml(activeSplitView)}</div>`;
-    return;
-  }
-
-  container.innerHTML = '';
-
-  currentSplit.exercises.forEach(ex => {
-    const card = document.createElement('div');
-    card.className = 'coach-exercise-card';
-    card.innerHTML = `
-      <div class="coach-card-header">
-        <div>
-          <span style="font-size: 0.72rem; color: var(--md-sys-color-primary); font-weight: 700;">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.target || 'База')}</span>
-          <div class="coach-exercise-title">${escapeHtml(ex.name)}</div>
-        </div>
-        <span class="coach-weight-tag">${parseFloat(ex.weight) || 0} кг</span>
-      </div>
-      <div class="coach-card-chips">
-        <span class="coach-card-chip">${parseInt(ex.sets, 10) || 3} подх.</span>
-        <span class="coach-card-chip">${escapeHtml(ex.reps || '6')} повт.</span>
-        <span class="coach-card-chip" style="color: var(--md-sys-color-primary);">RIR ${escapeHtml(ex.rir || '1-2')}</span>
-        <span class="coach-method-badge">${escapeHtml(ex.method || 'Стандарт')}</span>
-      </div>
-      ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
-    `;
-    container.appendChild(card);
-  });
-
-  if (rationaleBox && rationaleText && cachedPlanData.rationale) {
-    rationaleBox.style.display = 'block';
-    rationaleText.innerText = cachedPlanData.rationale;
-  }
-
-  if (syncCloudBtn) {
-    syncCloudBtn.style.display = 'inline-flex';
-    if (cachedPlanData._pendingCloudSync) {
-      syncCloudBtn.innerHTML = `
-        <span class="material-symbols-outlined" slot="icon">sync_problem</span>
-        ⚠️ Отправить несохраненный план в таблицу
-      `;
-    } else {
-      syncCloudBtn.innerHTML = `
-        <span class="material-symbols-outlined" slot="icon">cloud_upload</span>
-        Отправить план (День А + День Б) в таблицу
-      `;
-    }
-  }
-}
+      exerciseStatsMap[ex] = { maxWeight: 0, max1

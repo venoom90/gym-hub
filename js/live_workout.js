@@ -1,13 +1,14 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.4.1)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.4.2)
  * =========================================================================
- * - Единая синхронная индикация текущего подхода (Заголовок == Кнопка таба == Кнопка записи)
- * - Хронометраж durationMin по последнему выполненному подходу (защита от забытого таймера)
- * - Передача явных dropWeight и dropReps на сервер для верифицированного расчета тоннажа
+ * - Единая синхронная индикация текущего подхода
+ * - Хронометраж durationMin по последнему выполненному подходу
+ * - Передача явных dropWeight и dropReps на сервер
+ * - V1.4.2: расчёт e1rm через единый computeE1RM (порог 8 повторов)
  */
 
-import { state, setInitialData, formatDateDisplay, escapeHtml } from './state.js';
+import { state, setInitialData, formatDateDisplay, escapeHtml, computeE1RM } from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
@@ -500,7 +501,7 @@ function renderLiveWorkoutScreen() {
       const dropLoad = roundToGymStep(activeSession.draftSet.weight * 0.75);
       intensifierBannerEl.style.display = 'flex';
       intensifierBannerEl.innerHTML = `
-        <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-warning);">bolt</span>
+        <span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">bolt</span>
         <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха (учтется в тоннаже автоматически).</div>
       `;
     } else if (isSpecialActive && currentEx.isCluster) {
@@ -522,7 +523,7 @@ function renderLiveWorkoutScreen() {
   if (setBadgeEl) {
     if (isWarmupMode) {
       setBadgeEl.innerText = `РАЗМИНКА: ШАГ ${currentWarmupStepNum} ИЗ ${totalWarmupSteps}`;
-      setBadgeEl.style.color = 'var(--md-sys-color-success)';
+      setBadgeEl.style.color = 'var(--app-color-success)';
     } else {
       const finalBadge = (currentWorkSetNum === currentEx.targetSets) ? ' (ФИНАЛЬНЫЙ)' : '';
       setBadgeEl.innerText = `РАБОЧИЙ ПОДХОД #${currentWorkSetNum} ИЗ ${currentEx.targetSets}${finalBadge}`;
@@ -628,7 +629,7 @@ function renderCompletedSetsHistory(currentEx) {
     const labelText = isWarmup ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
     const badgeColor = isWarmup
       ? 'var(--md-sys-color-on-surface-variant)'
-      : 'var(--md-sys-color-success)';
+      : 'var(--app-color-success)';
 
     row.innerHTML = `
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -710,9 +711,8 @@ function handleRecordCurrentSet() {
   const setNum = currentEx.completedSets.length + 1;
   const tonnage = parseFloat(totalTonnage.toFixed(1));
 
-  const e1rm = (!isWarmup && firstSegmentReps > 0 && firstSegmentReps <= 8 && weight > 0)
-    ? (firstSegmentReps === 1 ? weight : parseFloat((weight * (1 + firstSegmentReps / 30)).toFixed(1)))
-    : 0.0;
+  // V1.4.2: единый контракт — computeE1RM() из state.js. Порог 8 повторов.
+  const e1rm = isWarmup ? 0.0 : computeE1RM(weight, firstSegmentReps);
 
   const recordedSet = {
     setNum: setNum,

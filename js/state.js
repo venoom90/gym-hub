@@ -120,6 +120,33 @@ export function parseRuFloat(val) {
   return isNaN(num) ? 0.0 : num;
 }
 
+/**
+ * V5.1.3: Единый расчёт расчетного 1ПМ (e1RM) по формуле Эпли.
+ *
+ * КОНТРАКТ (синхронизирован с бэкендом GAS computeE1RM — при изменении
+ * формулы обновлять ОБА места):
+ *   - reps <= 0 или weight <= 0 → 0.0
+ *   - reps === 1                → weight (фактический 1ПМ)
+ *   - 2 ≤ reps ≤ 8              → weight × (1 + reps / 30)
+ *   - reps > 8                  → 0.0 (Эпли даёт >10% погрешность)
+ *
+ * Возвращает округлённое до 1 знака после запятой число.
+ *
+ * Порог 8 повторений выбран сознательно: для силовых диапазонов (1-6) Эпли
+ * работает приемлемо, на 8 — пограничная валидность, свыше 8 — формула
+ * начинает систематически завышать результат на 10-15%. Честнее вернуть 0,
+ * чем показывать атлету недостоверный PR.
+ */
+export function computeE1RM(weight, reps) {
+  const w = (typeof weight === 'number') ? weight : parseRuFloat(weight);
+  const r = (typeof reps === 'number') ? reps : (parseInt(reps, 10) || 0);
+
+  if (w <= 0 || r <= 0) return 0.0;
+  if (r === 1) return parseFloat(w.toFixed(1));
+  if (r <= 8) return parseFloat((w * (1 + r / 30)).toFixed(1));
+  return 0.0;
+}
+
 export function normalizeDate(dateVal) {
   if (!dateVal) return null;
   if (dateVal instanceof Date) {
