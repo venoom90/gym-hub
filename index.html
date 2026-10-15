@@ -19,10 +19,15 @@
   <script type="module" src="https://esm.sh/@material/web@1.5.1/all.js?bundle" crossorigin="anonymous"></script>
 
   <style>
+    /* =========================================================
+     * DESIGN TOKENS — M3 Compliant
+     * ========================================================= */
     :root {
+      /* --- Color tokens --- */
       --md-sys-color-background: #111318;
       --md-sys-color-on-background: #e2e2e9;
       --md-sys-color-surface: #111318;
+      --md-sys-color-surface-container-low: #191c20;
       --md-sys-color-surface-container: #1d2024;
       --md-sys-color-surface-container-high: #282a2f;
       --md-sys-color-surface-container-highest: #33353a;
@@ -33,37 +38,122 @@
       --md-sys-color-on-primary-container: #d6e3ff;
       --md-sys-color-secondary-container: #3d4758;
       --md-sys-color-on-secondary-container: #d9e3f9;
+      --md-sys-color-outline: #8e9099;
       --md-sys-color-outline-variant: #44474f;
       --md-sys-color-error: #ffb4ab;
       --md-sys-color-error-container: #93000a;
       --md-sys-color-on-error-container: #ffdad6;
-      --md-sys-color-success: #78dc9c;
-      --md-sys-color-warning: #facc15;
+
+      /* Custom semantic tokens (не входят в M3 spec, но обоснованы доменом) */
+      --app-color-success: #78dc9c;
+      --app-color-warning: #facc15;
+      --app-color-success-container: rgba(120, 220, 156, 0.12);
+      --app-color-warning-container: rgba(250, 204, 21, 0.12);
+
+      /* --- Typography Scale (M3) --- */
+      --md-sys-typescale-display-large: 400 3.5rem/4rem 'Roboto';
+      --md-sys-typescale-headline-large: 400 2rem/2.5rem 'Roboto';
+      --md-sys-typescale-headline-medium: 400 1.75rem/2.25rem 'Roboto';
+      --md-sys-typescale-headline-small: 500 1.5rem/2rem 'Roboto';
+      --md-sys-typescale-title-large: 500 1.375rem/1.75rem 'Roboto';
+      --md-sys-typescale-title-medium: 500 1rem/1.5rem 'Roboto';
+      --md-sys-typescale-title-small: 500 0.875rem/1.25rem 'Roboto';
+      --md-sys-typescale-body-large: 400 1rem/1.5rem 'Roboto';
+      --md-sys-typescale-body-medium: 400 0.875rem/1.25rem 'Roboto';
+      --md-sys-typescale-body-small: 400 0.75rem/1rem 'Roboto';
+      --md-sys-typescale-label-large: 500 0.875rem/1.25rem 'Roboto';
+      --md-sys-typescale-label-medium: 500 0.75rem/1rem 'Roboto';
+      --md-sys-typescale-label-small: 500 0.6875rem/1rem 'Roboto';
+
+      /* --- Shape Scale (M3) --- */
+      --md-sys-shape-corner-none: 0;
+      --md-sys-shape-corner-extra-small: 4px;
+      --md-sys-shape-corner-small: 8px;
+      --md-sys-shape-corner-medium: 12px;
+      --md-sys-shape-corner-large: 16px;
+      --md-sys-shape-corner-extra-large: 28px;
+      --md-sys-shape-corner-full: 9999px;
+
+      /* --- Elevation (M3, адаптировано под dark-only) --- */
+      --md-sys-elevation-level0: none;
+      --md-sys-elevation-level1: 0 1px 2px rgba(0,0,0,0.35), 0 1px 3px 1px rgba(0,0,0,0.15);
+      --md-sys-elevation-level2: 0 1px 2px rgba(0,0,0,0.35), 0 2px 6px 2px rgba(0,0,0,0.15);
+      --md-sys-elevation-level3: 0 4px 8px 3px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.3);
+
+      /* --- Motion (M3) --- */
+      --md-sys-motion-duration-short2: 100ms;
+      --md-sys-motion-duration-short3: 150ms;
+      --md-sys-motion-duration-short4: 200ms;
+      --md-sys-motion-duration-medium1: 250ms;
+      --md-sys-motion-duration-medium2: 300ms;
+      --md-sys-motion-duration-medium3: 350ms;
+
+      --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+      --md-sys-motion-easing-standard-decelerate: cubic-bezier(0, 0, 0, 1);
+      --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+      --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+
+      /* --- Touch targets --- */
+      --app-touch-min: 48px;
+      --app-touch-comfortable: 56px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
+    /* --- Global reduced-motion safeguard --- */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    html { -webkit-text-size-adjust: 100%; }
+
     body {
       background: var(--md-sys-color-background);
       color: var(--md-sys-color-on-background);
-      font-family: 'Roboto', sans-serif;
+      font: var(--md-sys-typescale-body-medium);
       min-height: 100vh;
       padding-bottom: 96px;
     }
 
+    /* --- Focus visible (M3: 3dp focus ring, secondary color) --- */
+    :focus-visible {
+      outline: 3px solid var(--md-sys-color-primary);
+      outline-offset: 2px;
+      border-radius: var(--md-sys-shape-corner-small);
+    }
+    :focus:not(:focus-visible) { outline: none; }
+
+    /* --- Visually hidden helper --- */
+    .visually-hidden {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    /* =========================================================
+     * TOP BAR
+     * ========================================================= */
     .top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       padding: 12px 16px;
-      height: 64px;
+      min-height: 64px;
       background: var(--md-sys-color-surface);
       border-bottom: 1px solid var(--md-sys-color-outline-variant);
     }
 
     .top-bar h1 {
-      font-size: 1.25rem;
-      font-weight: 500;
+      font: var(--md-sys-typescale-title-large);
       display: flex;
       align-items: center;
       gap: 8px;
@@ -72,14 +162,12 @@
     .status-dot {
       width: 8px;
       height: 8px;
-      border-radius: 50%;
-      background-color: var(--md-sys-color-success);
+      border-radius: var(--md-sys-shape-corner-full);
+      background-color: var(--app-color-success);
       display: inline-block;
-      transition: background-color 0.3s ease;
+      transition: background-color var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-standard);
     }
-    .status-dot.offline {
-      background-color: var(--md-sys-color-warning);
-    }
+    .status-dot.offline { background-color: var(--app-color-warning); }
 
     .container {
       max-width: 680px;
@@ -93,9 +181,12 @@
     .tab-content { display: none; }
     .tab-content.active { display: flex; flex-direction: column; gap: 16px; }
 
+    /* =========================================================
+     * CARDS
+     * ========================================================= */
     .m3-card {
       background: var(--md-sys-color-surface-container);
-      border-radius: 20px;
+      border-radius: var(--md-sys-shape-corner-extra-large);
       padding: 18px;
       display: flex;
       flex-direction: column;
@@ -104,8 +195,7 @@
     }
 
     .card-title {
-      font-size: 1.05rem;
-      font-weight: 500;
+      font: var(--md-sys-typescale-title-medium);
       color: var(--md-sys-color-primary);
       display: flex;
       align-items: center;
@@ -115,8 +205,8 @@
     }
 
     .help-trigger-btn {
-      width: 48px;
-      height: 48px;
+      width: var(--app-touch-min);
+      height: var(--app-touch-min);
       margin: -12px -12px -12px 0;
       display: inline-flex;
       align-items: center;
@@ -125,15 +215,19 @@
       border: none;
       cursor: pointer;
       color: var(--md-sys-color-on-surface-variant);
-      transition: color 0.2s ease;
+      border-radius: var(--md-sys-shape-corner-full);
+      transition: color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .help-trigger-btn:hover {
       color: var(--md-sys-color-primary);
+      background: rgba(168, 200, 255, 0.08);
     }
-    .help-trigger-btn .material-symbols-outlined {
-      font-size: 18px;
-    }
+    .help-trigger-btn .material-symbols-outlined { font-size: 18px; }
 
+    /* =========================================================
+     * CALENDAR STRIP
+     * ========================================================= */
     .calendar-strip {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
@@ -142,9 +236,9 @@
 
     .calendar-day-card {
       background: var(--md-sys-color-surface-container-high);
-      border-radius: 12px;
+      border-radius: var(--md-sys-shape-corner-medium);
       padding: 8px 2px;
-      min-height: 56px;
+      min-height: 64px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -152,126 +246,116 @@
       gap: 4px;
       cursor: pointer;
       border: 1px solid transparent;
-      transition: all 0.2s ease;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
       user-select: none;
     }
+
+    .calendar-day-card:hover { background: var(--md-sys-color-surface-container-highest); }
 
     .calendar-day-card.today {
       border-color: var(--md-sys-color-primary);
       background: var(--md-sys-color-surface-container-highest);
     }
 
-    .cal-day-name { font-size: 0.7rem; color: var(--md-sys-color-on-surface-variant); }
-    .cal-day-num { font-size: 0.95rem; font-weight: 700; color: var(--md-sys-color-on-surface); }
+    .cal-day-name { font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant); }
+    .cal-day-num { font: 700 0.95rem/1 'Roboto'; color: var(--md-sys-color-on-surface); }
     .cal-badge {
       width: 22px;
       height: 22px;
-      border-radius: 11px;
+      border-radius: var(--md-sys-shape-corner-full);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.7rem;
+      font: var(--md-sys-typescale-label-small);
       font-weight: 700;
       margin-top: 2px;
     }
     .badge-split-a { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
     .badge-split-b { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
-    .badge-rest { width: 6px; height: 6px; border-radius: 3px; background: var(--md-sys-color-outline-variant); margin-top: 10px; }
+    .badge-rest { width: 6px; height: 6px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-outline-variant); margin-top: 10px; }
 
-    .plan-header-badges {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
+    /* =========================================================
+     * PLAN BADGES
+     * ========================================================= */
+    .plan-header-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
     .plan-cycle-chip {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 8px;
+      padding: 4px 10px;
+      border-radius: var(--md-sys-shape-corner-small);
       letter-spacing: 0.5px;
     }
 
     .plan-mode-chip {
       background: var(--md-sys-color-secondary-container);
       color: var(--md-sys-color-on-secondary-container);
-      font-size: 0.75rem;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 8px;
+      font: var(--md-sys-typescale-label-medium);
+      padding: 4px 10px;
+      border-radius: var(--md-sys-shape-corner-small);
       white-space: nowrap;
     }
 
-    .muscle-tags-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-bottom: 2px;
-    }
+    .muscle-tags-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
 
     .muscle-tag {
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface);
-      font-size: 0.72rem;
-      font-weight: 500;
-      padding: 2px 8px;
-      border-radius: 6px;
+      font: var(--md-sys-typescale-label-medium);
+      padding: 3px 10px;
+      border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    /* Компактная интерактивная карточка-превью тренировки на главном экране */
+    /* =========================================================
+     * PLAN PREVIEW CARD
+     * ========================================================= */
     .plan-preview-trigger-card {
       background: var(--md-sys-color-surface-container-high);
       border: 1px solid rgba(168, 200, 255, 0.18);
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px 16px;
+      min-height: 64px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
       cursor: pointer;
-      transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.12s ease;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
       user-select: none;
     }
     .plan-preview-trigger-card:hover {
       background: var(--md-sys-color-surface-container-highest);
       border-color: var(--md-sys-color-primary);
     }
-    .plan-preview-trigger-card:active {
-      transform: scale(0.99);
-    }
 
-    .plan-preview-left {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
+    .plan-preview-left { display: flex; flex-direction: column; gap: 4px; }
 
     .plan-preview-title {
-      font-size: 0.96rem;
+      font: var(--md-sys-typescale-title-small);
       font-weight: 700;
       color: var(--md-sys-color-on-surface);
       line-height: 1.25;
     }
 
     .plan-preview-metrics {
-      font-size: 0.8rem;
-      font-weight: 500;
+      font: var(--md-sys-typescale-body-small);
       color: var(--md-sys-color-primary);
     }
 
     .plan-preview-hint {
-      font-size: 0.72rem;
+      font: var(--md-sys-typescale-body-small);
       color: var(--md-sys-color-on-surface-variant);
     }
 
     .plan-preview-chevron {
-      width: 38px;
-      height: 38px;
-      border-radius: 12px;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--md-sys-shape-corner-medium);
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-primary);
       display: flex;
@@ -280,9 +364,12 @@
       flex-shrink: 0;
     }
 
+    /* =========================================================
+     * RECIPE STEP
+     * ========================================================= */
     .recipe-step {
       background: var(--md-sys-color-surface-container-high);
-      border-radius: 14px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px;
       display: flex;
       flex-direction: column;
@@ -291,7 +378,7 @@
     }
 
     .recipe-step-header {
-      font-size: 0.95rem;
+      font: var(--md-sys-typescale-title-small);
       font-weight: 600;
       color: var(--md-sys-color-on-surface);
       line-height: 1.25;
@@ -305,14 +392,12 @@
     }
 
     .recipe-sets-count {
-      font-size: 0.85rem;
-      font-weight: 500;
+      font: var(--md-sys-typescale-body-medium);
       color: var(--md-sys-color-on-surface-variant);
     }
 
     .recipe-weight-highlight {
-      font-size: 1.25rem;
-      font-weight: 700;
+      font: 700 1.25rem/1.2 'Roboto';
       color: var(--md-sys-color-primary);
       letter-spacing: -0.5px;
     }
@@ -320,17 +405,17 @@
     .recipe-reps-chip {
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
-      font-size: 0.8rem;
+      font: var(--md-sys-typescale-label-large);
       font-weight: 600;
       padding: 3px 8px;
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-small);
     }
 
     .recipe-rir-badge {
-      font-size: 0.72rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
       padding: 3px 8px;
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-small);
       background: var(--md-sys-color-secondary-container);
       color: var(--md-sys-color-on-secondary-container);
       letter-spacing: 0.3px;
@@ -340,7 +425,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-body-small);
       color: var(--md-sys-color-on-surface-variant);
     }
 
@@ -349,33 +434,39 @@
       color: var(--md-sys-color-outline-variant);
     }
 
+    /* =========================================================
+     * PRIMARY BUTTONS (M3 flat, no gradients)
+     * ========================================================= */
     .start-live-workout-btn {
       width: 100%;
-      min-height: 54px;
-      border-radius: 14px;
+      min-height: var(--app-touch-comfortable);
+      border-radius: var(--md-sys-shape-corner-large);
       border: none;
-      background: linear-gradient(135deg, #00468b 0%, #1e64b4 100%);
-      color: #ffffff;
-      font-size: 1rem;
+      background: var(--md-sys-color-primary);
+      color: #00325e;
+      font: var(--md-sys-typescale-title-medium);
       font-weight: 700;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(0, 70, 139, 0.45);
-      transition: transform 0.15s ease, opacity 0.2s ease;
+      transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
-    .start-live-workout-btn:active {
-      transform: scale(0.98);
-    }
+    .start-live-workout-btn:hover { background: #c2d7ff; }
+    .start-live-workout-btn:active { opacity: 0.85; }
+    .start-live-workout-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    /* =========================================================
+     * RECOVERY BANNER
+     * ========================================================= */
     .recovery-banner {
       display: none;
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       padding: 12px 16px;
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       align-items: center;
       justify-content: space-between;
       gap: 12px;
@@ -383,7 +474,7 @@
     }
 
     /* =========================================================
-     * LIVE WORKOUT OVERLAY (ZERO-FRICTION GYM INTERFACE)
+     * LIVE WORKOUT OVERLAY
      * ========================================================= */
     .live-workout-overlay {
       display: none;
@@ -407,16 +498,17 @@
       position: sticky;
       top: 0;
       z-index: 10;
+      gap: 8px;
     }
 
     .live-timer-pill {
-      font-family: monospace;
+      font-family: 'Roboto Mono', monospace;
       font-size: 1rem;
       font-weight: 700;
-      color: var(--md-sys-color-success);
-      background: rgba(120, 220, 156, 0.12);
-      padding: 4px 10px;
-      border-radius: 8px;
+      color: var(--app-color-success);
+      background: var(--app-color-success-container);
+      padding: 6px 12px;
+      border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid rgba(120, 220, 156, 0.3);
     }
 
@@ -433,22 +525,25 @@
 
     .live-minimap-row {
       display: flex;
-      gap: 6px;
+      gap: 8px;
       justify-content: center;
       flex-wrap: wrap;
     }
 
+    /* Touch-target: 48px min per M3 */
     .live-minimap-pill {
-      min-width: 38px;
-      height: 32px;
-      padding: 0 8px;
-      border-radius: 8px;
+      min-width: 48px;
+      height: 48px;
+      padding: 0 12px;
+      border-radius: var(--md-sys-shape-corner-medium);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.78rem;
+      font: var(--md-sys-typescale-label-large);
       font-weight: 700;
       cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .live-minimap-pill.current {
       border-color: var(--md-sys-color-primary);
@@ -456,8 +551,8 @@
       color: var(--md-sys-color-on-primary-container);
     }
     .live-minimap-pill.done {
-      border-color: var(--md-sys-color-success);
-      color: var(--md-sys-color-success);
+      border-color: var(--app-color-success);
+      color: var(--app-color-success);
     }
 
     .live-ex-nav-row {
@@ -467,28 +562,28 @@
       gap: 8px;
     }
 
+    /* Touch-target: 56px comfortable, per M3 primary nav */
     .live-nav-btn {
-      min-height: 44px;
-      padding: 0 14px;
-      border-radius: 12px;
+      min-height: var(--app-touch-comfortable);
+      padding: 0 16px;
+      border-radius: var(--md-sys-shape-corner-medium);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface);
+      font: var(--md-sys-typescale-label-large);
       font-weight: 600;
-      font-size: 0.85rem;
       display: flex;
       align-items: center;
       gap: 4px;
       cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
-    .live-nav-btn:disabled {
-      opacity: 0.35;
-      cursor: default;
-    }
+    .live-nav-btn:hover { background: var(--md-sys-color-surface-container-highest); }
+    .live-nav-btn:disabled { opacity: 0.35; cursor: default; }
 
     .live-ex-header-card {
       background: var(--md-sys-color-surface-container);
-      border-radius: 18px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px 16px;
       display: flex;
       flex-direction: column;
@@ -500,18 +595,18 @@
       display: none;
       align-items: center;
       gap: 8px;
-      background: rgba(250, 204, 21, 0.1);
+      background: var(--app-color-warning-container);
       border: 1px solid rgba(250, 204, 21, 0.35);
       color: var(--md-sys-color-on-surface);
-      padding: 10px 12px;
-      border-radius: 12px;
-      font-size: 0.8rem;
-      line-height: 1.35;
+      padding: 12px;
+      border-radius: var(--md-sys-shape-corner-medium);
+      font: var(--md-sys-typescale-body-small);
+      line-height: 1.4;
     }
 
     .live-controls-card {
       background: var(--md-sys-color-surface-container);
-      border-radius: 20px;
+      border-radius: var(--md-sys-shape-corner-extra-large);
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -525,15 +620,17 @@
       gap: 8px;
     }
 
+    /* Touch-target: 48px min */
     .live-cat-btn {
-      min-height: 44px;
-      border-radius: 10px;
+      min-height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.82rem;
-      font-weight: 600;
+      font: var(--md-sys-typescale-label-large);
       cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .live-cat-btn.active {
       background: var(--md-sys-color-primary-container);
@@ -541,33 +638,31 @@
       border-color: var(--md-sys-color-primary);
     }
 
+    /* Touch-target: 48px min */
     .live-method-toggle-btn {
       width: 100%;
-      min-height: 38px;
-      border-radius: 10px;
+      min-height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-small);
       border: 1px dashed var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.78rem;
-      font-weight: 600;
+      font: var(--md-sys-typescale-label-large);
       cursor: pointer;
-      padding: 4px 10px;
+      padding: 8px 12px;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .live-method-toggle-btn.active {
       border-style: solid;
-      border-color: var(--md-sys-color-warning);
-      background: rgba(250, 204, 21, 0.12);
-      color: var(--md-sys-color-warning);
+      border-color: var(--app-color-warning);
+      background: var(--app-color-warning-container);
+      color: var(--app-color-warning);
     }
 
-    .live-stepper-block {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
+    .live-stepper-block { display: flex; flex-direction: column; gap: 6px; }
 
     .live-stepper-label {
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
       color: var(--md-sys-color-on-surface-variant);
       text-transform: uppercase;
@@ -577,21 +672,22 @@
 
     .live-stepper-row {
       display: grid;
-      grid-template-columns: 88px 1fr 88px;
+      grid-template-columns: 96px 1fr 96px;
       align-items: center;
       gap: 10px;
     }
 
+    /* Touch-target: 64px comfortable stepper (зал) */
     .live-step-btn {
-      height: 58px;
-      border-radius: 14px;
+      height: 64px;
+      border-radius: var(--md-sys-shape-corner-medium);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
-      font-size: 1.15rem;
-      font-weight: 700;
+      font: 700 1.15rem/1 'Roboto';
       cursor: pointer;
       user-select: none;
+      transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
     }
     .live-step-btn:active {
       background: var(--md-sys-color-primary-container);
@@ -599,14 +695,13 @@
     }
 
     .live-step-display {
-      height: 58px;
-      border-radius: 14px;
+      height: 64px;
+      border-radius: var(--md-sys-shape-corner-medium);
       background: var(--md-sys-color-surface-container-high);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.85rem;
-      font-weight: 700;
+      font: 700 1.85rem/1 'Roboto';
       color: var(--md-sys-color-primary);
       letter-spacing: -0.5px;
     }
@@ -617,19 +712,22 @@
       gap: 8px;
     }
 
+    /* Touch-target: 56px comfortable */
     .live-rir-chip {
-      min-height: 48px;
-      border-radius: 12px;
+      min-height: var(--app-touch-comfortable);
+      border-radius: var(--md-sys-shape-corner-medium);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.85rem;
+      font: var(--md-sys-typescale-label-large);
       font-weight: 700;
       cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      padding: 4px 0;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .live-rir-chip.active {
       background: var(--md-sys-color-secondary-container);
@@ -637,31 +735,31 @@
       border-color: var(--md-sys-color-primary);
     }
 
+    /* Touch-target: 72px — главная кнопка в зале */
     .live-record-btn {
       width: 100%;
-      min-height: 64px;
-      border-radius: 16px;
+      min-height: 72px;
+      border-radius: var(--md-sys-shape-corner-large);
       border: none;
-      background: var(--md-sys-color-success);
+      background: var(--app-color-success);
       color: #062e16;
-      font-size: 1rem;
+      font: var(--md-sys-typescale-title-medium);
       font-weight: 700;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
       cursor: pointer;
-      box-shadow: 0 4px 16px rgba(120, 220, 156, 0.3);
+      box-shadow: var(--md-sys-elevation-level2);
+      transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
-    .live-record-btn:active {
-      transform: scale(0.99);
-    }
+    .live-record-btn:active { opacity: 0.85; }
 
     .live-complete-ex-card {
       display: none;
-      background: rgba(120, 220, 156, 0.08);
-      border: 1.5px solid var(--md-sys-color-success);
-      border-radius: 20px;
+      background: var(--app-color-success-container);
+      border: 1.5px solid var(--app-color-success);
+      border-radius: var(--md-sys-shape-corner-extra-large);
       padding: 18px 16px;
       flex-direction: column;
       align-items: center;
@@ -671,30 +769,31 @@
 
     .live-next-ex-primary-btn {
       width: 100%;
-      min-height: 60px;
-      border-radius: 16px;
+      min-height: var(--app-touch-comfortable);
+      border-radius: var(--md-sys-shape-corner-large);
       border: none;
-      background: linear-gradient(135deg, #00468b 0%, #1e64b4 100%);
-      color: #ffffff;
-      font-size: 0.98rem;
+      background: var(--md-sys-color-primary);
+      color: #00325e;
+      font: var(--md-sys-typescale-title-medium);
       font-weight: 700;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(0, 70, 139, 0.45);
+      transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
+    .live-next-ex-primary-btn:active { opacity: 0.85; }
 
     .live-rest-bar {
       display: none;
       background: #10243e;
       border: 2px solid var(--md-sys-color-primary);
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 12px 14px;
       flex-direction: column;
       gap: 10px;
-      animation: fadeIn 0.25s ease;
+      animation: fadeIn var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-standard-decelerate);
     }
 
     .live-rest-top {
@@ -704,7 +803,7 @@
     }
 
     .live-rest-countdown {
-      font-family: monospace;
+      font-family: 'Roboto Mono', monospace;
       font-size: 1.75rem;
       font-weight: 700;
       color: var(--md-sys-color-primary);
@@ -716,31 +815,34 @@
       gap: 8px;
     }
 
+    /* Touch-target: 48px min */
     .live-rest-chip-btn {
-      min-height: 44px;
-      border-radius: 10px;
+      min-height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid rgba(168, 200, 255, 0.35);
       background: rgba(255, 255, 255, 0.06);
       color: var(--md-sys-color-on-surface);
-      font-weight: 600;
-      font-size: 0.85rem;
+      font: var(--md-sys-typescale-label-large);
       cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
+    .live-rest-chip-btn:hover { background: rgba(255, 255, 255, 0.12); }
 
     .live-history-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 10px 12px;
-      border-radius: 10px;
+      border-radius: var(--md-sys-shape-corner-medium);
       background: var(--md-sys-color-surface-container-high);
-      font-size: 0.85rem;
+      font: var(--md-sys-typescale-body-medium);
     }
 
+    /* Touch-target: 48px min */
     .live-delete-set-btn {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
+      width: var(--app-touch-min);
+      height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-full);
       border: none;
       background: transparent;
       color: var(--md-sys-color-error);
@@ -748,7 +850,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
     }
+    .live-delete-set-btn:hover { background: rgba(255, 180, 171, 0.12); }
 
     .live-srpe-grid {
       display: grid;
@@ -762,15 +866,17 @@
       gap: 6px;
     }
 
+    /* Touch-target: 48px min */
     .live-srpe-chip, .live-readiness-chip {
-      min-height: 42px;
-      border-radius: 10px;
+      min-height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface);
-      font-size: 0.82rem;
+      font: var(--md-sys-typescale-label-large);
       font-weight: 700;
       cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .live-srpe-chip.active, .live-readiness-chip.active {
       background: var(--md-sys-color-primary-container);
@@ -779,7 +885,7 @@
     }
 
     /* =========================================================
-     * АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 (TODO-06)
+     * ANATOMICAL HEATMAP 2.0
      * ========================================================= */
     .mannequin-container {
       display: flex;
@@ -794,7 +900,7 @@
       align-items: center;
       width: 100%;
       background: var(--md-sys-color-surface-container-high);
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px 6px;
     }
 
@@ -807,22 +913,19 @@
     }
 
     .mannequin-label {
-      font-size: 0.72rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 600;
       color: var(--md-sys-color-on-surface-variant);
       text-transform: uppercase;
       letter-spacing: 0.6px;
     }
 
-    .mannequin-svg {
-      width: 100%;
-      max-height: 265px;
-    }
+    .mannequin-svg { width: 100%; max-height: 265px; }
 
-    @keyframes neonPulse {
-      0% { stroke: #ffffff; stroke-width: 1.8px; filter: drop-shadow(0 0 3px #a8c8ff); }
-      50% { stroke: #a8c8ff; stroke-width: 2.6px; filter: drop-shadow(0 0 8px #a8c8ff); }
-      100% { stroke: #ffffff; stroke-width: 1.8px; filter: drop-shadow(0 0 3px #a8c8ff); }
+    /* --- Opacity-based pulse (safe on SVG, no filter/stroke animation) --- */
+    @keyframes musclePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
     }
 
     @keyframes spin {
@@ -834,11 +937,14 @@
       cursor: pointer;
       stroke: rgba(17, 19, 24, 0.65);
       stroke-width: 0.8px;
-      transition: fill 0.3s ease, stroke 0.2s ease, filter 0.2s ease;
+      transition: fill var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard),
+                  stroke var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
 
     .muscle-path.selected {
-      animation: neonPulse 1.8s infinite ease-in-out;
+      stroke: #ffffff;
+      stroke-width: 2px;
+      animation: musclePulse 1.8s ease-in-out infinite;
     }
 
     .body-silhouette {
@@ -847,11 +953,10 @@
       stroke-width: 1.2px;
     }
 
-    /* Непрерывная спектральная шкала 0% -> 100% под манекеном */
     .thermal-spectrum-box {
       width: 100%;
       background: var(--md-sys-color-surface-container-high);
-      border-radius: 12px;
+      border-radius: var(--md-sys-shape-corner-medium);
       padding: 10px 14px;
       display: flex;
       flex-direction: column;
@@ -860,45 +965,48 @@
 
     .thermal-bar-track {
       position: relative;
-      height: 10px;
+      height: 12px;
       width: 100%;
-      border-radius: 5px;
+      border-radius: var(--md-sys-shape-corner-full);
       background: linear-gradient(90deg, #3b4262 0%, #10b981 35%, #facc15 70%, #ff4d4f 100%);
     }
 
+    /* Transform-based marker (layout-safe) */
     .thermal-scale-marker {
       position: absolute;
-      top: -4px;
-      width: 10px;
+      top: -3px;
+      width: 12px;
       height: 18px;
-      border-radius: 4px;
+      border-radius: var(--md-sys-shape-corner-extra-small);
       background: #ffffff;
       border: 2px solid #111318;
       box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
       transform: translateX(-50%);
-      transition: left 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+      transition: left var(--md-sys-motion-duration-medium3) var(--md-sys-motion-easing-emphasized-decelerate);
       left: 30%;
       display: none;
+      will-change: left;
     }
 
     .thermal-legend-labels {
       display: flex;
       justify-content: space-between;
-      font-size: 0.68rem;
+      font: var(--md-sys-typescale-label-medium);
       color: var(--md-sys-color-on-surface-variant);
-      font-weight: 500;
+      gap: 4px;
+      flex-wrap: wrap;
     }
 
     .muscle-info-card {
       width: 100%;
       background: var(--md-sys-color-surface-container-highest);
       border: 1px solid var(--md-sys-color-outline-variant);
-      border-radius: 14px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px 16px;
       display: flex;
       flex-direction: column;
       gap: 10px;
-      transition: all 0.3s ease;
+      transition: background-color var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
     }
 
     .muscle-card-header {
@@ -907,166 +1015,208 @@
       align-items: center;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
       padding: 0 0 8px 0;
+      gap: 8px;
     }
 
     .muscle-card-title {
-      font-size: 1rem;
+      font: var(--md-sys-typescale-title-small);
       font-weight: 700;
       color: var(--md-sys-color-on-surface);
     }
 
     .muscle-card-status-badge {
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 600;
       padding: 3px 8px;
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-small);
       background: var(--md-sys-color-surface-container);
+      white-space: nowrap;
     }
 
     .muscle-card-details {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      font-size: 0.82rem;
+      font: var(--md-sys-typescale-body-small);
       color: var(--md-sys-color-on-surface-variant);
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
-    .muscle-card-details b {
-      color: var(--md-sys-color-on-surface);
-    }
+    .muscle-card-details b { color: var(--md-sys-color-on-surface); }
 
+    /* =========================================================
+     * KPI GRID
+     * ========================================================= */
     .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
     .kpi-card {
       background: var(--md-sys-color-surface-container-high);
       padding: 12px 10px;
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       position: relative;
-      min-height: 98px;
+      min-height: 108px;
     }
     .kpi-top-row {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      gap: 4px;
     }
     .kpi-label {
-      font-size: 0.7rem;
+      font: var(--md-sys-typescale-label-medium);
       color: var(--md-sys-color-on-surface-variant);
-      line-height: 1.2;
-      font-weight: 500;
+      line-height: 1.25;
     }
     .kpi-value {
-      font-size: 1.25rem;
-      font-weight: 700;
+      font: 700 1.25rem/1.2 'Roboto';
       color: var(--md-sys-color-on-surface);
       margin-top: 4px;
     }
     .kpi-subtext {
-      font-size: 0.68rem;
+      font: var(--md-sys-typescale-label-small);
       color: var(--md-sys-color-on-surface-variant);
       margin-top: 2px;
     }
 
+    /* =========================================================
+     * BALANCE
+     * ========================================================= */
     .balance-card-content { display: flex; flex-direction: column; gap: 10px; }
-    .balance-header-row { display: flex; justify-content: space-between; font-size: 0.85rem; }
+    .balance-header-row {
+      display: flex;
+      justify-content: space-between;
+      font: var(--md-sys-typescale-body-medium);
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .balance-ratio-badge {
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-label-large);
       font-weight: 700;
       padding: 2px 8px;
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-small);
       background: var(--md-sys-color-surface-container-highest);
     }
     .balance-bar-container {
       height: 12px;
       background: var(--md-sys-color-surface-container-highest);
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-full);
       display: flex;
       overflow: hidden;
       width: 100%;
     }
-    .balance-fill-push { background-color: var(--md-sys-color-primary); transition: width 0.4s ease; height: 100%; }
-    .balance-fill-pull { background-color: var(--md-sys-color-success); transition: width 0.4s ease; height: 100%; }
+    .balance-fill-push {
+      background-color: var(--md-sys-color-primary);
+      transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+      height: 100%;
+    }
+    .balance-fill-pull {
+      background-color: var(--app-color-success);
+      transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+      height: 100%;
+    }
     .balance-legend-row {
       display: flex;
       justify-content: space-between;
-      font-size: 0.72rem;
+      font: var(--md-sys-typescale-label-medium);
       color: var(--md-sys-color-on-surface-variant);
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
+    /* =========================================================
+     * FORM INPUTS
+     * ========================================================= */
     select.m3-select, input.m3-input, textarea.m3-input {
       width: 100%;
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
       border: 1px solid var(--md-sys-color-outline-variant);
-      padding: 12px 16px;
-      border-radius: 12px;
-      font-size: 0.95rem;
+      padding: 14px 16px;
+      border-radius: var(--md-sys-shape-corner-medium);
+      font: var(--md-sys-typescale-body-large);
       font-family: inherit;
       outline: none;
       resize: vertical;
+      min-height: var(--app-touch-min);
+      transition: border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
 
     select.m3-select:focus, input.m3-input:focus, textarea.m3-input:focus {
       border-color: var(--md-sys-color-primary);
+      border-width: 2px;
+      padding: 13px 15px;
     }
 
+    /* =========================================================
+     * CHARTS
+     * ========================================================= */
     .chart-container { position: relative; height: 240px; width: 100%; }
 
+    /* =========================================================
+     * VOLUME LANDMARKS
+     * ========================================================= */
     .volume-list { display: flex; flex-direction: column; gap: 12px; }
     .volume-item { display: flex; flex-direction: column; gap: 4px; }
-    .volume-header { display: flex; justify-content: space-between; font-size: 0.85rem; }
+    .volume-header {
+      display: flex;
+      justify-content: space-between;
+      font: var(--md-sys-typescale-body-small);
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .volume-progress-bg {
       height: 10px;
       background: var(--md-sys-color-surface-container-highest);
-      border-radius: 5px;
+      border-radius: var(--md-sys-shape-corner-full);
       overflow: hidden;
       display: flex;
     }
-    .volume-progress-bar { height: 100%; transition: width 0.4s ease; }
+    .volume-progress-bar {
+      height: 100%;
+      transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+    }
     .zone-maint { background-color: #64748b; }
-    .zone-mev { background-color: var(--md-sys-color-success); }
+    .zone-mev { background-color: var(--app-color-success); }
     .zone-mav { background-color: var(--md-sys-color-primary); }
-    .zone-mrv { background-color: var(--md-sys-color-warning); }
+    .zone-mrv { background-color: var(--app-color-warning); }
 
+    /* =========================================================
+     * PR PILL
+     * ========================================================= */
     .pr-pill {
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
-      color: var(--md-sys-color-warning);
-      background: rgba(250, 204, 21, 0.12);
+      color: var(--app-color-warning);
+      background: var(--app-color-warning-container);
       border: 1px solid rgba(250, 204, 21, 0.3);
-      padding: 3px 8px;
-      border-radius: 8px;
+      padding: 4px 10px;
+      border-radius: var(--md-sys-shape-corner-small);
       display: flex;
       align-items: center;
       gap: 4px;
     }
 
-    .coach-sos-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
+    /* =========================================================
+     * COACH
+     * ========================================================= */
+    .coach-sos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
-    .coach-split-chips-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 4px;
-    }
+    .coach-split-chips-row { display: flex; gap: 8px; margin-bottom: 4px; }
 
     .coach-split-chip {
       flex: 1;
-      padding: 8px 10px;
+      padding: 10px 12px;
       text-align: center;
-      border-radius: 12px;
+      border-radius: var(--md-sys-shape-corner-medium);
       background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
       cursor: pointer;
-      font-size: 0.9rem;
+      font: var(--md-sys-typescale-label-large);
       font-weight: 600;
-      transition: all 0.2s ease;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
       user-select: none;
       border: 1px solid transparent;
       display: flex;
@@ -1075,7 +1225,7 @@
       justify-content: center;
       gap: 2px;
       line-height: 1.2;
-      min-height: 52px;
+      min-height: var(--app-touch-comfortable);
     }
 
     .coach-split-chip.active {
@@ -1086,7 +1236,7 @@
 
     .coach-exercise-card {
       background: var(--md-sys-color-surface-container-high);
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px 16px;
       display: flex;
       flex-direction: column;
@@ -1102,15 +1252,13 @@
     }
 
     .coach-exercise-title {
-      font-size: 1rem;
-      font-weight: 600;
+      font: var(--md-sys-typescale-title-small);
       color: var(--md-sys-color-on-surface);
       line-height: 1.3;
     }
 
     .coach-weight-tag {
-      font-size: 1.25rem;
-      font-weight: 700;
+      font: 700 1.25rem/1.2 'Roboto';
       color: var(--md-sys-color-primary);
       letter-spacing: -0.5px;
       white-space: nowrap;
@@ -1124,19 +1272,19 @@
     }
 
     .coach-card-chip {
-      font-size: 0.75rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 600;
       padding: 3px 8px;
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-small);
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
     }
 
     .coach-method-badge {
-      font-size: 0.72rem;
+      font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
       padding: 3px 8px;
-      border-radius: 6px;
+      border-radius: var(--md-sys-shape-corner-small);
       background: var(--md-sys-color-secondary-container);
       color: var(--md-sys-color-on-secondary-container);
     }
@@ -1144,12 +1292,12 @@
     .coach-sos-result-card {
       background: #141b24;
       border: 1px solid var(--md-sys-color-primary);
-      border-radius: 14px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px;
       display: flex;
       flex-direction: column;
       gap: 6px;
-      animation: fadeIn 0.3s ease;
+      animation: fadeIn var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard-decelerate);
     }
 
     @keyframes fadeIn {
@@ -1157,9 +1305,12 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
+    /* =========================================================
+     * FILE DROP ZONE
+     * ========================================================= */
     .file-drop-zone {
       border: 2px dashed var(--md-sys-color-outline-variant);
-      border-radius: 20px;
+      border-radius: var(--md-sys-shape-corner-extra-large);
       padding: 24px;
       text-align: center;
       background: var(--md-sys-color-surface-container);
@@ -1168,55 +1319,69 @@
       flex-direction: column;
       align-items: center;
       gap: 12px;
-      transition: border-color 0.2s;
+      transition: border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .file-drop-zone.active { border-color: var(--md-sys-color-primary); }
     .file-drop-zone input[type="file"] { display: none; }
 
+    /* =========================================================
+     * EXERCISE CARDS (parsed view)
+     * ========================================================= */
     .exercise-card {
       background: var(--md-sys-color-surface-container);
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 12px;
     }
-    .exercise-header { font-size: 1.05rem; font-weight: 600; color: var(--md-sys-color-primary); }
+    .exercise-header {
+      font: var(--md-sys-typescale-title-small);
+      color: var(--md-sys-color-primary);
+    }
     .set-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 10px 12px;
-      border-radius: 10px;
+      border-radius: var(--md-sys-shape-corner-small);
       background: var(--md-sys-color-surface-container-high);
-      font-size: 0.85rem;
+      font: var(--md-sys-typescale-body-small);
       gap: 8px;
     }
     .set-details { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-    .set-chips { display: flex; flex-wrap: wrap; gap: 6px; font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); }
-    
+    .set-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font: var(--md-sys-typescale-body-small);
+      color: var(--md-sys-color-on-surface-variant);
+    }
+
+    /* =========================================================
+     * SYNC TERMINAL
+     * ========================================================= */
     .sync-terminal {
       background: #0d0e11;
       border: 1px solid var(--md-sys-color-outline-variant);
-      border-radius: 16px;
+      border-radius: var(--md-sys-shape-corner-large);
       padding: 14px;
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
     .terminal-header {
-      font-size: 0.8rem;
-      font-weight: 600;
+      font: var(--md-sys-typescale-label-large);
       color: var(--md-sys-color-on-surface-variant);
     }
     .terminal-body {
-      font-family: monospace;
+      font-family: 'Roboto Mono', monospace;
       font-size: 0.75rem;
       color: #94a3b8;
       max-height: 180px;
       overflow-y: auto;
       white-space: pre-wrap;
-      line-height: 1.4;
+      line-height: 1.45;
     }
     .terminal-actions {
       display: flex;
@@ -1224,6 +1389,9 @@
       flex-wrap: wrap;
     }
 
+    /* =========================================================
+     * BOTTOM NAVIGATION
+     * ========================================================= */
     .navigation-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -1244,19 +1412,23 @@
       gap: 4px;
       cursor: pointer;
       color: var(--md-sys-color-on-surface-variant);
-      font-size: 0.72rem;
-      font-weight: 500;
+      font: var(--md-sys-typescale-label-medium);
       user-select: none;
+      padding: 8px 12px;
+      min-width: 64px;
+      min-height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-large);
+      transition: color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
 
     .nav-pill {
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 56px;
+      width: 64px;
       height: 32px;
-      border-radius: 16px;
-      transition: background-color 0.2s ease;
+      border-radius: var(--md-sys-shape-corner-full);
+      transition: background-color var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-standard);
     }
 
     .nav-item.active { color: var(--md-sys-color-on-surface); }
@@ -1265,6 +1437,9 @@
       color: var(--md-sys-color-on-secondary-container);
     }
 
+    /* =========================================================
+     * MODALS
+     * ========================================================= */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -1274,10 +1449,11 @@
       align-items: center;
       justify-content: center;
       padding: 16px;
+      animation: fadeIn var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
     }
     .modal-card {
       background: var(--md-sys-color-surface-container);
-      border-radius: 24px;
+      border-radius: var(--md-sys-shape-corner-extra-large);
       padding: 20px;
       width: 100%;
       max-width: 500px;
@@ -1286,6 +1462,7 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
+      box-shadow: var(--md-sys-elevation-level3);
     }
   </style>
 </head>
@@ -1293,20 +1470,20 @@
 
   <header class="top-bar">
     <h1>
-      <span class="material-symbols-outlined" style="color: var(--md-sys-color-primary);">fitness_center</span>
+      <span class="material-symbols-outlined" aria-hidden="true" style="color: var(--md-sys-color-primary);">fitness_center</span>
       Gym Analytics
-      <span id="networkStatusDot" class="status-dot" title="Сетевой статус: Онлайн"></span>
+      <span id="networkStatusDot" class="status-dot" role="status" aria-live="polite" title="Сетевой статус: Онлайн"></span>
     </h1>
     <div style="display: flex; gap: 8px;">
-      <md-filled-button id="installAppBtn" style="display: none;">
+      <md-filled-button id="installAppBtn" hidden>
         <span class="material-symbols-outlined" slot="icon">download</span>
         Установить
       </md-filled-button>
-      <md-icon-button id="openSettingsBtn" title="Настройки API">
-        <span class="material-symbols-outlined">settings</span>
+      <md-icon-button id="openSettingsBtn" aria-label="Настройки API" title="Настройки API">
+        <span class="material-symbols-outlined" aria-hidden="true">settings</span>
       </md-icon-button>
-      <md-icon-button id="refreshDataBtn" title="Обновить аналитику">
-        <span class="material-symbols-outlined">sync</span>
+      <md-icon-button id="refreshDataBtn" aria-label="Обновить аналитику" title="Обновить аналитику">
+        <span class="material-symbols-outlined" aria-hidden="true">sync</span>
       </md-icon-button>
     </div>
   </header>
@@ -1314,10 +1491,10 @@
   <main class="container">
 
     <!-- БАННЕР ВОЗВРАТА В АКТИВНУЮ ТРЕНИРОВКУ -->
-    <div id="liveWorkoutRecoveryBanner" class="recovery-banner">
+    <div id="liveWorkoutRecoveryBanner" class="recovery-banner" role="status">
       <div>
-        <div style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">⚡ Идет тренировка</div>
-        <div id="liveWorkoutRecoveryText" style="font-size: 0.9rem; font-weight: 500; margin-top: 2px;">Тренировка активна</div>
+        <div style="font: var(--md-sys-typescale-label-medium); font-weight: 700; text-transform: uppercase;">⚡ Идет тренировка</div>
+        <div id="liveWorkoutRecoveryText" style="font: var(--md-sys-typescale-body-medium); margin-top: 2px;">Тренировка активна</div>
       </div>
       <md-filled-button id="liveResumeBannerBtn">Вернуться</md-filled-button>
     </div>
@@ -1328,19 +1505,19 @@
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">calendar_month</span>
+            <span class="material-symbols-outlined" aria-hidden="true">calendar_month</span>
             Текущая неделя
           </span>
-          <span id="calendarWeekRange" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);"></span>
+          <span id="calendarWeekRange" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);"></span>
         </div>
-        <div id="calendarStripContainer" class="calendar-strip"></div>
+        <div id="calendarStripContainer" class="calendar-strip" role="grid" aria-label="Календарь недели"></div>
       </div>
 
       <!-- КОМПАКТНАЯ КАРТОЧКА ПЛАНА БУДУЩЕЙ ТРЕНИРОВКИ -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">event_upcoming</span>
+            <span class="material-symbols-outlined" aria-hidden="true">event_upcoming</span>
             План тренировки
           </span>
           <div class="plan-header-badges">
@@ -1351,114 +1528,96 @@
 
         <div id="overviewMuscleTagsRow" class="muscle-tags-row"></div>
 
-        <!-- Интерактивная плашка: клик открывает окно со списком всех упражнений -->
-        <div id="overviewPlanPreviewCard" class="plan-preview-trigger-card" title="Открыть полный перечень упражнений">
+        <button type="button" id="overviewPlanPreviewCard" class="plan-preview-trigger-card" title="Открыть полный перечень упражнений" aria-label="Открыть полный перечень упражнений">
           <div class="plan-preview-left">
             <div id="overviewPlanPreviewTitle" class="plan-preview-title">Загрузка программы...</div>
             <div id="overviewPlanPreviewMetrics" class="plan-preview-metrics">Подготовка списка упражнений</div>
-            <div class="plan-preview-hint">Нажмите на карточку, чтобы открыть список упражнений</div>
+            <div class="plan-preview-hint">Нажмите, чтобы открыть список упражнений</div>
           </div>
-          <div class="plan-preview-chevron">
+          <div class="plan-preview-chevron" aria-hidden="true">
             <span class="material-symbols-outlined">format_list_bulleted</span>
           </div>
-        </div>
+        </button>
 
         <button id="startLiveWorkoutBtn" class="start-live-workout-btn">
-          <span class="material-symbols-outlined">play_circle</span>
+          <span class="material-symbols-outlined" aria-hidden="true">play_circle</span>
           <span>НАЧАТЬ ТРЕНИРОВКУ</span>
         </button>
       </div>
 
-      <!-- АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 (TODO-06) -->
+      <!-- АНАТОМИЧЕСКАЯ SVG-ТЕПЛОКАРТА 2.0 -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">accessibility_new</span>
+            <span class="material-symbols-outlined" aria-hidden="true">accessibility_new</span>
             Мышечная готовность 2.0
           </span>
-          <span style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant);">Спектральный атлас</span>
+          <span style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);">Спектральный атлас</span>
         </div>
         
         <div class="mannequin-container">
           <div class="mannequin-views-row">
-            <!-- ФИГУРА СПЕРЕДИ (ДЕТАЛИЗИРОВАННЫЕ ПУЧКИ) -->
+            <!-- ФИГУРА СПЕРЕДИ -->
             <div class="mannequin-figure">
               <span class="mannequin-label">Спереди</span>
-              <svg id="mannequinFront" class="mannequin-svg" viewBox="0 0 100 215">
-                <!-- Голова и шея -->
+              <svg id="mannequinFront" class="mannequin-svg" viewBox="0 0 100 215" role="img" aria-label="Анатомическая карта: вид спереди">
                 <circle cx="50" cy="13" r="9.5" class="body-silhouette" />
                 <path d="M45 22 L55 22 L57 29 L43 29 Z" class="body-silhouette" />
 
-                <!-- Передняя дельта -->
                 <path class="muscle-path" data-muscle="Передняя дельта" d="M33 30 C30 32, 29 39, 32 45 C35 42, 36 35, 35 30 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Передняя дельта" d="M67 30 C70 32, 71 39, 68 45 C65 42, 64 35, 65 30 Z" fill="#3b4262" />
 
-                <!-- Средняя дельта (латеральные пучки) -->
                 <path class="muscle-path" data-muscle="Средняя дельта" d="M29 31 C24 34, 22 42, 24 49 C27 48, 29 44, 31 36 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Средняя дельта" d="M71 31 C76 34, 78 42, 76 49 C73 48, 71 44, 69 36 Z" fill="#3b4262" />
 
-                <!-- Грудь (ключичная и стернальная доли) -->
                 <path class="muscle-path" data-muscle="Грудь" d="M35 30 C42 30, 49 32, 49.5 49 C41 51, 33 47, 32 38 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Грудь" d="M65 30 C58 30, 51 32, 50.5 49 C59 51, 67 47, 68 38 Z" fill="#3b4262" />
 
-                <!-- Бицепс и брахиалис -->
                 <path class="muscle-path" data-muscle="Бицепс" d="M23.5 50 C21 57, 20.5 66, 23.5 73 C27 71, 28.5 63, 27.5 52 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Бицепс" d="M76.5 50 C79 57, 79.5 66, 76.5 73 C73 71, 71.5 63, 72.5 52 Z" fill="#3b4262" />
 
-                <!-- Предплечья (силуэт) -->
                 <path d="M22.5 74 L18.5 96 L16 101 L20.5 103 L26 80 Z" class="body-silhouette" />
                 <path d="M77.5 74 L81.5 96 L84 101 L79.5 103 L74 80 Z" class="body-silhouette" />
 
-                <!-- Кор (прямая и косые мышцы живота) -->
                 <path class="muscle-path" data-muscle="Кор" d="M40 50 L60 50 L57 82 L43 82 Z" fill="#3b4262" />
 
-                <!-- Квадрицепс (латеральная, прямая и медиальная головки) -->
                 <path class="muscle-path" data-muscle="Квадрицепс" d="M35 84 C32 98, 33 120, 37.5 138 C43.5 138, 47.5 118, 48 86 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Квадрицепс" d="M65 84 C68 98, 67 120, 62.5 138 C56.5 138, 52.5 118, 52 86 Z" fill="#3b4262" />
 
-                <!-- Голень спереди (Икры / Камбаловидная) -->
                 <path class="muscle-path" data-muscle="Икры" d="M37 142 C34.5 156, 35.5 176, 38 190 L43.5 190 C44.5 174, 44.5 156, 43 142 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Икры" d="M63 142 C65.5 156, 64.5 176, 62 190 L56.5 190 C55.5 174, 55.5 156, 57 142 Z" fill="#3b4262" />
 
-                <!-- Стопы -->
                 <path d="M37 191 L34 198 L44 198 L43.5 191 Z" class="body-silhouette" />
                 <path d="M63 191 L66 198 L56 198 L56.5 191 Z" class="body-silhouette" />
               </svg>
             </div>
 
-            <!-- ФИГУРА СЗАДИ (ДЕТАЛИЗИРОВАННЫЕ ПУЧКИ) -->
+            <!-- ФИГУРА СЗАДИ -->
             <div class="mannequin-figure">
               <span class="mannequin-label">Сзади</span>
-              <svg id="mannequinBack" class="mannequin-svg" viewBox="0 0 100 215">
+              <svg id="mannequinBack" class="mannequin-svg" viewBox="0 0 100 215" role="img" aria-label="Анатомическая карта: вид сзади">
                 <circle cx="50" cy="13" r="9.5" class="body-silhouette" />
 
-                <!-- Верх спины (трапеции и ромбовидные) -->
                 <path class="muscle-path" data-muscle="Верх спины" d="M43 22 L57 22 L66 32 L50 51 L34 32 Z" fill="#3b4262" />
 
-                <!-- Задняя дельта -->
                 <path class="muscle-path" data-muscle="Задняя дельта" d="M33 32 C27 34, 24 40, 26 46 C30 45, 33 41, 35 35 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Задняя дельта" d="M67 32 C73 34, 76 40, 74 46 C70 45, 67 41, 65 35 Z" fill="#3b4262" />
 
-                <!-- Широчайшие мышцы спины -->
                 <path class="muscle-path" data-muscle="Широчайшие" d="M34 38 C39 50, 42 64, 48.5 74 C41 72, 35 59, 32.5 47 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Широчайшие" d="M66 38 C61 50, 58 64, 51.5 74 C59 72, 65 59, 67.5 47 Z" fill="#3b4262" />
 
-                <!-- Трицепс (длинная и латеральная головки) -->
                 <path class="muscle-path" data-muscle="Трицепс" d="M24.5 46 C21.5 53, 20.5 63, 23 72 C26.5 70, 28 62, 28 48 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Трицепс" d="M75.5 46 C78.5 53, 79.5 63, 77 72 C73.5 70, 72 62, 72 48 Z" fill="#3b4262" />
 
                 <path d="M22.5 73 L17.5 96 L21.5 100 L26.5 79 Z" class="body-silhouette" />
                 <path d="M77.5 73 L82.5 96 L78.5 100 L73.5 79 Z" class="body-silhouette" />
 
-                <!-- Ягодичные мышцы -->
                 <path class="muscle-path" data-muscle="Ягодичные" d="M36 74 C43 73, 49.5 76, 49.5 90 C41 93, 34.5 87, 35 78 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Ягодичные" d="M64 74 C57 73, 50.5 76, 50.5 90 C59 93, 65.5 87, 65 78 Z" fill="#3b4262" />
 
-                <!-- Бицепс бедра (задняя поверхность) -->
                 <path class="muscle-path" data-muscle="Бицепс бедра" d="M36 92 C34.5 106, 35.5 122, 38.5 138 C44 138, 48 120, 48.5 92 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Бицепс бедра" d="M64 92 C65.5 106, 64.5 122, 61.5 138 C56 138, 52 120, 51.5 92 Z" fill="#3b4262" />
 
-                <!-- Икроножная и камбаловидная мышцы -->
                 <path class="muscle-path" data-muscle="Икры" d="M38 141 C33.5 153, 34.5 173, 38.5 190 C44 188, 45.5 170, 44 141 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Икры" d="M62 141 C66.5 153, 65.5 173, 61.5 190 C56 188, 54.5 170, 56 141 Z" fill="#3b4262" />
 
@@ -1468,15 +1627,14 @@
             </div>
           </div>
 
-          <!-- Непрерывная спектральная шкала нагрузки (0% -> 100%) -->
           <div class="thermal-spectrum-box">
-            <div class="thermal-bar-track">
+            <div class="thermal-bar-track" role="img" aria-label="Спектр нагрузки от 0 до 100 процентов">
               <div id="thermalScaleMarker" class="thermal-scale-marker"></div>
             </div>
             <div class="thermal-legend-labels">
               <span>0% Покой</span>
-              <span style="color: #78dc9c;">Готов (MAV)</span>
-              <span style="color: #facc15;">Регенерация</span>
+              <span style="color: var(--app-color-success);">Готов (MAV)</span>
+              <span style="color: var(--app-color-warning);">Регенерация</span>
               <span style="color: #ff4d4f;">100% Пик</span>
             </div>
           </div>
@@ -1501,13 +1659,14 @@
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">filter_alt</span>
+            <span class="material-symbols-outlined" aria-hidden="true">filter_alt</span>
             Выбор мезоцикла
           </span>
-          <button class="help-trigger-btn" data-help-id="help-cycle" title="Справка по мезоциклам">
-            <span class="material-symbols-outlined">help_outline</span>
+          <button type="button" class="help-trigger-btn" data-help-id="help-cycle" aria-label="Справка по мезоциклам" title="Справка по мезоциклам">
+            <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
           </button>
         </div>
+        <label for="cycleSelector" class="visually-hidden">Выберите мезоцикл</label>
         <select id="cycleSelector" class="m3-select">
           <option value="ALL">Все циклы за все время</option>
         </select>
@@ -1517,8 +1676,8 @@
         <div class="kpi-card">
           <div class="kpi-top-row">
             <span class="kpi-label">Hard Sets</span>
-            <button class="help-trigger-btn" data-help-id="help-hardsets" title="Что такое Hard Sets?">
-              <span class="material-symbols-outlined">help_outline</span>
+            <button type="button" class="help-trigger-btn" data-help-id="help-hardsets" aria-label="Что такое Hard Sets?" title="Что такое Hard Sets?">
+              <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
             </button>
           </div>
           <span class="kpi-value" id="kpiHardSets">0</span>
@@ -1528,8 +1687,8 @@
         <div class="kpi-card">
           <div class="kpi-top-row">
             <span class="kpi-label">Push / Pull</span>
-            <button class="help-trigger-btn" data-help-id="help-pushpull" title="Что такое Push / Pull?">
-              <span class="material-symbols-outlined">help_outline</span>
+            <button type="button" class="help-trigger-btn" data-help-id="help-pushpull" aria-label="Что такое Push / Pull?" title="Что такое Push / Pull?">
+              <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
             </button>
           </div>
           <span class="kpi-value" id="kpiPushPull">1.0</span>
@@ -1539,8 +1698,8 @@
         <div class="kpi-card">
           <div class="kpi-top-row">
             <span class="kpi-label">Адаптация</span>
-            <button class="help-trigger-btn" data-help-id="help-deload" title="Что такое Deload Detector?">
-              <span class="material-symbols-outlined">help_outline</span>
+            <button type="button" class="help-trigger-btn" data-help-id="help-deload" aria-label="Что такое Deload Detector?" title="Что такое Deload Detector?">
+              <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
             </button>
           </div>
           <span class="kpi-value" id="kpiAdaptationStatus" style="font-size: 1.05rem;">Свеж</span>
@@ -1551,11 +1710,11 @@
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">balance</span>
+            <span class="material-symbols-outlined" aria-hidden="true">balance</span>
             Баланс плечевого пояса (Push / Pull)
           </span>
-          <button class="help-trigger-btn" data-help-id="help-pushpull" title="Подробнее о балансе">
-            <span class="material-symbols-outlined">help_outline</span>
+          <button type="button" class="help-trigger-btn" data-help-id="help-pushpull" aria-label="Подробнее о балансе" title="Подробнее о балансе">
+            <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
           </button>
         </div>
         <div class="balance-card-content">
@@ -1578,99 +1737,100 @@
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">network_intelligence</span>
+            <span class="material-symbols-outlined" aria-hidden="true">network_intelligence</span>
             <span id="volumeTitle">Объем по мышцам</span>
           </span>
           <div style="display: flex; align-items: center; gap: 4px;">
-            <span id="unmappedWarning" style="display: none; font-size: 0.75rem; color: var(--md-sys-color-warning);">
+            <span id="unmappedWarning" style="display: none; font: var(--md-sys-typescale-label-medium); color: var(--app-color-warning);">
               ⚠ Есть новые
             </span>
-            <button class="help-trigger-btn" data-help-id="help-volume" title="Что такое Volume Landmarks?">
-              <span class="material-symbols-outlined">help_outline</span>
+            <button type="button" class="help-trigger-btn" data-help-id="help-volume" aria-label="Что такое Volume Landmarks?" title="Что такое Volume Landmarks?">
+              <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
             </button>
           </div>
         </div>
         <div id="muscleVolumeContainer" class="volume-list">
-          <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Загрузка данных...</div>
+          <div style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Загрузка данных...</div>
         </div>
       </div>
 
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">stacked_bar_chart</span>
+            <span class="material-symbols-outlined" aria-hidden="true">stacked_bar_chart</span>
             Динамика тоннажа (тонны)
           </span>
-          <button class="help-trigger-btn" data-help-id="help-tonnage" title="Как читать тоннаж?">
-            <span class="material-symbols-outlined">help_outline</span>
+          <button type="button" class="help-trigger-btn" data-help-id="help-tonnage" aria-label="Как читать тоннаж?" title="Как читать тоннаж?">
+            <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
           </button>
         </div>
         <div class="chart-container">
-          <canvas id="tonnageChart"></canvas>
+          <canvas id="tonnageChart" role="img" aria-label="График динамики тоннажа"></canvas>
         </div>
       </div>
 
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">trending_up</span>
+            <span class="material-symbols-outlined" aria-hidden="true">trending_up</span>
             Прогресс в движении (1ПМ)
           </span>
           <div style="display: flex; align-items: center; gap: 6px;">
             <div id="exercisePrBadge" class="pr-pill" style="display: none;">
-              <span class="material-symbols-outlined" style="font-size: 14px;">emoji_events</span>
+              <span class="material-symbols-outlined" aria-hidden="true" style="font-size: 14px;">emoji_events</span>
               <span id="exercisePrValue">0 кг</span>
             </div>
-            <button class="help-trigger-btn" data-help-id="help-1rm" title="Что такое 1ПМ?">
-              <span class="material-symbols-outlined">help_outline</span>
+            <button type="button" class="help-trigger-btn" data-help-id="help-1rm" aria-label="Что такое 1ПМ?" title="Что такое 1ПМ?">
+              <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
             </button>
           </div>
         </div>
+        <label for="exerciseSelector" class="visually-hidden">Выберите упражнение</label>
         <select id="exerciseSelector" class="m3-select">
           <option value="" disabled selected>Загрузка списка упражнений...</option>
         </select>
         <div class="chart-container">
-          <canvas id="exerciseChart"></canvas>
+          <canvas id="exerciseChart" role="img" aria-label="График прогресса 1ПМ"></canvas>
         </div>
       </div>
     </div>
 
-    <!-- МОДУЛЬ 3: ТРЕНЕР (COPILOT & AUTOREGULATION) -->
+    <!-- МОДУЛЬ 3: ТРЕНЕР -->
     <div id="tab-coach" class="tab-content">
       
-      <!-- ЗОНА 1: SOS-АВТОРЕГУЛЯТОР У СТАНКА -->
       <div class="m3-card" style="border: 1px solid rgba(168, 200, 255, 0.2);">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined" style="color: var(--md-sys-color-warning);">bolt</span>
+            <span class="material-symbols-outlined" aria-hidden="true" style="color: var(--app-color-warning);">bolt</span>
             SOS-Авторегулятор подхода
           </span>
-          <span style="font-size: 0.72rem; color: var(--md-sys-color-on-surface-variant);">В реальном времени</span>
+          <span style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);">В реальном времени</span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 10px;">
+          <label for="coachSosExerciseSelect" class="visually-hidden">Выберите упражнение</label>
           <select id="coachSosExerciseSelect" class="m3-select">
             <option value="" disabled selected>Выберите текущее упражнение...</option>
           </select>
 
           <div class="coach-sos-grid">
             <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-              <label for="coachSosTargetWeight" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">Вес снаряда (кг):</label>
+              <label for="coachSosTargetWeight" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);">Вес снаряда (кг):</label>
               <input type="number" id="coachSosTargetWeight" class="m3-input" placeholder="130" step="2.5">
             </div>
             <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-              <label for="coachSosTargetReps" style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant);">План повторений:</label>
+              <label for="coachSosTargetReps" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);">План повторений:</label>
               <input type="number" id="coachSosTargetReps" class="m3-input" placeholder="6">
             </div>
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label for="coachSosActualReps" style="font-size: 0.75rem; color: var(--md-sys-color-error);">Сделано до отказа (Факт повторений):</label>
+            <label for="coachSosActualReps" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-error);">Сделано до отказа (Факт повторений):</label>
             <input type="number" id="coachSosActualReps" class="m3-input" placeholder="2">
           </div>
 
           <md-filled-button id="calculateSosBtn" style="margin-top: 4px;">
-            <span class="material-symbols-outlined" slot="icon">flash_on</span>
+            <span class="material-symbols-outlined" slot="icon" aria-hidden="true">flash_on</span>
             Что делать в следующем подходе?
           </md-filled-button>
 
@@ -1678,58 +1838,57 @@
         </div>
       </div>
 
-      <!-- ЗОНА 2: СТРАТЕГИЧЕСКИЙ ПЛАНИРОВЩИК МЕЗОЦИКЛА -->
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">psychology</span>
+            <span class="material-symbols-outlined" aria-hidden="true">psychology</span>
             План мезоцикла (AI Copilot)
           </span>
           <span id="coachPlanCycleBadge" class="plan-cycle-chip">C-2</span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 8px;">
-          <label for="coachBlockIntent" style="font-size: 0.82rem; font-weight: 500; color: var(--md-sys-color-primary);">
+          <label for="coachBlockIntent" style="font: var(--md-sys-typescale-body-medium); font-weight: 500; color: var(--md-sys-color-primary);">
             Ваши цели и фокус на цикл:
           </label>
           <textarea id="coachBlockIntent" class="m3-input" rows="2" placeholder="Фулбоди, верх в приоритете, ноги в конце в поддержке (Maintenance), акцент на икры, паритет трицепса..."></textarea>
           <div style="display: flex; justify-content: flex-end;">
             <md-filled-button id="generateCyclePlanBtn">
-              <span class="material-symbols-outlined" slot="icon">auto_awesome</span>
+              <span class="material-symbols-outlined" slot="icon" aria-hidden="true">auto_awesome</span>
               Рассчитать программу мезоцикла
             </md-filled-button>
           </div>
         </div>
 
-        <div id="coachPlanLoadingBox" style="display: none; font-size: 0.85rem; color: var(--md-sys-color-primary); padding: 8px 0;">
+        <div id="coachPlanLoadingBox" style="display: none; font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-primary); padding: 8px 0;" role="status" aria-live="polite">
           🤖 Gemini формирует биомеханический план по канонам DUP (через защищенный GAS Relay)...
         </div>
 
         <div id="coachPlanViewContainer" style="display: flex; flex-direction: column; gap: 12px; margin-top: 6px;">
-          <div class="coach-split-chips-row">
-            <div id="coachSplitTabA" class="coach-split-chip active">
+          <div class="coach-split-chips-row" role="tablist">
+            <div id="coachSplitTabA" class="coach-split-chip active" role="tab" tabindex="0" aria-selected="true">
               <span>День А</span>
             </div>
-            <div id="coachSplitTabB" class="coach-split-chip">
+            <div id="coachSplitTabB" class="coach-split-chip" role="tab" tabindex="0" aria-selected="false">
               <span>День Б</span>
             </div>
           </div>
 
-          <div id="coachActiveSplitTitle" style="display: none; font-size: 0.92rem; font-weight: 600; color: var(--md-sys-color-primary); padding: 4px 2px; line-height: 1.35;"></div>
+          <div id="coachActiveSplitTitle" style="display: none; font: var(--md-sys-typescale-title-small); color: var(--md-sys-color-primary); padding: 4px 2px; line-height: 1.35;"></div>
 
           <div id="coachSplitCardsContainer" style="display: flex; flex-direction: column; gap: 10px;">
-            <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 12px 0;">
+            <div style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 12px 0;">
               Нажмите «Рассчитать программу мезоцикла» для формирования интерактивных карточек.
             </div>
           </div>
 
-          <details id="coachRationaleDetails" style="background: var(--md-sys-color-surface-container-high); border-radius: 12px; padding: 12px; font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4; display: none;">
+          <details id="coachRationaleDetails" style="background: var(--md-sys-color-surface-container-high); border-radius: var(--md-sys-shape-corner-medium); padding: 12px; font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); line-height: 1.45; display: none;">
             <summary style="cursor: pointer; font-weight: 600; color: var(--md-sys-color-primary);">Биомеханическое обоснование порядка и методов</summary>
             <div id="coachRationaleText" style="margin-top: 8px; white-space: pre-wrap;"></div>
           </details>
 
-          <md-filled-button id="syncCachedPlanToCloudBtn" style="display: none; width: 100%;">
-            <span class="material-symbols-outlined" slot="icon">cloud_upload</span>
+          <md-filled-button id="syncCachedPlanToCloudBtn" hidden style="width: 100%;">
+            <span class="material-symbols-outlined" slot="icon" aria-hidden="true">cloud_upload</span>
             Отправить план (День А + День Б) в таблицу
           </md-filled-button>
         </div>
@@ -1739,43 +1898,43 @@
 
     <!-- МОДУЛЬ 4: СИНХРОНИЗАЦИЯ -->
     <div id="tab-sync" class="tab-content">
-      <div class="file-drop-zone" id="dropZone">
-        <span class="material-symbols-outlined" style="font-size: 40px; color: var(--md-sys-color-primary);">upload_file</span>
+      <button type="button" class="file-drop-zone" id="dropZone" aria-label="Загрузить отчет GymUp">
+        <span class="material-symbols-outlined" aria-hidden="true" style="font-size: 40px; color: var(--md-sys-color-primary);">upload_file</span>
         <div>
           <b>Выберите отчет GymUp</b> или перетащите файл сюда
-          <p style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 4px;">
+          <p style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); margin-top: 4px;">
             Поддерживаются файлы отчетов .txt и прием через системную шторку «Поделиться»
           </p>
         </div>
-        <input type="file" id="fileInput" accept=".txt">
-      </div>
+        <input type="file" id="fileInput" accept=".txt" aria-label="Выбрать файл отчета">
+      </button>
 
-      <div id="summaryCard" style="display: none; justify-content: space-between; align-items: center; padding: 14px 18px; background: var(--md-sys-color-surface-container); border-radius: 16px;">
+      <div id="summaryCard" style="display: none; justify-content: space-between; align-items: center; padding: 14px 18px; background: var(--md-sys-color-surface-container); border-radius: var(--md-sys-shape-corner-large);">
         <div>
-          <div id="workoutSummaryTitle" style="font-weight: 500; font-size: 1rem;"></div>
-          <div id="workoutSummaryDate" style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;"></div>
+          <div id="workoutSummaryTitle" style="font: var(--md-sys-typescale-title-small);"></div>
+          <div id="workoutSummaryDate" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); margin-top: 2px;"></div>
         </div>
         <md-filled-button id="syncAllBtn">Синхронизировать</md-filled-button>
       </div>
 
       <div id="parsedContent" style="display: flex; flex-direction: column; gap: 12px;"></div>
 
-      <!-- БЛОК УДАЛЕНИЯ ТРЕНИРОВКИ ИЗ БАЗЫ ПО ДАТЕ И НАЗВАНИЮ -->
       <div class="m3-card" style="border: 1px solid rgba(255, 180, 171, 0.2);">
         <div class="card-title" style="color: var(--md-sys-color-error);">
           <span style="display: flex; align-items: center; gap: 8px;">
-            <span class="material-symbols-outlined">delete_sweep</span>
+            <span class="material-symbols-outlined" aria-hidden="true">delete_sweep</span>
             Удаление тренировки из базы
           </span>
         </div>
-        <div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.35;">
+        <div style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); line-height: 1.4;">
           Выберите записанную тренировку для полного удаления из листов <b>Log</b> и <b>Workouts</b> с пересчетом сводки цикла:
         </div>
+        <label for="deleteWorkoutDateSelect" class="visually-hidden">Выберите дату тренировки</label>
         <select id="deleteWorkoutDateSelect" class="m3-select">
           <option value="" disabled selected>Загрузка списка тренировок...</option>
         </select>
         <md-outlined-button id="deleteWorkoutByDateBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
-          <span class="material-symbols-outlined" slot="icon">delete_forever</span>
+          <span class="material-symbols-outlined" slot="icon" aria-hidden="true">delete_forever</span>
           Удалить выбранную тренировку
         </md-outlined-button>
       </div>
@@ -1783,22 +1942,22 @@
       <div class="sync-terminal">
         <div class="terminal-header">
           <span style="display: flex; align-items: center; gap: 6px;">
-            <span class="material-symbols-outlined" style="font-size: 16px;">terminal</span>
+            <span class="material-symbols-outlined" aria-hidden="true" style="font-size: 16px;">terminal</span>
             Терминал диагностики синхронизации
           </span>
         </div>
-        <div class="terminal-body" id="syncTerminalLogs">Готов к приему данных отчета...</div>
+        <div class="terminal-body" id="syncTerminalLogs" role="log" aria-live="polite">Готов к приему данных отчета...</div>
         <div class="terminal-actions">
           <md-outlined-button id="copySyncLogBtn">
-            <span class="material-symbols-outlined" slot="icon">content_copy</span>
+            <span class="material-symbols-outlined" slot="icon" aria-hidden="true">content_copy</span>
             Скопировать лог
           </md-outlined-button>
           <md-outlined-button id="fetchServerLogsBtn">
-            <span class="material-symbols-outlined" slot="icon">cloud_download</span>
+            <span class="material-symbols-outlined" slot="icon" aria-hidden="true">cloud_download</span>
             Логи сервера
           </md-outlined-button>
           <md-outlined-button id="clearSyncLogBtn">
-            <span class="material-symbols-outlined" slot="icon">clear_all</span>
+            <span class="material-symbols-outlined" slot="icon" aria-hidden="true">clear_all</span>
             Очистить
           </md-outlined-button>
         </div>
@@ -1808,26 +1967,28 @@
   </main>
 
   <!-- =========================================================================
-       МОДАЛЬНОЕ ОКНО: ПОЛНЫЙ ПЕРЕЧЕНЬ УПРАЖНЕНИЙ ТРЕНИРОВКИ (ПО КЛИКУ НА КАРТОЧКУ)
+       МОДАЛЬНОЕ ОКНО: ПОЛНЫЙ ПЕРЕЧЕНЬ УПРАЖНЕНИЙ ТРЕНИРОВКИ
        ========================================================================= -->
-  <div id="workoutPlanDetailsModal" class="modal-overlay">
+  <div id="workoutPlanDetailsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalPlanTitle">
     <div class="modal-card">
       <div class="card-title">
         <span id="modalPlanTitle" style="color: var(--md-sys-color-primary);">Перечень упражнений</span>
-        <md-icon-button id="closeWorkoutPlanModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+        <md-icon-button id="closeWorkoutPlanModalBtn" aria-label="Закрыть окно">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </md-icon-button>
       </div>
 
       <div class="coach-split-chips-row" id="modalPlanSplitSwitcher" style="display: none;">
-        <div id="modalPlanTabA" class="coach-split-chip active" style="min-height: 40px; padding: 6px;">День А</div>
-        <div id="modalPlanTabB" class="coach-split-chip" style="min-height: 40px; padding: 6px;">День Б</div>
+        <div id="modalPlanTabA" class="coach-split-chip active" style="min-height: 48px; padding: 8px;" role="tab" tabindex="0">День А</div>
+        <div id="modalPlanTabB" class="coach-split-chip" style="min-height: 48px; padding: 8px;" role="tab" tabindex="0">День Б</div>
       </div>
 
-      <div id="modalPlanAdviceText" style="font-size: 0.82rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.4;"></div>
+      <div id="modalPlanAdviceText" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); line-height: 1.45;"></div>
 
       <div id="modalRecipeContainer" style="display: flex; flex-direction: column; gap: 10px;"></div>
 
       <button id="modalStartLiveWorkoutBtn" class="start-live-workout-btn" style="margin-top: 4px;">
-        <span class="material-symbols-outlined">play_circle</span>
+        <span class="material-symbols-outlined" aria-hidden="true">play_circle</span>
         <span>НАЧАТЬ ТРЕНИРОВКУ</span>
       </button>
     </div>
@@ -1836,16 +1997,16 @@
   <!-- =========================================================================
        ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY)
        ========================================================================= -->
-  <div id="liveWorkoutOverlay" class="live-workout-overlay">
+  <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
     <div class="live-top-bar">
-      <button id="liveMinimizeBtn" class="live-nav-btn" title="Свернуть экран">
-        <span class="material-symbols-outlined" style="font-size:18px;">expand_more</span>
+      <button id="liveMinimizeBtn" class="live-nav-btn" title="Свернуть экран" aria-label="Свернуть тренировку">
+        <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">expand_more</span>
         <span>Свернуть</span>
       </button>
       <div style="display:flex; align-items:center; gap:8px;">
-        <span id="liveHeaderTimer" class="live-timer-pill">00:00</span>
-        <md-icon-button id="liveOpenTimerSettingsBtn" title="Настроить тайминги отдыха">
-          <span class="material-symbols-outlined">timer</span>
+        <span id="liveHeaderTimer" class="live-timer-pill" role="timer" aria-live="off">00:00</span>
+        <md-icon-button id="liveOpenTimerSettingsBtn" aria-label="Настроить тайминги отдыха" title="Настроить тайминги отдыха">
+          <span class="material-symbols-outlined" aria-hidden="true">timer</span>
         </md-icon-button>
       </div>
       <button id="liveOpenFinishModalBtn" class="live-nav-btn" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); border-color: var(--md-sys-color-primary);">
@@ -1854,57 +2015,51 @@
     </div>
 
     <div class="live-body-container">
-      <div style="font-size:0.78rem; color: var(--md-sys-color-on-surface-variant); text-align:center;" id="liveWorkoutTitle">Тренировка</div>
+      <div style="font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-on-surface-variant); text-align:center;" id="liveWorkoutTitle">Тренировка</div>
 
-      <!-- Мини-карта прогресса упражнений [✓ 1] [2] [3] ... -->
-      <div id="liveExMiniMap" class="live-minimap-row"></div>
+      <div id="liveExMiniMap" class="live-minimap-row" role="tablist" aria-label="Навигация по упражнениям"></div>
 
-      <!-- Навигация по упражнениям -->
       <div class="live-ex-nav-row">
-        <button id="livePrevExBtn" class="live-nav-btn">
-          <span class="material-symbols-outlined" style="font-size:18px;">chevron_left</span>
+        <button id="livePrevExBtn" class="live-nav-btn" aria-label="Предыдущее упражнение">
+          <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">chevron_left</span>
           <span>Пред.</span>
         </button>
-        <span id="liveExProgressBadge" style="font-size:0.82rem; font-weight:700; color: var(--md-sys-color-primary);">Упражнение 1 из 7</span>
-        <button id="liveNextExBtn" class="live-nav-btn">
+        <span id="liveExProgressBadge" style="font: var(--md-sys-typescale-label-large); font-weight:700; color: var(--md-sys-color-primary);">Упражнение 1 из 7</span>
+        <button id="liveNextExBtn" class="live-nav-btn" aria-label="Следующее упражнение">
           <span>След.</span>
-          <span class="material-symbols-outlined" style="font-size:18px;">chevron_right</span>
+          <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">chevron_right</span>
         </button>
       </div>
 
-      <!-- Карточка активного упражнения -->
       <div class="live-ex-header-card">
-        <div id="liveExName" style="font-size:1.15rem; font-weight:700; color: var(--md-sys-color-on-surface);">Упражнение</div>
-        <div id="liveExTargetSubtitle" style="font-size:0.85rem; color: var(--md-sys-color-on-surface-variant);">Цель: ...</div>
-        <div id="liveExWarmupHint" style="font-size:0.78rem; color: var(--md-sys-color-success); display:flex; align-items:center; gap:4px; margin-top:2px;"></div>
+        <div id="liveExName" style="font: 700 1.15rem/1.3 'Roboto'; color: var(--md-sys-color-on-surface);">Упражнение</div>
+        <div id="liveExTargetSubtitle" style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant);">Цель: ...</div>
+        <div id="liveExWarmupHint" style="font: var(--md-sys-typescale-body-small); color: var(--app-color-success); display:flex; align-items:center; gap:4px; margin-top:2px;"></div>
       </div>
 
-      <!-- Подсказка для дроп-сетов и кластеров (только на финальном подходе) -->
-      <div id="liveIntensifierBanner" class="live-intensifier-banner"></div>
+      <div id="liveIntensifierBanner" class="live-intensifier-banner" role="status"></div>
 
-      <!-- Плавающий таймер отдыха -->
-      <div id="liveRestTimerBar" class="live-rest-bar">
+      <div id="liveRestTimerBar" class="live-rest-bar" role="timer" aria-live="polite">
         <div class="live-rest-top">
           <div>
-            <div style="font-size:0.72rem; text-transform:uppercase; color: var(--md-sys-color-on-surface-variant); font-weight:700;">⏱ Таймер отдыха</div>
-            <div style="font-size:0.78rem; color: var(--md-sys-color-on-surface);">Восстановление АТФ-КрФ перед подходом</div>
+            <div style="font: var(--md-sys-typescale-label-medium); text-transform:uppercase; color: var(--md-sys-color-on-surface-variant); font-weight:700;">⏱ Таймер отдыха</div>
+            <div style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface);">Восстановление АТФ-КрФ перед подходом</div>
           </div>
           <span id="liveRestCountdown" class="live-rest-countdown">02:30</span>
         </div>
         <div class="live-rest-actions">
-          <button id="liveRestMinus30Btn" class="live-rest-chip-btn">- 30 сек</button>
-          <button id="liveRestPlus30Btn" class="live-rest-chip-btn">+ 30 сек</button>
-          <button id="liveRestSkipBtn" class="live-rest-chip-btn" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Пропустить >></button>
+          <button id="liveRestMinus30Btn" class="live-rest-chip-btn" aria-label="Уменьшить отдых на 30 секунд">- 30 сек</button>
+          <button id="liveRestPlus30Btn" class="live-rest-chip-btn" aria-label="Увеличить отдых на 30 секунд">+ 30 сек</button>
+          <button id="liveRestSkipBtn" class="live-rest-chip-btn" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);" aria-label="Пропустить отдых">Пропустить >></button>
         </div>
       </div>
 
-      <!-- КАРТОЧКА ЗАВЕРШЕНИЯ УПРАЖНЕНИЯ (когда все плановые рабочие сеты выполнены) -->
       <div id="liveExCompletedCard" class="live-complete-ex-card">
-        <div style="font-size:1rem; font-weight:700; color: var(--md-sys-color-success);" id="liveExCompletedTitle">
+        <div style="font: 700 1rem/1.3 'Roboto'; color: var(--app-color-success);" id="liveExCompletedTitle">
           ✅ Упражнение выполнено!
         </div>
         <button id="liveCompleteAndNextExBtn" class="live-next-ex-primary-btn">
-          <span class="material-symbols-outlined">task_alt</span>
+          <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
           <span>ЗАВЕРШИТЬ И ПЕРЕЙТИ К СЛЕДУЮЩЕМУ</span>
         </button>
         <button id="liveAddBonusSetBtn" class="live-method-toggle-btn" style="margin-top:2px;">
@@ -1912,12 +2067,11 @@
         </button>
       </div>
 
-      <!-- Блок управления весом, повторами и RIR без клавиатуры -->
       <div id="liveActiveSetControlsCard" class="live-controls-card">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-          <span id="liveCurrentSetLabel" style="font-size:0.85rem; font-weight:700; color: var(--md-sys-color-primary);">РАЗМИНКА: ШАГ 1</span>
-          <button id="liveClusterPauseBtn" class="live-nav-btn" style="min-height:34px; padding:0 10px; font-size:0.75rem;">
-            <span class="material-symbols-outlined" style="font-size:16px;">bolt</span>
+          <span id="liveCurrentSetLabel" style="font: var(--md-sys-typescale-label-large); font-weight:700; color: var(--md-sys-color-primary);">РАЗМИНКА: ШАГ 1</span>
+          <button id="liveClusterPauseBtn" class="live-nav-btn" style="min-height:48px; padding:0 12px; font: var(--md-sys-typescale-label-medium);" aria-label="Запустить кластерную паузу">
+            <span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">bolt</span>
             <span>Пауза 20с</span>
           </button>
         </div>
@@ -1936,91 +2090,92 @@
         <div class="live-stepper-block">
           <span class="live-stepper-label">Вес снаряда (шаг 2.5 кг)</span>
           <div class="live-stepper-row">
-            <button id="liveWeightMinusBtn" class="live-step-btn">- 2.5</button>
-            <div id="liveWeightValue" class="live-step-display">100</div>
-            <button id="liveWeightPlusBtn" class="live-step-btn">+ 2.5</button>
+            <button id="liveWeightMinusBtn" class="live-step-btn" aria-label="Уменьшить вес на 2.5 кг">- 2.5</button>
+            <div id="liveWeightValue" class="live-step-display" aria-live="polite">100</div>
+            <button id="liveWeightPlusBtn" class="live-step-btn" aria-label="Увеличить вес на 2.5 кг">+ 2.5</button>
           </div>
         </div>
 
         <div class="live-stepper-block">
           <span class="live-stepper-label">Выполнено повторений</span>
           <div class="live-stepper-row">
-            <button id="liveRepsMinusBtn" class="live-step-btn">- 1</button>
-            <div id="liveRepsValue" class="live-step-display">6</div>
-            <button id="liveRepsPlusBtn" class="live-step-btn">+ 1</button>
+            <button id="liveRepsMinusBtn" class="live-step-btn" aria-label="Уменьшить повторения на 1">- 1</button>
+            <div id="liveRepsValue" class="live-step-display" aria-live="polite">6</div>
+            <button id="liveRepsPlusBtn" class="live-step-btn" aria-label="Увеличить повторения на 1">+ 1</button>
           </div>
         </div>
 
         <div id="liveRirBlock" class="live-stepper-block">
           <span class="live-stepper-label">Запас сил до отказа (RIR)</span>
-          <div class="live-rir-row">
-            <button class="live-rir-chip" data-rir="0">
+          <div class="live-rir-row" role="radiogroup" aria-label="RIR">
+            <button class="live-rir-chip" data-rir="0" role="radio" aria-checked="false">
               <span>0</span>
-              <span style="font-size:0.65rem; font-weight:400;">Отказ</span>
+              <span style="font-size:0.7rem; font-weight:400;">Отказ</span>
             </button>
-            <button class="live-rir-chip" data-rir="1">
+            <button class="live-rir-chip" data-rir="1" role="radio" aria-checked="false">
               <span>1</span>
-              <span style="font-size:0.65rem; font-weight:400;">Тяжело</span>
+              <span style="font-size:0.7rem; font-weight:400;">Тяжело</span>
             </button>
-            <button class="live-rir-chip active" data-rir="2">
+            <button class="live-rir-chip active" data-rir="2" role="radio" aria-checked="true">
               <span>2</span>
-              <span style="font-size:0.65rem; font-weight:400;">Оптимум</span>
+              <span style="font-size:0.7rem; font-weight:400;">Оптимум</span>
             </button>
-            <button class="live-rir-chip" data-rir="3+">
+            <button class="live-rir-chip" data-rir="3+" role="radio" aria-checked="false">
               <span>3+</span>
-              <span style="font-size:0.65rem; font-weight:400;">Запас</span>
+              <span style="font-size:0.7rem; font-weight:400;">Запас</span>
             </button>
           </div>
         </div>
 
         <button id="liveRecordSetBtn" class="live-record-btn">
-          <span class="material-symbols-outlined">check_circle</span>
+          <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
           <span>ЗАПИСАТЬ ПОДХОД</span>
         </button>
       </div>
 
-      <!-- Список выполненных подходов текущего упражнения -->
       <div class="m3-card" style="padding:14px;">
-        <div style="font-size:0.82rem; font-weight:700; color: var(--md-sys-color-on-surface-variant); text-transform:uppercase;">Записанные подходы сегодня:</div>
+        <div style="font: var(--md-sys-typescale-label-large); font-weight:700; color: var(--md-sys-color-on-surface-variant); text-transform:uppercase;">Записанные подходы сегодня:</div>
         <div id="liveCompletedSetsList" style="display:flex; flex-direction:column; gap:8px;"></div>
       </div>
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ (CLOSE-OUT & WORKOUTS SUMMARY) -->
-  <div id="liveCloseoutModal" class="modal-overlay">
+  <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ -->
+  <div id="liveCloseoutModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveCloseoutTitle">
     <div class="modal-card">
       <div class="card-title">
-        <span>Завершение тренировки</span>
-        <md-icon-button id="closeLiveCloseoutModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+        <span id="liveCloseoutTitle">Завершение тренировки</span>
+        <md-icon-button id="closeLiveCloseoutModalBtn" aria-label="Закрыть окно">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </md-icon-button>
       </div>
-      <div id="liveCloseoutSummaryStats" style="font-size:0.84rem; line-height:1.65; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high); padding:12px 14px; border-radius:14px;"></div>
+      <div id="liveCloseoutSummaryStats" style="font: var(--md-sys-typescale-body-medium); line-height:1.65; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high); padding:12px 14px; border-radius: var(--md-sys-shape-corner-large);"></div>
 
       <div style="display:flex; flex-direction:column; gap:6px;">
-        <span style="font-size:0.8rem; font-weight:600; color: var(--md-sys-color-primary);">Самочувствие и готовность ЦНС (Readiness):</span>
-        <div class="live-readiness-grid">
-          <button class="live-readiness-chip active" data-readiness="🟢 Оптимум">🟢 Оптимум</button>
-          <button class="live-readiness-chip" data-readiness="🟡 Норма">🟡 Норма</button>
-          <button class="live-readiness-chip" data-readiness="🔴 Утомлен">🔴 Утомлен</button>
+        <span style="font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-primary);">Самочувствие и готовность ЦНС (Readiness):</span>
+        <div class="live-readiness-grid" role="radiogroup">
+          <button class="live-readiness-chip active" data-readiness="🟢 Оптимум" role="radio" aria-checked="true">🟢 Оптимум</button>
+          <button class="live-readiness-chip" data-readiness="🟡 Норма" role="radio" aria-checked="false">🟡 Норма</button>
+          <button class="live-readiness-chip" data-readiness="🔴 Утомлен" role="radio" aria-checked="false">🔴 Утомлен</button>
         </div>
       </div>
       
       <div style="display:flex; flex-direction:column; gap:6px;">
-        <span style="font-size:0.8rem; font-weight:600; color: var(--md-sys-color-primary);">Оценка тяжести сессии (sRPE по шкале 6–10):</span>
-        <div class="live-srpe-grid">
-          <button class="live-srpe-chip" data-srpe="6">6</button>
-          <button class="live-srpe-chip" data-srpe="7">7</button>
-          <button class="live-srpe-chip active" data-srpe="8">8</button>
-          <button class="live-srpe-chip" data-srpe="9">9</button>
-          <button class="live-srpe-chip" data-srpe="10">10</button>
+        <span style="font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-primary);">Оценка тяжести сессии (sRPE по шкале 6–10):</span>
+        <div class="live-srpe-grid" role="radiogroup">
+          <button class="live-srpe-chip" data-srpe="6" role="radio" aria-checked="false">6</button>
+          <button class="live-srpe-chip" data-srpe="7" role="radio" aria-checked="false">7</button>
+          <button class="live-srpe-chip active" data-srpe="8" role="radio" aria-checked="true">8</button>
+          <button class="live-srpe-chip" data-srpe="9" role="radio" aria-checked="false">9</button>
+          <button class="live-srpe-chip" data-srpe="10" role="radio" aria-checked="false">10</button>
         </div>
       </div>
 
-      <div id="liveCloseoutSyncStatus" style="display:none; font-size:0.82rem; line-height:1.4;"></div>
+      <div id="liveCloseoutSyncStatus" style="display:none; font: var(--md-sys-typescale-body-small); line-height:1.45;" role="status" aria-live="polite"></div>
 
       <div style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
         <md-filled-button id="liveConfirmFinishBtn">
-          <span class="material-symbols-outlined" slot="icon">cloud_upload</span>
+          <span class="material-symbols-outlined" slot="icon" aria-hidden="true">cloud_upload</span>
           Сохранить в базу Google Таблиц
         </md-filled-button>
         <md-outlined-button id="liveDiscardWorkoutBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
@@ -2031,23 +2186,25 @@
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО НАСТРОЙКИ ТАЙМИНГОВ ОТДЫХА -->
-  <div id="liveTimerSettingsModal" class="modal-overlay">
+  <div id="liveTimerSettingsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveTimerSettingsTitle">
     <div class="modal-card">
       <div class="card-title">
-        <span>Тайминги отдыха (сек)</span>
-        <md-icon-button id="closeLiveTimerSettingsBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+        <span id="liveTimerSettingsTitle">Тайминги отдыха (сек)</span>
+        <md-icon-button id="closeLiveTimerSettingsBtn" aria-label="Закрыть окно">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </md-icon-button>
       </div>
       <div style="display:flex; flex-direction:column; gap:12px;">
         <div>
-          <label style="font-size:0.8rem; color: var(--md-sys-color-on-surface-variant);">Базовые компаунды (#1–#2), сек:</label>
+          <label for="prefTimerCompound" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Базовые компаунды (#1–#2), сек:</label>
           <input type="number" id="prefTimerCompound" class="m3-input" value="150" step="10">
         </div>
         <div>
-          <label style="font-size:0.8rem; color: var(--md-sys-color-on-surface-variant);">Изоляция, руки и ноги (#3+), сек:</label>
+          <label for="prefTimerIsolation" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Изоляция, руки и ноги (#3+), сек:</label>
           <input type="number" id="prefTimerIsolation" class="m3-input" value="90" step="10">
         </div>
         <div>
-          <label style="font-size:0.8rem; color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза, сек:</label>
+          <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза, сек:</label>
           <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5">
         </div>
       </div>
@@ -2058,35 +2215,42 @@
   </div>
 
   <!-- СТАНДАРТНЫЕ МОДАЛЬНЫЕ ОКНА -->
-  <div id="daySummaryModal" class="modal-overlay">
+  <div id="daySummaryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalDayDate">
     <div class="modal-card">
       <div class="card-title">
         <span id="modalDayDate" style="color: var(--md-sys-color-primary);">Дата</span>
-        <md-icon-button id="closeDaySummaryModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+        <md-icon-button id="closeDaySummaryModalBtn" aria-label="Закрыть окно">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </md-icon-button>
       </div>
-      <div id="modalDayContent" style="font-size: 0.88rem; line-height: 1.5; color: var(--md-sys-color-on-surface-variant); display: flex; flex-direction: column; gap: 10px;"></div>
+      <div id="modalDayContent" style="font: var(--md-sys-typescale-body-medium); line-height: 1.5; color: var(--md-sys-color-on-surface-variant); display: flex; flex-direction: column; gap: 10px;"></div>
     </div>
   </div>
 
-  <div id="metricHelpModal" class="modal-overlay">
+  <div id="metricHelpModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
     <div class="modal-card">
       <div class="card-title">
         <span id="helpModalTitle" style="color: var(--md-sys-color-primary);">Справка</span>
-        <md-icon-button id="closeHelpModalBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+        <md-icon-button id="closeHelpModalBtn" aria-label="Закрыть окно">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </md-icon-button>
       </div>
-      <div id="helpModalContent" style="font-size: 0.9rem; line-height: 1.5; color: var(--md-sys-color-on-surface-variant); white-space: pre-line;"></div>
+      <div id="helpModalContent" style="font: var(--md-sys-typescale-body-medium); line-height: 1.5; color: var(--md-sys-color-on-surface-variant); white-space: pre-line;"></div>
     </div>
   </div>
 
-  <div id="settingsModal" class="modal-overlay">
+  <div id="settingsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
     <div class="modal-card">
       <div class="card-title">
-        <span>Безопасность API</span>
-        <md-icon-button id="closeSettingsBtn"><span class="material-symbols-outlined">close</span></md-icon-button>
+        <span id="settingsModalTitle">Безопасность API</span>
+        <md-icon-button id="closeSettingsBtn" aria-label="Закрыть окно">
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </md-icon-button>
       </div>
-      <div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
+      <div style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">
         Все обращения к Gemini выполняются через бессерверный Google Apps Script Relay. При необходимости задайте токен API_TOKEN.
       </div>
+      <label for="apiTokenInput" class="visually-hidden">Токен API</label>
       <input type="password" id="apiTokenInput" class="m3-input" placeholder="Секретный токен API_TOKEN (опционально)...">
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
         <md-filled-button id="saveApiTokenBtn">Сохранить токен</md-filled-button>
@@ -2094,28 +2258,28 @@
     </div>
   </div>
 
-  <nav class="navigation-bar" id="bottomNav">
-    <div class="nav-item active" data-tab="overview">
+  <nav class="navigation-bar" id="bottomNav" role="navigation" aria-label="Основная навигация">
+    <div class="nav-item active" data-tab="overview" role="tab" tabindex="0" aria-selected="true">
       <div class="nav-pill">
-        <span class="material-symbols-outlined">dashboard</span>
+        <span class="material-symbols-outlined" aria-hidden="true">dashboard</span>
       </div>
       <span>Обзор</span>
     </div>
-    <div class="nav-item" data-tab="analytics">
+    <div class="nav-item" data-tab="analytics" role="tab" tabindex="0" aria-selected="false">
       <div class="nav-pill">
-        <span class="material-symbols-outlined">insights</span>
+        <span class="material-symbols-outlined" aria-hidden="true">insights</span>
       </div>
       <span>Аналитика</span>
     </div>
-    <div class="nav-item" data-tab="coach">
+    <div class="nav-item" data-tab="coach" role="tab" tabindex="0" aria-selected="false">
       <div class="nav-pill">
-        <span class="material-symbols-outlined">psychology_alt</span>
+        <span class="material-symbols-outlined" aria-hidden="true">psychology_alt</span>
       </div>
       <span>Тренер</span>
     </div>
-    <div class="nav-item" data-tab="sync">
+    <div class="nav-item" data-tab="sync" role="tab" tabindex="0" aria-selected="false">
       <div class="nav-pill">
-        <span class="material-symbols-outlined">sync_saved_locally</span>
+        <span class="material-symbols-outlined" aria-hidden="true">sync_saved_locally</span>
       </div>
       <span>Синхронизация</span>
     </div>
