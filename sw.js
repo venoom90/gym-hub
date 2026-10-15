@@ -1,11 +1,18 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V47 READ-THROUGH CACHE & NOTIFY)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V48 READ-THROUGH CACHE & NOTIFY)
  * =========================================================================
+ * V48 изменения:
+ * - GAS API больше не «проваливается» при офлайне: stale-while-revalidate
+ *   с TTL-кэшем на 5 минут для GET/POST-запросов get_all_data.
+ * - Явный fallback-ответ 503 для non-cacheable GAS POST.
+ * - Мелкие улучшения совместимости с M3-обновлениями index.html.
  */
 
-const CACHE_NAME = 'gym-hub-v47';
+const CACHE_NAME = 'gym-hub-v48';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
+const GAS_CACHE_NAME = 'gym-gas-cache-v1';
+const GAS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
 
 const APP_ASSETS = [
   './',
@@ -49,7 +56,8 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
-          if (key !== CACHE_NAME && key !== SHARE_CACHE_NAME) {
+          const preserved = [CACHE_NAME, SHARE_CACHE_NAME, GAS_CACHE_NAME];
+          if (!preserved.includes(key)) {
             return caches.delete(key);
           }
         })
@@ -65,12 +73,49 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/**
+ * Хелпер: кэшированный ответ с TTL-проверкой.
+ * Возвращает { response, isFresh } либо null, если кэша нет.
+ */
+async function getCachedWithTimestamp(cacheName, request) {
+  try {
+    const cache = await caches.open(cacheName);
+    const cached = await cache.match(request);
+    if (!cached) return null;
+
+    const cachedAt = parseInt(cached.headers.get('X-SW-Cached-At') || '0', 10);
+    const age = Date.now() - cachedAt;
+    return { response: cached, isFresh: age < GAS_CACHE_TTL_MS };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function putCachedWithTimestamp(cacheName, request, response) {
+  try {
+    const cache = await caches.open(cacheName);
+    const cloned = response.clone();
+    const headers = new Headers(cloned.headers);
+    headers.set('X-SW-Cached-At', String(Date.now()));
+    const body = await cloned.blob();
+    const wrapped = new Response(body, {
+      status: cloned.status,
+      statusText: cloned.statusText,
+      headers: headers
+    });
+    await cache.put(request, wrapped);
+  } catch (e) {
+    console.warn('[SW] Не удалось положить в кэш GAS:', e);
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Google Apps Script API пропускается исключительно в сеть
+  // 1. Google Apps Script API — stale-while-revalidate для get_all_data/get_debug_log,
+  //    network-only с fallback 503 для остальных action
   if (url.origin.includes('script.google.com')) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(handleGasRequest(event.request));
     return;
   }
 
@@ -130,7 +175,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. Cache-First с ignoreSearch: true и автоматическим восполнением при промахе (Read-Through)
+  // 3. Cache-First с ignoreSearch для same-origin GET (статика)
   const isSameOrigin = (url.origin === self.location.origin);
   if (isSameOrigin && event.request.method === 'GET') {
     event.respondWith(
@@ -171,3 +216,95 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+/**
+ * Специализированный обработчик GAS:
+ * - Для POST читаем body как текст, детектируем action в JSON, решаем стратегию.
+ * - Для GET fallback: network-first, кэш при провале.
+ * - Для get_all_data / get_debug_log: возвращаем свежий кэш немедленно,
+ *   параллельно обновляем (stale-while-revalidate).
+ */
+async function handleGasRequest(request) {
+  let clonedRequest;
+  let actionHint = null;
+  let bodyText = null;
+
+  if (request.method === 'POST') {
+    try {
+      clonedRequest = request.clone();
+      bodyText = await clonedRequest.text();
+      const parsed = JSON.parse(bodyText);
+      actionHint = parsed && parsed.action ? String(parsed.action) : null;
+    } catch (e) {
+      // Тело не JSON или пустое — обрабатываем как обычный POST
+    }
+  }
+
+  const isCacheableAction = (actionHint === 'get_all_data' || actionHint === 'get_debug_log');
+  const cacheKey = new Request(
+    `gas-cache://${request.method}/${actionHint || 'unknown'}`,
+    { method: 'GET' }
+  );
+
+  // === Cacheable actions: stale-while-revalidate ===
+  if (isCacheableAction) {
+    const cached = await getCachedWithTimestamp(GAS_CACHE_NAME, cacheKey);
+
+    const networkFetch = (async () => {
+      try {
+        const fetchInit = request.method === 'POST'
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: bodyText
+            }
+          : { method: 'GET' };
+        const networkResponse = await fetch(request.url, fetchInit);
+        if (networkResponse && networkResponse.ok) {
+          await putCachedWithTimestamp(GAS_CACHE_NAME, cacheKey, networkResponse.clone());
+        }
+        return networkResponse;
+      } catch (err) {
+        return null;
+      }
+    })();
+
+    if (cached) {
+      // Отдаём кэш немедленно (быстро), сеть обновляется в фоне
+      return cached.response;
+    }
+
+    const networkResponse = await networkFetch;
+    if (networkResponse) return networkResponse;
+
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Оффлайн-режим: сервер недоступен, кэшированных данных нет.'
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // === Остальные action: network-only с fallback ===
+  try {
+    const fetchInit = request.method === 'POST'
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: bodyText
+        }
+      : { method: 'GET' };
+    const networkResponse = await fetch(request.url, fetchInit);
+    return networkResponse;
+  } catch (err) {
+    console.warn('[SW] GAS offline (не get_all_data):', err);
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Оффлайн-режим: серверный GAS недоступен. Повторите попытку при появлении связи.'
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
