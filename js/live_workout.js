@@ -1,19 +1,16 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.2 PASSIVE STOPWATCH EDITION)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.3 STOPWATCH & SHEET POLISH)
  * =========================================================================
- * V2.2:
- * - Big Clock → пассивный секундомер ВВЕРХ (00:00 → 00:01 → ...).
- *   Никаких вибро, никаких вспышек, никаких тапов внутри.
- *   Открыл → тикает → смотришь → закрыл.
- * - В углу Big Clock: абсолютное «Сейчас HH:MM» + ETA «Финиш ~HH:MM»
- *   на основе среднего времени прошлых тренировок того же сплита.
- * - Тап по пилюле таймера в топбаре открывает Big Clock.
- * - Логирование отдыха: startedAtMs / recordedAtMs для честного avgRestSec
- *   (не считает время выполнения сета как «отдых»).
- * - Cluster/Drop Sheet — компактные строки (56px вместо 230px).
- * - Восстановлены чипы readiness / sRPE (были потеряны в CSS).
- * - Safe-area fixes для navigation-bar, modal-card, live-sheet.
+ * V2.3:
+ * - Big Clock: угловые метки в 3 строки — Сейчас / До финиша / Окончание ~.
+ * - Круглая кнопка-часы в PAB (method-combo) для быстрого доступа к секундомеру
+ *   из thumb-zone. Дублирует верхнюю пилюлю.
+ * - Cluster/Drop Sheet: двухстрочные карточки (метка + RIR сверху,
+ *   степперы веса/reps снизу) — текст больше не наезжает.
+ * - Bonus Set — с новым классом .live-bonus-set-btn.
+ * - Closeout — компактные чипы readiness/sRPE (42px), модал влезает на экран.
+ * - Логирование отдыха: startedAtMs / recordedAtMs → честный avgRestSec.
  */
 
 import {
@@ -34,7 +31,6 @@ let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
 let isLiveWorkoutInitialized = false;
 
-// V2.2: Big Clock — пассивный секундомер вверх
 let bigClockStartedAtMs = 0;
 let bigClockInterval = null;
 
@@ -64,7 +60,7 @@ export function initLiveWorkoutModule(onComplete) {
 }
 
 /* =========================================================
- * MODAL MANAGER registration
+ * MODAL MANAGER
  * ========================================================= */
 
 function registerLiveModals() {
@@ -380,7 +376,7 @@ export function startNewLiveWorkout(recipePayload) {
       totalSeconds: 150,
       notified10s: false
     },
-    lastRestEndMs: 0,           // V2.2: время окончания последнего отдыха
+    lastRestEndMs: 0,
     readinessPre: '🟢 Оптимум',
     sRPE: 8,
     isFinished: false,
@@ -541,7 +537,7 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * BIG CLOCK — пассивный секундомер вверх (V2.2)
+ * BIG CLOCK — пассивный секундомер вверх (V2.3, 3 строки в углу)
  * ========================================================= */
 
 function openBigClockOverlay() {
@@ -553,11 +549,9 @@ function startBigClockCountUp() {
   bigClockStartedAtMs = Date.now();
 
   const digitsEl = document.getElementById('liveBigClockDigits');
-  const titleEl = document.getElementById('liveBigClockTitle');
-  const cornerNowEl = document.getElementById('liveBigClockNow');
-  const cornerEtaEl = document.getElementById('liveBigClockEta');
-
-  if (titleEl) titleEl.innerText = 'СЕКУНДОМЕР';
+  const nowEl = document.getElementById('liveBigClockNow');
+  const etaRelEl = document.getElementById('liveBigClockEtaRel');
+  const etaAbsEl = document.getElementById('liveBigClockEtaAbs');
 
   const eta = computeSessionEta();
 
@@ -570,18 +564,24 @@ function startBigClockCountUp() {
 
     if (digitsEl) digitsEl.innerText = `${m}:${s}`;
 
-    if (cornerNowEl) {
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mm = String(now.getMinutes()).padStart(2, '0');
-      cornerNowEl.innerHTML = `Сейчас <b>${hh}:${mm}</b>`;
-    }
+    const now = new Date();
+    const nowHH = String(now.getHours()).padStart(2, '0');
+    const nowMM = String(now.getMinutes()).padStart(2, '0');
+    if (nowEl) nowEl.innerHTML = `Сейчас <b>${nowHH}:${nowMM}</b>`;
 
-    if (cornerEtaEl && eta) {
+    if (eta) {
       const remMin = Math.max(0, Math.round((eta.endsAtMs - Date.now()) / 60000));
-      const hh = String(Math.floor(remMin / 60)).padStart(2, '0');
-      const mm = String(remMin % 60).padStart(2, '0');
-      cornerEtaEl.innerHTML = `До финиша ~<b>${hh}:${mm}</b>`;
+      const remHH = String(Math.floor(remMin / 60)).padStart(2, '0');
+      const remMM = String(remMin % 60).padStart(2, '0');
+      if (etaRelEl) etaRelEl.innerHTML = `До финиша <b>${remHH}:${remMM}</b>`;
+
+      const endsAt = new Date(eta.endsAtMs);
+      const endHH = String(endsAt.getHours()).padStart(2, '0');
+      const endMM = String(endsAt.getMinutes()).padStart(2, '0');
+      if (etaAbsEl) etaAbsEl.innerHTML = `Окончание ~<b>${endHH}:${endMM}</b>`;
+    } else {
+      if (etaRelEl) etaRelEl.innerHTML = 'До финиша —';
+      if (etaAbsEl) etaAbsEl.innerHTML = 'Окончание —';
     }
   };
 
@@ -602,23 +602,27 @@ function syncBigClockWithWallClock() {
 }
 
 /**
- * Расчёт ETA тренировки.
- * Берём прошлые workouts в state.dbData с тем же split и усредняем durationMin.
- * Fallback — 55 минут, если нет истории.
+ * Расчёт ETA тренировки: среднее durationMin последних 5 тренировок того же split.
+ * Fallback — 55 мин.
  */
 function computeSessionEta() {
   if (!activeSession) return null;
 
   const history = Array.isArray(state.dbData.workouts) ? state.dbData.workouts : [];
+  const mySplit = String(activeSession.splitDay || '').toUpperCase();
+
   const sameSplit = history.filter(w => {
     const s = String(w.split || '').toUpperCase();
-    const mySplit = String(activeSession.splitDay || '').toUpperCase();
-    return (s === mySplit || (mySplit === 'А' && s === 'A') || (mySplit === 'Б' && s === 'B'));
+    if (!s) return false;
+    if (s === mySplit) return true;
+    if (mySplit === 'А' && s === 'A') return true;
+    if (mySplit === 'Б' && s === 'B') return true;
+    return false;
   });
 
   let avgDurationMin = 55;
 
-  if (sameSplit.length >= 2) {
+  if (sameSplit.length >= 1) {
     const recent = sameSplit.slice(-5);
     const sum = recent.reduce((acc, w) => acc + (parseFloat(w.durationMin) || 0), 0);
     if (sum > 0) avgDurationMin = Math.round(sum / recent.length);
@@ -899,7 +903,7 @@ function renderIntensifierBanner() {
     el.style.display = 'flex';
     el.innerHTML = `
       <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span>
-      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> тап по пилюле времени в топбаре откроет секундомер. Запись — <b>[✓ ЗАПИСАТЬ КЛАСТЕР]</b>.</div>
+      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> тап по пилюле ⏱ в топбаре или по круглой кнопке внизу откроет секундомер. Запись — <b>[✓ ЗАПИСАТЬ КЛАСТЕР]</b>.</div>
     `;
   } else {
     el.style.display = 'none';
@@ -1151,16 +1155,24 @@ function renderPAB() {
 
   if (isSpecialActive && currentEx.isCluster) {
     const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
+    const totalReps = clusterInfo.totalReps;
     pab.innerHTML = `
       <div class="live-pab-content">
-        <button class="live-pab-method-btn" id="livePabRecordCluster" type="button">
-          <span class="live-pab-primary-label">ЗАПИСАТЬ КЛАСТЕР ${escapeHtml(clusterInfo.schemeText)}</span>
-          <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг · открой пилюлю ⏱ в топбаре для секундомера</span>
-        </button>
+        <div class="live-pab-method-combo">
+          <button class="live-pab-method-btn" id="livePabRecordCluster" type="button">
+            <span class="live-pab-primary-label">ЗАПИСАТЬ КЛАСТЕР ${escapeHtml(clusterInfo.schemeText)}</span>
+            <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг · ~${totalReps} повт</span>
+          </button>
+          <button class="live-pab-clock-round" id="livePabBigClockBtn" type="button" aria-label="Открыть секундомер">
+            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+          </button>
+        </div>
       </div>
     `;
     const recBtn = document.getElementById('livePabRecordCluster');
     if (recBtn) recBtn.onclick = () => openClusterSheet();
+    const clockBtn = document.getElementById('livePabBigClockBtn');
+    if (clockBtn) clockBtn.onclick = () => openBigClockOverlay();
     return;
   }
 
@@ -1168,14 +1180,21 @@ function renderPAB() {
     const dropEstimate = roundToGymStep(activeSession.draftSet.weight * 0.75);
     pab.innerHTML = `
       <div class="live-pab-content">
-        <button class="live-pab-method-btn" id="livePabRecordDrop" type="button">
-          <span class="live-pab-primary-label">ЗАПИСАТЬ ДРОП-СЕТ</span>
-          <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг → ~${dropEstimate} кг</span>
-        </button>
+        <div class="live-pab-method-combo">
+          <button class="live-pab-method-btn" id="livePabRecordDrop" type="button">
+            <span class="live-pab-primary-label">ЗАПИСАТЬ ДРОП-СЕТ</span>
+            <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг → ~${dropEstimate} кг</span>
+          </button>
+          <button class="live-pab-clock-round" id="livePabBigClockBtn" type="button" aria-label="Открыть секундомер">
+            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+          </button>
+        </div>
       </div>
     `;
     const recBtn = document.getElementById('livePabRecordDrop');
     if (recBtn) recBtn.onclick = () => openDropSheet();
+    const clockBtn = document.getElementById('livePabBigClockBtn');
+    if (clockBtn) clockBtn.onclick = () => openBigClockOverlay();
     return;
   }
 
@@ -1321,12 +1340,6 @@ function commitRecordedSet(partialSet) {
   const nowMs = Date.now();
   const startedAtMs = activeSession.lastRestEndMs || nowMs;
 
-  // V2.2: считаем чистый отдых для терминала
-  if (activeSession.lastRestEndMs > 0) {
-    const restSec = Math.max(0, Math.round((startedAtMs - activeSession.lastRestEndMs) / 1000));
-    // Ничего не логируем здесь — общий отдых считается между сетами.
-  }
-
   const recordedSet = {
     setNum: partialSet.setNum,
     weight: partialSet.weight,
@@ -1378,7 +1391,7 @@ function commitRecordedSet(partialSet) {
 }
 
 /* =========================================================
- * CLUSTER SHEET (компакт V2.2)
+ * CLUSTER SHEET
  * ========================================================= */
 
 function openClusterSheet() {
@@ -1417,17 +1430,20 @@ function renderClusterSheet() {
   if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.weight} кг · рабочий подход`;
 
   container.innerHTML = sheetState.segments.map((seg, idx) => `
-    <div class="live-sheet-row">
-      <span class="live-sheet-row-label">Сег ${idx + 1}</span>
-      <div class="live-sheet-row-main">
+    <div class="live-sheet-row-2">
+      <div class="live-sheet-row-2-top">
+        <span class="live-sheet-row-2-label">Сегмент ${idx + 1}</span>
+        <div class="live-sheet-rir">
+          ${['0','1','2','3+'].map(v => `
+            <button class="live-sheet-rir-chip ${seg.rir === v ? 'active' : ''}" data-cluster-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="live-sheet-row-2-bottom">
         <button class="live-sheet-mini-btn" data-cluster-reps="${idx}" data-delta="-1" type="button">−</button>
         <span class="live-sheet-value">${seg.reps}</span>
         <button class="live-sheet-mini-btn" data-cluster-reps="${idx}" data-delta="+1" type="button">+</button>
-      </div>
-      <div class="live-sheet-rir">
-        ${['0','1','2','3+'].map(v => `
-          <button class="live-sheet-rir-chip ${seg.rir === v ? 'active' : ''}" data-cluster-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
-        `).join('')}
+        <span class="live-sheet-unit">повт</span>
       </div>
     </div>
   `).join('');
@@ -1500,7 +1516,7 @@ function saveClusterSet() {
 }
 
 /* =========================================================
- * DROP SHEET (компакт V2.2)
+ * DROP SHEET (V2.3: двухстрочные карточки)
  * ========================================================= */
 
 function openDropSheet() {
@@ -1550,21 +1566,24 @@ function renderDropSheet() {
   }
 
   dropsContainer.innerHTML = sheetState.drops.map((drop, idx) => `
-    <div class="live-sheet-row">
-      <span class="live-sheet-row-label">Дроп ${idx + 1}</span>
-      <div class="live-sheet-row-main">
+    <div class="live-sheet-row-2">
+      <div class="live-sheet-row-2-top">
+        <span class="live-sheet-row-2-label">Дроп ${idx + 1}</span>
+        <div class="live-sheet-rir">
+          ${['0','1','2','3+'].map(v => `
+            <button class="live-sheet-rir-chip ${drop.rir === v ? 'active' : ''}" data-drop-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="live-sheet-row-2-bottom">
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="-2.5" type="button">−</button>
         <span class="live-sheet-value">${drop.weight}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="+2.5" type="button">+</button>
-        <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.65rem; margin:0 2px;">кг ×</span>
+        <span class="live-sheet-unit">кг ×</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="-1" type="button">−</button>
         <span class="live-sheet-value">${drop.reps}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="+1" type="button">+</button>
-      </div>
-      <div class="live-sheet-rir">
-        ${['0','1','2','3+'].map(v => `
-          <button class="live-sheet-rir-chip ${drop.rir === v ? 'active' : ''}" data-drop-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
-        `).join('')}
+        <span class="live-sheet-unit">повт</span>
       </div>
     </div>
   `).join('');
@@ -1751,7 +1770,6 @@ function stopRestTimer() {
   if (!activeSession) return;
   activeSession.restState.isActive = false;
   activeSession.restState.endsAtMs = 0;
-  // V2.2: фиксируем время окончания отдыха
   activeSession.lastRestEndMs = Date.now();
   if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
   persistActiveSession();
@@ -1832,16 +1850,10 @@ function calculateWorkoutSummaryMetrics() {
   let workTonnageKg = 0;
   let rirSum = 0;
   let rirCount = 0;
-
-  // V2.2: честный отдых по startedAtMs/recordedAtMs
   const workRestDiffs = [];
 
   activeSession.exercises.forEach(ex => {
-    // Собираем рабочие сеты по времени
-    const workSets = ex.completedSets.filter(s => s.category === 'Рабочий');
     const allSets = ex.completedSets;
-
-    // отдых между сетами внутри упражнения
     const ordered = [...allSets].sort((a, b) => (a.recordedAtMs || 0) - (b.recordedAtMs || 0));
     for (let i = 1; i < ordered.length; i++) {
       const prev = ordered[i - 1];
@@ -1920,9 +1932,9 @@ function renderCloseoutSummaryBox() {
   summaryBox.innerHTML = `
     <div>• Сессия: <b>${escapeHtml(activeSession.title)}</b> (${escapeHtml(m.date)})</div>
     <div>• Длительность: <b>${m.durationMin} мин</b> • Плотность: <b>${m.density} кг/мин</b></div>
-    <div>• Подходы: <b>${m.totalWorkSets} рабочих</b> (разминка: ${m.totalWarmupSets}) • Ср. RIR: <b>${m.avgRir}</b></div>
-    <div>• Рабочий тоннаж: <b>${(m.workTonnage / 1000).toFixed(2)} т</b> (${Math.round(m.workTonnage)} кг)</div>
-    <div>• Средний отдых: <b>${m.avgRestSec > 0 ? m.avgRestSec + ' сек' : 'н/д'}</b> • Нагрузка (Фостер): <b>${m.trainingLoad} ед.</b></div>
+    <div>• Подходы: <b>${m.totalWorkSets} раб.</b> (разм: ${m.totalWarmupSets}) • Ср. RIR: <b>${m.avgRir}</b></div>
+    <div>• Тоннаж: <b>${(m.workTonnage / 1000).toFixed(2)} т</b> (${Math.round(m.workTonnage)} кг)</div>
+    <div>• Ср. отдых: <b>${m.avgRestSec > 0 ? m.avgRestSec + ' сек' : 'н/д'}</b> • Фостер: <b>${m.trainingLoad} ед.</b></div>
   `;
 }
 
@@ -1980,7 +1992,7 @@ async function finalizeAndSyncLiveWorkout() {
   if (statusEl) {
     statusEl.style.display = 'block';
     statusEl.style.color = 'var(--md-sys-color-primary)';
-    statusEl.innerText = '⏳ Отправка подходов (Log) и сводки тренировки (Workouts) в Google Таблицы...';
+    statusEl.innerText = '⏳ Отправка подходов и сводки в Google Таблицы...';
   }
 
   logToTerminal('LIVE_SYNC_START', `Отправка ${flatSets.length} сетов за ${activeSession.date}...`, 'info');
@@ -2053,7 +2065,6 @@ function bindLiveWorkoutDomEvents() {
   const finishOpenBtn = document.getElementById('liveOpenFinishModalBtn');
   if (finishOpenBtn) finishOpenBtn.onclick = () => openCloseoutModal();
 
-  // V2.2: тап по пилюле времени → открыть Big Clock
   const timerPillBtn = document.getElementById('liveHeaderTimer');
   if (timerPillBtn) timerPillBtn.onclick = () => openBigClockOverlay();
 
@@ -2240,17 +2251,14 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
-  // Big Clock close
   const bigClockClose = document.getElementById('liveBigClockClose');
   if (bigClockClose) bigClockClose.onclick = () => closeModal('liveBigClockOverlay');
 
-  // Cluster sheet buttons
   const clusterSaveBtn = document.getElementById('liveClusterSaveBtn');
   const clusterCancelBtn = document.getElementById('liveClusterCancelBtn');
   if (clusterSaveBtn) clusterSaveBtn.onclick = () => saveClusterSet();
   if (clusterCancelBtn) clusterCancelBtn.onclick = () => closeModal('liveClusterSheet');
 
-  // Drop sheet buttons
   const dropSaveBtn = document.getElementById('liveDropSaveBtn');
   const dropCancelBtn = document.getElementById('liveDropCancelBtn');
   const dropAddBtn = document.getElementById('liveDropAddBtn');
@@ -2258,7 +2266,6 @@ function bindLiveWorkoutDomEvents() {
   if (dropCancelBtn) dropCancelBtn.onclick = () => closeModal('liveDropSheet');
   if (dropAddBtn) dropAddBtn.onclick = () => addDropStep();
 
-  // Timer prefs
   const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
   const saveTimerPrefsBtn = document.getElementById('saveLiveTimerSettingsBtn');
   if (openTimerPrefsBtn) {
