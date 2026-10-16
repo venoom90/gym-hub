@@ -332,3 +332,84 @@ export const MUSCLE_ADVICE = {
   'Ягодичные':       'ягодичный мост или гиперэкстензия',
   'Икры':            'подъёмы на носки стоя'
 };
+
+/* =========================================================================
+ * RIR-ПАРСИНГ (Шаг 2.3, V5.2.1)
+ * -------------------------------------------------------------------------
+ * Проблема: isMaintenanceExercise ранее использовал rir.includes('3'),
+ * что давало ложные срабатывания на диапазонах ("1-3"), составных ("+13")
+ * и т.д. Ниже — чистый парсер RIR-строк в диапазон {min, max, mid}.
+ * ========================================================================= */
+
+/**
+ * Парсит RIR-строку в диапазон.
+ *
+ * Поддерживаемые форматы:
+ *   "1-2"        → { min: 1, max: 2, mid: 1.5 }
+ *   "+2..+3"     → { min: 2, max: 3, mid: 2.5 }
+ *   "2..3"       → { min: 2, max: 3, mid: 2.5 }
+ *   "3"          → { min: 3, max: 3, mid: 3 }
+ *   "+3"         → { min: 3, max: 3, mid: 3 }
+ *   "3+"         → { min: 3, max: 99, mid: 51 }
+ *   "RIR 3"      → { min: 3, max: 3, mid: 3 }
+ *   "4–5"        → { min: 4, max: 5, mid: 4.5 } (en-dash)
+ *
+ * @param {string} rirStr
+ * @returns {{min: number, max: number, mid: number} | null}
+ */
+export function parseRirRange(rirStr) {
+  if (rirStr === null || rirStr === undefined) return null;
+
+  let s = String(rirStr).trim();
+  if (!s) return null;
+
+  // Убираем префикс "RIR " (в любом регистре) и ведущий "+"
+  s = s.replace(/^rir\s*/i, '').trim();
+  s = s.replace(/^\+/, '').trim();
+  if (!s) return null;
+
+  // Первая цифра + опционально разделитель (".." / "..." / "-" / "–" / "—") + вторая цифра
+  // + опционально trailing "+" (для "3+" = открытый диапазон)
+  const m = s.match(/^(\d+)(?:\s*(?:\.{2,}|[-–—])\s*\+?(\d+))?(\+)?/);
+  if (!m) return null;
+
+  const min = parseInt(m[1], 10);
+  if (isNaN(min)) return null;
+
+  let max;
+  if (m[2] !== undefined) {
+    max = parseInt(m[2], 10);
+    if (isNaN(max) || max < min) max = min;
+  } else if (m[3] === '+') {
+    max = 99;
+  } else {
+    max = min;
+  }
+
+  return { min, max, mid: (min + max) / 2 };
+}
+
+/**
+ * Является ли RIR-диапазон "поддерживающим" (maintenance).
+ *
+ * Критерий: нижняя граница диапазона >= 2.
+ * Т.е. вся зона RIR лежит в 2+ (не близко к отказу).
+ *
+ * Тест-кейсы:
+ *   "1-2"     → false (есть подходы на RIR 1)
+ *   "+2..+3"  → true  (нижняя 2)
+ *   "2-3"     → true
+ *   "1-3"     → false (исправлен старый баг!)
+ *   "+3..+4"  → true
+ *   "3+"      → true
+ *   "4-5"     → true
+ *   "мусор"   → false (не парсится → не maintenance)
+ *
+ * @param {string} rirStr
+ * @returns {boolean}
+ */
+export function isMaintenanceRir(rirStr) {
+  const parsed = parseRirRange(rirStr);
+  if (!parsed) return false;
+  return parsed.min >= 2;
+}

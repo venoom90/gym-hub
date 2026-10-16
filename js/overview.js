@@ -1,4 +1,4 @@
-import { state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml } from './state.js';
+import { state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, isMaintenanceRir } from './state.js';
 import { extractPeriodization } from './parser.js';
 import { startNewLiveWorkout } from './live_workout.js';
 
@@ -262,13 +262,37 @@ function openDaySummaryModal(date, session) {
   modal.style.display = 'flex';
 }
 
+/**
+ * V5.2.1 (Шаг 2.3): Проверка, что упражнение тренируется в режиме Maintenance.
+ *
+ * Проблема старой версии: rir.includes('3') давал ложные срабатывания на
+ * диапазонах ("1-3"), составных числах ("+13") и т.д.
+ *
+ * Новая логика:
+ *   1. Мышца — из нижней группы (квадрицепс / бицепс бедра / ягодичные).
+ *   2. ИЛИ в notes есть слово "поддерж"/"maintenance".
+ *   3. ИЛИ RIR-диапазон начинается с 2+ (через isMaintenanceRir).
+ *
+ * Тест-кейсы:
+ *   Нога + rir "1-2"     → false (не maintenance)
+ *   Нога + rir "2-3"     → true
+ *   Нога + rir "+3..+4"  → true
+ *   Нога + rir "1-3"     → false (исправлен старый баг!)
+ *   Нога + rir "3+"      → true
+ *   Верх + rir "3+"      → false (не нога)
+ *   Нога + notes "Поддерживающий объем" → true (по notes)
+ */
 function isMaintenanceExercise(ex, muscle) {
   const m = String(muscle || '').toLowerCase();
-  const notes = String(ex.notes || '').toLowerCase();
-  const rir = String(ex.rir || '');
   const isLegGroup = (m.includes('квадрицепс') || m.includes('бедр') || m.includes('ягодиц'));
-  const hasMaintNote = notes.includes('поддерж') || notes.includes('maintenance') || rir.includes('3');
-  return isLegGroup && hasMaintNote;
+  if (!isLegGroup) return false;
+
+  const notes = String(ex.notes || '').toLowerCase();
+  const hasMaintNote = notes.includes('поддерж') || notes.includes('maintenance');
+
+  const hasMaintRir = isMaintenanceRir(ex.rir);
+
+  return hasMaintNote || hasMaintRir;
 }
 
 function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode, waveIndex, cycleWeek, catalogMap) {
