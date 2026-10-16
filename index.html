@@ -13,7 +13,7 @@
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script type="module" src="https://esm.sh/@material/web@1.5.1/all.js?bundle" crossorigin="anonymous"></script>
@@ -130,7 +130,9 @@
       border: 0;
     }
 
-    /* TOP BAR */
+    /* =========================================================
+     * GLOBAL HEADER / CONTAINER / CARDS
+     * ========================================================= */
     .top-bar {
       display: flex;
       justify-content: space-between;
@@ -204,7 +206,6 @@
     .tab-content { display: none; }
     .tab-content.active { display: flex; flex-direction: column; gap: 16px; }
 
-    /* CARDS */
     .m3-card {
       background: var(--md-sys-color-surface-container);
       border-radius: var(--md-sys-shape-corner-extra-large);
@@ -529,7 +530,6 @@
     }
     .recipe-warmup-row .material-symbols-outlined { font-size: 14px; color: var(--md-sys-color-outline-variant); }
 
-    /* RECIPE NOTE CHIPS (read-only) — в Plan Preview Modal */
     .recipe-notes-row {
       display: flex;
       gap: 6px;
@@ -593,7 +593,9 @@
       border: 1px solid var(--md-sys-color-primary);
     }
 
-    /* LIVE WORKOUT OVERLAY (V2.0 COMPACT) */
+    /* =========================================================
+     * LIVE WORKOUT OVERLAY (V2.1)
+     * ========================================================= */
     .live-workout-overlay {
       display: none;
       position: fixed;
@@ -606,7 +608,6 @@
       -webkit-overflow-scrolling: touch;
     }
 
-    /* Compact top bar (48px) */
     .live-top-bar {
       display: flex;
       align-items: center;
@@ -676,7 +677,7 @@
       max-width: 600px;
       width: 100%;
       margin: 0 auto;
-      padding: 10px 14px 108px 14px;
+      padding: 10px 14px 120px 14px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -711,10 +712,7 @@
       background: rgba(255,255,255,0.06);
       color: var(--md-sys-color-primary);
     }
-    .live-progress-arrow:disabled {
-      opacity: 0.3;
-      cursor: default;
-    }
+    .live-progress-arrow:disabled { opacity: 0.3; cursor: default; }
     .live-progress-arrow .material-symbols-outlined { font-size: 24px; }
 
     .live-progress-segments {
@@ -732,9 +730,7 @@
       transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
       min-width: 4px;
     }
-    .live-progress-segment.is-done {
-      background: var(--app-color-success);
-    }
+    .live-progress-segment.is-done { background: var(--app-color-success); }
     .live-progress-segment.is-current {
       background: var(--md-sys-color-primary);
       box-shadow: 0 0 6px rgba(168, 200, 255, 0.55);
@@ -760,13 +756,11 @@
       border: 1px solid rgba(255, 255, 255, 0.05);
       transition: padding var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-standard);
     }
-    .live-ex-header-card.is-collapsed {
-      padding: 8px 12px;
-    }
+    .live-ex-header-card.is-collapsed { padding: 10px 12px; }
 
     .live-ex-header-compact {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       gap: 8px;
       cursor: pointer;
       user-select: none;
@@ -778,11 +772,15 @@
       color: var(--md-sys-color-primary);
       font-size: 20px;
       flex-shrink: 0;
+      margin-top: 2px;
     }
 
     .live-ex-header-compact-text {
       flex: 1;
       min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
 
     .live-ex-name-compact {
@@ -793,13 +791,37 @@
       text-overflow: ellipsis;
     }
 
-    .live-ex-sub-compact {
-      font: 500 0.72rem/1.15 'Roboto';
+    .live-ex-compact-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    .live-compact-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font: 600 0.68rem/1 'Roboto';
+      padding: 3px 7px;
+      border-radius: var(--md-sys-shape-corner-small);
+      background: var(--md-sys-color-surface-container-high);
       color: var(--md-sys-color-on-surface-variant);
-      margin-top: 2px;
+      border: 1px solid var(--md-sys-color-outline-variant);
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      letter-spacing: 0.2px;
+    }
+    .live-compact-chip.is-primary {
+      color: var(--md-sys-color-primary);
+      border-color: rgba(168, 200, 255, 0.4);
+    }
+    .live-compact-chip.is-method {
+      color: var(--app-color-warning);
+      border-color: rgba(250, 204, 21, 0.45);
+      background: var(--app-color-warning-container);
+    }
+    .live-compact-chip.is-success {
+      color: var(--app-color-success);
+      border-color: rgba(120, 220, 156, 0.4);
     }
 
     .live-ex-header-full {
@@ -838,7 +860,7 @@
       line-height: 1.35;
     }
 
-    /* Note chips в Live Workout */
+    /* Note chips */
     .live-ex-notes-row {
       display: flex;
       gap: 8px;
@@ -909,7 +931,8 @@
     .live-current-set-row {
       display: flex;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
+      gap: 8px;
     }
 
     .live-current-set-label {
@@ -917,8 +940,34 @@
       letter-spacing: 0.6px;
       text-transform: uppercase;
       color: var(--md-sys-color-primary);
-      text-align: center;
+      flex: 1;
+      min-width: 0;
     }
+
+    .live-method-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      padding: 6px 10px;
+      border-radius: var(--md-sys-shape-corner-full);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface-variant);
+      font: 700 0.72rem/1 'Roboto';
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+    }
+    .live-method-chip .material-symbols-outlined { font-size: 14px; }
+    .live-method-chip.is-active {
+      background: var(--app-color-warning-container);
+      border-color: var(--app-color-warning);
+      color: var(--app-color-warning);
+    }
+    .live-method-chip[hidden] { display: none; }
 
     .live-cat-toggle-row {
       display: grid;
@@ -941,27 +990,6 @@
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
-    }
-
-    .live-method-toggle-btn {
-      width: 100%;
-      min-height: var(--app-touch-min);
-      border-radius: var(--md-sys-shape-corner-small);
-      border: 1px dashed var(--md-sys-color-outline-variant);
-      background: var(--md-sys-color-surface-container-high);
-      color: var(--md-sys-color-on-surface-variant);
-      font: var(--md-sys-typescale-label-large);
-      cursor: pointer;
-      padding: 8px 12px;
-      line-height: 1.3;
-      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
-                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-    }
-    .live-method-toggle-btn.active {
-      border-style: solid;
-      border-color: var(--app-color-warning);
-      background: var(--app-color-warning-container);
-      color: var(--app-color-warning);
     }
 
     .live-stepper-block { display: flex; flex-direction: column; gap: 6px; }
@@ -1036,10 +1064,7 @@
                   border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
     .live-rir-chip .live-rir-num { font: 700 1rem/1 'Roboto'; }
-    .live-rir-chip .live-rir-label {
-      font: 500 0.68rem/1 'Roboto';
-      opacity: 0.85;
-    }
+    .live-rir-chip .live-rir-label { font: 500 0.68rem/1 'Roboto'; opacity: 0.85; }
     .live-rir-chip.active {
       background: var(--md-sys-color-secondary-container);
       color: var(--md-sys-color-on-secondary-container);
@@ -1137,10 +1162,11 @@
       background: var(--md-sys-color-surface-container-high);
       font: var(--md-sys-typescale-body-medium);
       gap: 8px;
+      transition: background-color var(--md-sys-motion-duration-short4);
     }
 
     .live-delete-set-btn {
-      width: 40px;
+      min-width: 40px;
       height: 40px;
       border-radius: var(--md-sys-shape-corner-full);
       border: none;
@@ -1151,9 +1177,23 @@
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
+      padding: 0 8px;
+      gap: 4px;
+      font: 700 0.78rem/1 'Roboto';
+      letter-spacing: 0.3px;
+      transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
+                  min-width var(--md-sys-motion-duration-short3);
     }
     .live-delete-set-btn:hover { background: rgba(255, 180, 171, 0.12); }
+    .live-delete-set-btn.is-confirm {
+      background: var(--md-sys-color-error-container);
+      color: var(--md-sys-color-on-error-container);
+      border: 1px solid var(--md-sys-color-error);
+    }
+    .live-delete-set-btn.is-confirm .delete-label {
+      display: inline;
+    }
+    .live-delete-set-btn .delete-label { display: none; }
 
     /* Persistent Action Bar (PAB) */
     .live-pab {
@@ -1182,33 +1222,56 @@
       margin: 0 auto;
     }
 
-    .live-pab-record-btn {
+    .live-pab-record-btn,
+    .live-pab-completed-btn,
+    .live-pab-method-btn {
       width: 100%;
       min-height: 72px;
       border-radius: var(--md-sys-shape-corner-large);
       border: none;
-      background: var(--app-color-success);
-      color: #062e16;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 2px;
+      gap: 3px;
       cursor: pointer;
       padding: 8px 12px;
       transition: opacity var(--md-sys-motion-duration-short3);
+    }
+    .live-pab-record-btn {
+      background: var(--app-color-success);
+      color: #062e16;
       box-shadow: 0 2px 8px rgba(120, 220, 156, 0.25);
     }
-    .live-pab-record-btn:active { opacity: 0.88; }
+    .live-pab-completed-btn {
+      background: var(--md-sys-color-primary);
+      color: #00325e;
+      box-shadow: 0 2px 8px rgba(168, 200, 255, 0.25);
+    }
+    .live-pab-method-btn {
+      background: var(--app-color-warning);
+      color: #3a2a06;
+      box-shadow: 0 2px 8px rgba(250, 204, 21, 0.25);
+    }
+    .live-pab-record-btn:active,
+    .live-pab-completed-btn:active,
+    .live-pab-method-btn:active { opacity: 0.88; }
+
     .live-pab-primary-label {
       font: 700 0.95rem/1.15 'Roboto';
       letter-spacing: 0.4px;
       text-align: center;
     }
     .live-pab-secondary-label {
-      font: 600 0.85rem/1.2 'Roboto';
-      opacity: 0.78;
+      font: 600 0.78rem/1.2 'Roboto';
+      opacity: 0.82;
       text-align: center;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      word-break: break-word;
+      max-width: 100%;
     }
 
     .live-pab-rest-info {
@@ -1265,39 +1328,42 @@
       border-color: var(--md-sys-color-primary);
     }
 
-    .live-pab-completed-btn {
-      width: 100%;
+    .live-pab-method-row {
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .live-pab-clock-btn {
       min-height: 72px;
       border-radius: var(--md-sys-shape-corner-large);
-      border: none;
-      background: var(--md-sys-color-primary);
-      color: #00325e;
+      border: 1.5px solid var(--md-sys-color-primary);
+      background: rgba(0, 70, 139, 0.35);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      color: var(--md-sys-color-primary);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       gap: 2px;
       cursor: pointer;
-      padding: 8px 12px;
-      letter-spacing: 0.4px;
+      padding: 4px;
       transition: opacity var(--md-sys-motion-duration-short3);
-      box-shadow: 0 2px 8px rgba(168, 200, 255, 0.25);
     }
-    .live-pab-completed-btn:active { opacity: 0.88; }
-    .live-pab-completed-btn .live-pab-primary-label {
-      font-size: 0.95rem;
-    }
-    .live-pab-completed-btn .live-pab-secondary-label {
-      font-size: 0.8rem;
-      opacity: 0.82;
-      font-weight: 600;
+    .live-pab-clock-btn:active { opacity: 0.85; }
+    .live-pab-clock-btn .material-symbols-outlined { font-size: 24px; }
+    .live-pab-clock-label {
+      font: 700 0.72rem/1 'Roboto';
+      letter-spacing: 0.4px;
     }
 
-    /* Cluster pause floating button */
+    /* Cluster pause floating button (fallback для совместимости) */
     .live-cluster-float-btn {
       position: fixed;
       right: 16px;
-      bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+      bottom: calc(120px + env(safe-area-inset-bottom, 0px));
       width: 58px;
       height: 58px;
       border-radius: var(--md-sys-shape-corner-full);
@@ -1306,25 +1372,233 @@
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       color: var(--app-color-warning);
-      display: flex;
+      display: none;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       z-index: 25;
       box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-      animation: clusterFloatIn var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
     }
-    .live-cluster-float-btn:active { opacity: 0.85; }
-    .live-cluster-float-btn .material-symbols-outlined { font-size: 22px; }
-    .live-cluster-float-label {
-      font: 700 0.62rem/1 'Roboto';
-      margin-top: 1px;
+
+    /* =========================================================
+     * BIG CLOCK OVERLAY
+     * ========================================================= */
+    .live-big-clock-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #000000;
+      z-index: 1050;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .live-big-clock-close {
+      position: absolute;
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      right: 16px;
+      width: 56px;
+      height: 56px;
+      border-radius: var(--md-sys-shape-corner-full);
+      border: none;
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .live-big-clock-close .material-symbols-outlined { font-size: 28px; }
+
+    .live-big-clock-phase {
+      font: 700 1rem/1 'Roboto';
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(168, 200, 255, 0.65);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .live-big-clock-digits {
+      font-family: 'Roboto Mono', ui-monospace, monospace;
+      font-size: clamp(10rem, 34vw, 20rem);
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+      cursor: pointer;
+      user-select: none;
+      transition: color var(--md-sys-motion-duration-short4), text-shadow var(--md-sys-motion-duration-short4);
+      text-align: center;
+    }
+    .live-big-clock-digits.is-done {
+      color: var(--app-color-success);
+      text-shadow: 0 0 40px rgba(120, 220, 156, 0.55);
+    }
+
+    .live-big-clock-hint {
+      font: 500 0.85rem/1.4 'Roboto';
+      color: rgba(255, 255, 255, 0.55);
+      margin-top: 28px;
+      text-align: center;
+      max-width: 320px;
       letter-spacing: 0.3px;
     }
-    @keyframes clusterFloatIn {
-      from { opacity: 0; transform: translateY(10px) scale(0.9); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
+
+    /* =========================================================
+     * BOTTOM SHEETS for cluster / drop
+     * ========================================================= */
+    .live-sheet-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 1100;
+      align-items: flex-end;
+      justify-content: center;
+      animation: fadeIn var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    }
+    .live-sheet {
+      background: var(--md-sys-color-surface-container);
+      width: 100%;
+      max-width: 600px;
+      border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;
+      padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: var(--md-sys-elevation-level3);
+      animation: slideUp var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+      max-height: 88vh;
+      overflow-y: auto;
+    }
+    .live-sheet-handle {
+      width: 40px;
+      height: 4px;
+      border-radius: var(--md-sys-shape-corner-full);
+      background: var(--md-sys-color-outline-variant);
+      align-self: center;
+      margin-bottom: 2px;
+    }
+    .live-sheet-title {
+      font: var(--md-sys-typescale-title-medium);
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+    }
+    .live-sheet-subtitle {
+      font: var(--md-sys-typescale-body-small);
+      color: var(--md-sys-color-on-surface-variant);
+      margin-top: -6px;
+    }
+
+    .live-sheet-row {
+      display: grid;
+      grid-template-columns: 80px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: var(--md-sys-shape-corner-medium);
+      background: var(--md-sys-color-surface-container-high);
+    }
+    .live-sheet-row-label {
+      font: 700 0.75rem/1.15 'Roboto';
+      letter-spacing: 0.4px;
+      color: var(--md-sys-color-on-surface-variant);
+      text-transform: uppercase;
+    }
+    .live-sheet-row-main {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .live-sheet-mini-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: var(--md-sys-shape-corner-small);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+      font: 700 1rem/1 'Roboto';
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color var(--md-sys-motion-duration-short2);
+    }
+    .live-sheet-mini-btn:active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+    }
+
+    .live-sheet-value {
+      font: 700 1.35rem/1 'Roboto';
+      color: var(--md-sys-color-primary);
+      min-width: 44px;
+      text-align: center;
+      letter-spacing: -0.4px;
+    }
+
+    .live-sheet-rir {
+      display: flex;
+      gap: 4px;
+    }
+    .live-sheet-rir-chip {
+      min-width: 34px;
+      height: 34px;
+      border-radius: var(--md-sys-shape-corner-small);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container);
+      color: var(--md-sys-color-on-surface-variant);
+      font: 700 0.72rem/1 'Roboto';
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color var(--md-sys-motion-duration-short2);
+    }
+    .live-sheet-rir-chip.active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+    }
+
+    .live-sheet-add-btn {
+      min-height: 48px;
+      width: 100%;
+      border-radius: var(--md-sys-shape-corner-small);
+      border: 1px dashed var(--md-sys-color-outline-variant);
+      background: transparent;
+      color: var(--md-sys-color-primary);
+      font: 600 0.85rem/1 'Roboto';
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px;
+    }
+    .live-sheet-add-btn:active { background: rgba(168, 200, 255, 0.08); }
+
+    .live-sheet-summary {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: var(--md-sys-shape-corner-medium);
+      padding: 10px 12px;
+      font: var(--md-sys-typescale-body-small);
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.5;
+    }
+    .live-sheet-summary b { color: var(--md-sys-color-primary); }
+
+    .live-sheet-actions {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 10px;
+      margin-top: 4px;
     }
 
     /* ANATOMICAL HEATMAP */
@@ -1935,9 +2209,6 @@
       gap: 10px;
       margin-top: 4px;
     }
-
-    /* Live modal placeholder styling for rest timer overlay (не используется — оставлено на будущее) */
-    .live-rest-bar-legacy { display: none; }
   </style>
 </head>
 <body>
@@ -2203,7 +2474,7 @@
             Динамика тоннажа (тонны)
           </span>
           <button type="button" class="help-trigger-btn" data-help-id="help-tonnage" aria-label="Как читать тоннаж?" title="Как читать тоннаж?">
-            <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
+            <span class="material-symbols-outlined" aria-hidden="true">outline</span>
           </button>
         </div>
         <div class="chart-container">
@@ -2475,11 +2746,10 @@
   </div>
 
   <!-- =========================================================================
-       ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY V2.0)
+       ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY V2.1)
        ========================================================================= -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
 
-    <!-- Compact top bar (48px) -->
     <div class="live-top-bar">
       <button id="liveMinimizeBtn" class="live-icon-btn" aria-label="Свернуть тренировку" title="Свернуть">
         <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
@@ -2494,7 +2764,6 @@
 
     <div class="live-body-container">
 
-      <!-- Progress Strip (44px) -->
       <div class="live-progress-strip" role="navigation" aria-label="Навигация по упражнениям">
         <button id="livePrevExBtn" class="live-progress-arrow" aria-label="Предыдущее упражнение">
           <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
@@ -2506,17 +2775,14 @@
         </button>
       </div>
 
-      <!-- Collapsible exercise header -->
       <div id="liveExHeaderCard" class="live-ex-header-card">
-        <!-- Compact (shown when collapsed) -->
         <div id="liveExHeaderCompact" class="live-ex-header-compact" style="display:none;" role="button" tabindex="0" aria-label="Развернуть заголовок упражнения">
           <span class="material-symbols-outlined live-ex-header-chevron" aria-hidden="true">expand_more</span>
           <div class="live-ex-header-compact-text">
             <div id="liveExNameCompact" class="live-ex-name-compact">Упражнение</div>
-            <div id="liveExSubCompact" class="live-ex-sub-compact">план · посл.</div>
+            <div id="liveExCompactChips" class="live-ex-compact-chips"></div>
           </div>
         </div>
-        <!-- Full (shown when expanded) -->
         <div id="liveExHeaderFull" class="live-ex-header-full">
           <div class="live-ex-header-title-row">
             <div id="liveExName" class="live-ex-name-full">Упражнение</div>
@@ -2541,21 +2807,18 @@
 
       <div id="liveIntensifierBanner" class="live-intensifier-banner" role="status"></div>
 
-      <!-- Active controls -->
       <div id="liveActiveSetControlsCard" class="live-controls-card">
         <div class="live-current-set-row">
           <span id="liveCurrentSetLabel" class="live-current-set-label">РАЗМИНКА: ШАГ 1</span>
+          <button id="liveMethodToggleBtn" class="live-method-chip" type="button" hidden>
+            <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
+            <span id="liveMethodChipText">Кластер</span>
+          </button>
         </div>
 
         <div class="live-cat-toggle-row">
           <button id="liveCatWarmupBtn" class="live-cat-btn active">Разминка</button>
           <button id="liveCatWorkBtn" class="live-cat-btn">Рабочий</button>
-        </div>
-
-        <div id="liveMethodToggleRow" style="display:none;">
-          <button id="liveToggleSpecialMethodBtn" class="live-method-toggle-btn">
-            Обычный рабочий сет
-          </button>
         </div>
 
         <div class="live-stepper-block">
@@ -2599,7 +2862,6 @@
         </div>
       </div>
 
-      <!-- Exercise completed status (PAB has the action) -->
       <div id="liveExCompletedCard" class="live-complete-ex-card">
         <div id="liveExCompletedTitle" class="live-complete-title">✅ Упражнение выполнено!</div>
         <button id="liveAddBonusSetBtn" class="live-method-toggle-btn" style="margin-top:2px;">
@@ -2607,7 +2869,6 @@
         </button>
       </div>
 
-      <!-- Journal with groups -->
       <div class="live-history-groups-container">
         <div id="liveWarmupGroup" class="live-history-group" data-group="warmup" style="display:none;">
           <button type="button" class="live-history-group-header" id="liveWarmupGroupHeader" aria-expanded="false">
@@ -2630,17 +2891,90 @@
 
     </div>
 
-    <!-- Persistent Action Bar (PAB) -->
-    <div id="liveBottomActionBar" class="live-pab" role="toolbar" aria-label="Основное действие">
-      <!-- Content injected by JS -->
-    </div>
+    <div id="liveBottomActionBar" class="live-pab" role="toolbar" aria-label="Основное действие"></div>
 
-    <!-- Cluster pause floating button -->
     <button id="liveClusterPauseBtn" class="live-cluster-float-btn" style="display:none;" aria-label="Кластерная микропауза" title="Микропауза для кластера">
       <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
       <span class="live-cluster-float-label" id="liveClusterFloatLabel">20с</span>
     </button>
 
+  </div>
+
+  <!-- =========================================================================
+       BIG CLOCK OVERLAY — полноэкранные часы для кластеров/дропов
+       ========================================================================= -->
+  <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Большие часы паузы">
+    <button id="liveBigClockClose" class="live-big-clock-close" aria-label="Закрыть часы">
+      <span class="material-symbols-outlined" aria-hidden="true">close</span>
+    </button>
+    <div id="liveBigClockPhase" class="live-big-clock-phase">ПАУЗА 20 СЕК</div>
+    <div id="liveBigClockDigits" class="live-big-clock-digits">20</div>
+    <div class="live-big-clock-hint">Тап по цифрам — перезапустить отсчёт. Кнопка ✕ или системный «Назад» — вернуться к тренировке.</div>
+  </div>
+
+  <!-- =========================================================================
+       BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА
+       ========================================================================= -->
+  <div id="liveClusterSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveClusterSheetTitle">
+    <div class="live-sheet">
+      <div class="live-sheet-handle" aria-hidden="true"></div>
+      <div class="live-sheet-title" id="liveClusterSheetTitle">Запись кластера</div>
+      <div class="live-sheet-subtitle" id="liveClusterSheetSubtitle">Кластер 4+3+2 @ 55 кг</div>
+
+      <div id="liveClusterSegmentsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
+
+      <div class="live-sheet-summary" id="liveClusterSummary"></div>
+
+      <div class="live-sheet-actions">
+        <md-outlined-button id="liveClusterCancelBtn">Отмена</md-outlined-button>
+        <md-filled-button id="liveClusterSaveBtn">
+          <span class="material-symbols-outlined" slot="icon" aria-hidden="true">check</span>
+          Сохранить
+        </md-filled-button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА
+       ========================================================================= -->
+  <div id="liveDropSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveDropSheetTitle">
+    <div class="live-sheet">
+      <div class="live-sheet-handle" aria-hidden="true"></div>
+      <div class="live-sheet-title" id="liveDropSheetTitle">Запись дроп-сета</div>
+      <div class="live-sheet-subtitle" id="liveDropSheetSubtitle"></div>
+
+      <div id="liveDropMainRow" class="live-sheet-row">
+        <span class="live-sheet-row-label">Основной</span>
+        <div class="live-sheet-row-main">
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="-2.5">−</button>
+          <span class="live-sheet-value" id="liveDropMainWeight">55</span>
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="+2.5">+</button>
+          <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.75rem;">кг ×</span>
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="-1">−</button>
+          <span class="live-sheet-value" id="liveDropMainReps">10</span>
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="+1">+</button>
+        </div>
+        <div class="live-sheet-rir" id="liveDropMainRir"></div>
+      </div>
+
+      <div id="liveDropDropsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
+
+      <button type="button" id="liveDropAddBtn" class="live-sheet-add-btn">
+        <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">add_circle</span>
+        Добавить ещё дроп (сброс веса ещё на 25%)
+      </button>
+
+      <div class="live-sheet-summary" id="liveDropSummary"></div>
+
+      <div class="live-sheet-actions">
+        <md-outlined-button id="liveDropCancelBtn">Отмена</md-outlined-button>
+        <md-filled-button id="liveDropSaveBtn">
+          <span class="material-symbols-outlined" slot="icon" aria-hidden="true">check</span>
+          Сохранить
+        </md-filled-button>
+      </div>
+    </div>
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ -->
@@ -2710,6 +3044,10 @@
           <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза, сек:</label>
           <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5">
         </div>
+        <div>
+          <label for="prefTimerDrop" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Пауза на сброс веса в дроп-сете, сек:</label>
+          <input type="number" id="prefTimerDrop" class="m3-input" value="15" step="5">
+        </div>
       </div>
       <div style="display:flex; justify-content:flex-end; margin-top:8px;">
         <md-filled-button id="saveLiveTimerSettingsBtn">Сохранить тайминги</md-filled-button>
@@ -2717,9 +3055,7 @@
     </div>
   </div>
 
-  <!-- =========================================================================
-       BOTTOM SHEET для редактирования заметок упражнения
-       ========================================================================= -->
+  <!-- BOTTOM SHEET для редактирования заметок упражнения -->
   <div id="liveNotesSheet" class="bottom-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveNotesSheetTitle">
     <div class="bottom-sheet">
       <div class="bottom-sheet-handle" aria-hidden="true"></div>
