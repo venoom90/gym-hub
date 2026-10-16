@@ -89,6 +89,14 @@ export function renderSyncModule() {
   if (state.parsedWorkout && state.parsedWorkout.sets && state.parsedWorkout.sets.length > 0) {
     renderParsedWorkoutView();
   }
+
+  // V5.4.2: перерисовка терминала из буфера при открытии вкладки
+  // (в Live Workout лог пишется в память, но DOM терминала ещё может быть не готов)
+  const box = document.getElementById('syncTerminalLogs');
+  if (box && terminalLogsBuffer.length > 0) {
+    box.innerText = terminalLogsBuffer.join('\n');
+    box.scrollTop = box.scrollHeight;
+  }
 }
 
 function populateDeleteWorkoutSelector() {
@@ -194,8 +202,14 @@ async function handleDeleteWorkoutByDate() {
   }
 }
 
-function logToTerminal(stage, message, level = 'info') {
-  const time = new Date().toLocaleTimeString('ru-RU', { hour12: false }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+/**
+ * V5.4.2: публичный логгер терминала.
+ * Вызывается из sync.js и live_workout.js.
+ * Всегда пишет в in-memory buffer; DOM-терминал обновляется, если открыт.
+ */
+export function logToTerminal(stage, message, level = 'info') {
+  const now = new Date();
+  const time = now.toLocaleTimeString('ru-RU', { hour12: false }) + '.' + String(now.getMilliseconds()).padStart(3, '0');
   const icon = level === 'error' ? '❌' : (level === 'success' ? '✅' : 'ℹ️');
   const line = `[${time}] ${icon} [${stage}] ${message}`;
   

@@ -1,13 +1,11 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V1.5.0 MODAL MANAGER + NOTES)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V1.5.1 MODAL MANAGER + NOTES + LOG)
  * =========================================================================
- * V1.5.0:
- * - Все модалы/overlay через ModalManager (hardware back работает корректно).
- * - Overlay = минимизация по back (не закрытие).
- * - Чипы оборудования/техники в exercise header.
- * - Bottom sheet для редактирования заметок.
- * - Копирование equipment/positioning в каждый recordedSet.
+ * V1.5.1:
+ * - Логирование ключевых событий в общий терминал Sync (logToTerminal).
+ * - Enter в поле «Оборудование» переводит фокус на «Технику» (без newline).
+ * - Auto-resize textarea оборудования при вводе.
  */
 
 import {
@@ -16,6 +14,7 @@ import {
 } from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
+import { logToTerminal } from './sync.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
@@ -55,7 +54,6 @@ function registerLiveModals() {
   if (isLiveWorkoutInitialized) return;
   isLiveWorkoutInitialized = true;
 
-  // Overlay — особый случай: onClose = minimize
   const overlay = document.getElementById('liveWorkoutOverlay');
   if (overlay) {
     registerModal('liveWorkoutOverlay', {
@@ -275,7 +273,6 @@ export function startNewLiveWorkout(recipePayload) {
       ? ex.warmupSteps
       : buildFallbackWarmupSteps(orderNum, targetWeight, cycleMode);
 
-    // V1.5.0: подтягиваем последние equipment/positioning из истории
     const historicalEquipment = getLastSetFieldForExercise(ex.name, 'equipment');
     const historicalTechnique = getLastSetFieldForExercise(ex.name, 'positioning');
 
@@ -334,6 +331,8 @@ export function startNewLiveWorkout(recipePayload) {
   persistActiveSession();
   hideRecoveryBanner();
 
+  logToTerminal('LIVE_START', `Старт: ${activeSession.title} • ${exercisesQueue.length} упр.`, 'success');
+
   registerLiveModals();
   openModal('liveWorkoutOverlay');
 }
@@ -361,6 +360,11 @@ function checkCrashRecoverySession() {
     const parsed = JSON.parse(raw);
     if (parsed && !parsed.isFinished && Array.isArray(parsed.exercises)) {
       activeSession = parsed;
+      const totalWorkDone = activeSession.exercises.reduce(
+        (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length,
+        0
+      );
+      logToTerminal('LIVE_RECOVER', `Восстановлена сессия: ${activeSession.title} • ${totalWorkDone} раб. сетов`, 'info');
       showRecoveryBanner();
     }
   } catch (e) {
@@ -427,13 +431,14 @@ function openLiveWorkoutOverlay() {
   if (!activeSession) return;
   registerLiveModals();
   openModal('liveWorkoutOverlay');
+  logToTerminal('LIVE_RESUME', `Возврат в тренировку: ${activeSession.title}`, 'info');
 }
 
 function minimizeLiveWorkoutOverlay() {
+  logToTerminal('LIVE_MINIMIZE', `Свернуто: ${activeSession ? activeSession.title : 'без сессии'}`, 'info');
   if (isModalOpen('liveWorkoutOverlay')) {
     closeModal('liveWorkoutOverlay');
   } else {
-    // Fallback — если по какой-то причине overlay не в стеке
     const overlay = document.getElementById('liveWorkoutOverlay');
     if (overlay) overlay.style.display = 'none';
     document.body.style.overflow = '';
@@ -445,13 +450,14 @@ function discardLiveWorkoutSession() {
   const confirmAbort = confirm('Отменить и удалить текущую тренировку без сохранения?');
   if (!confirmAbort) return;
 
+  logToTerminal('LIVE_DISCARD', `Тренировка удалена без сохранения: ${activeSession ? activeSession.title : '—'}`, 'info');
+
   stopAllTimers();
   releaseScreenWakeLock();
   activeSession = null;
   persistActiveSession();
   hideRecoveryBanner();
 
-  // Сбрасываем все модалы (closeout + overlay)
   resetAllModals();
   document.body.style.overflow = '';
 }
@@ -508,7 +514,7 @@ function renderExerciseMiniMap() {
 }
 
 /* =========================================================
- * V1.5.0: NOTE CHIPS (equipment/technique)
+ * NOTE CHIPS (equipment/technique)
  * ========================================================= */
 
 function renderExerciseNoteChips() {
@@ -542,6 +548,12 @@ function renderExerciseNoteChips() {
   }
 }
 
+function autoResizeNotesField(el) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 80) + 'px';
+}
+
 function openNotesSheet() {
   if (!activeSession) return;
   const ex = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -557,6 +569,11 @@ function openNotesSheet() {
 
   registerLiveModals();
   openModal('liveNotesSheet');
+
+  // После отображения (когда layout посчитан) — auto-resize
+  setTimeout(() => {
+    if (equipInput) autoResizeNotesField(equipInput);
+  }, 50);
 }
 
 function saveNotesSheet() {
@@ -890,7 +907,6 @@ function handleRecordCurrentSet() {
 
   const e1rm = isWarmup ? 0.0 : computeE1RM(weight, firstSegmentReps);
 
-  // V1.5.0: копируем equipment/technique упражнения в каждый записанный сет
   const recordedSet = {
     setNum: setNum,
     weight: weight,
@@ -919,6 +935,11 @@ function handleRecordCurrentSet() {
   }
 
   triggerHaptic([80]);
+
+  // V5.4.2: лог в общий терминал
+  const kind = isWarmup ? 'Разминка' : 'Рабочий';
+  const methodTag = appliedMethod ? ` [${appliedMethod}]` : '';
+  logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weight} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}${methodTag}`, 'success');
 
   activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
 
@@ -1206,7 +1227,6 @@ async function finalizeAndSyncLiveWorkout() {
         effort: s.effort,
         reserve: s.reserve,
         method: s.method,
-        // V1.5.0: реальные equipment/positioning из пользовательского ввода
         equipment: s.equipment || '',
         positioning: s.positioning || '',
         splitDay: activeSession.splitDay,
@@ -1228,6 +1248,8 @@ async function finalizeAndSyncLiveWorkout() {
     statusEl.innerText = '⏳ Отправка подходов (Log) и сводки тренировки (Workouts) в Google Таблицы...';
   }
 
+  logToTerminal('LIVE_SYNC_START', `Отправка ${flatSets.length} сетов за ${activeSession.date}...`, 'info');
+
   try {
     const payload = {
       action: 'sync_sets',
@@ -1239,19 +1261,26 @@ async function finalizeAndSyncLiveWorkout() {
       workoutSummary: workoutSummary
     };
 
+    const t0 = performance.now();
     await syncSetsToSheets(payload);
+    const elapsed = Math.round(performance.now() - t0);
+
+    logToTerminal('LIVE_SYNC_OK', `Записано ${flatSets.length} строк за ${elapsed} мс. Верификация...`, 'success');
+
     const freshData = await fetchAnalyticsData();
     if (freshData.success && freshData.data) {
       setInitialData(freshData.data);
     }
 
+    logToTerminal('LIVE_SYNC_VERIFIED', `Локальный кэш обновлен: ${(freshData.data.sets || []).length} сетов`, 'success');
+
     stopAllTimers();
     await releaseScreenWakeLock();
+    const closedTitle = activeSession ? activeSession.title : '';
     activeSession = null;
     persistActiveSession();
     hideRecoveryBanner();
 
-    // Закрываем модалы: closeout → overlay (с задержкой для popstate)
     if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
     setTimeout(() => {
       if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay');
@@ -1263,9 +1292,10 @@ async function finalizeAndSyncLiveWorkout() {
     }
 
     setTimeout(() => {
-      alert('Тренировка и сводка Workouts успешно сохранены в Google Таблицы!');
+      alert(`Тренировка «${closedTitle}» сохранена в Google Таблицы.`);
     }, 320);
   } catch (err) {
+    logToTerminal('LIVE_SYNC_ERR', `Сбой: ${err.message}`, 'error');
     if (statusEl) {
       statusEl.style.color = 'var(--md-sys-color-error)';
       statusEl.innerText = `❌ Сбой сети: ${err.message}. Данные сохранены в памяти телефона — повторите отправку при появлении связи.`;
@@ -1294,7 +1324,6 @@ function bindLiveWorkoutDomEvents() {
   if (prevBtn) prevBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex - 1);
   if (nextBtn) nextBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex + 1);
 
-  // V1.5.0: NOTE CHIPS
   const equipChip = document.getElementById('liveEquipmentChip');
   const techChip = document.getElementById('liveTechniqueChip');
   if (equipChip) equipChip.onclick = () => openNotesSheet();
@@ -1304,6 +1333,20 @@ function bindLiveWorkoutDomEvents() {
   const notesCancelBtn = document.getElementById('liveNotesCancelBtn');
   if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
   if (notesCancelBtn) notesCancelBtn.onclick = () => closeModal('liveNotesSheet');
+
+  // V5.4.2: Enter в textarea «Оборудование» → фокус на «Технику», без newline.
+  // Плюс auto-resize при вводе.
+  const equipInput = document.getElementById('liveNotesEquipmentInput');
+  if (equipInput) {
+    equipInput.addEventListener('input', () => autoResizeNotesField(equipInput));
+    equipInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const techInput = document.getElementById('liveNotesTechniqueInput');
+        if (techInput) techInput.focus();
+      }
+    });
+  }
 
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
