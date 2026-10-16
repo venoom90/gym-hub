@@ -110,7 +110,7 @@
       color: var(--md-sys-color-on-background);
       font: var(--md-sys-typescale-body-medium);
       min-height: 100vh;
-      padding-bottom: 96px;
+      padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
     }
 
     :focus-visible {
@@ -197,7 +197,7 @@
     .container {
       max-width: 680px;
       margin: 16px auto;
-      padding: 0 16px;
+      padding: 0 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
       display: flex;
       flex-direction: column;
       gap: 16px;
@@ -293,14 +293,11 @@
                   border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
       user-select: none;
     }
-
     .calendar-day-card:hover { background: var(--md-sys-color-surface-container-highest); }
-
     .calendar-day-card.today {
       border-color: var(--md-sys-color-primary);
       background: var(--md-sys-color-surface-container-highest);
     }
-
     .cal-day-name { font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant); }
     .cal-day-num { font: 700 0.95rem/1 'Roboto'; color: var(--md-sys-color-on-surface); }
     .cal-badge {
@@ -330,16 +327,13 @@
       font-weight: 600;
       text-transform: uppercase;
     }
-
     .cal-month-grid {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
       gap: 4px;
       margin-bottom: 12px;
     }
-
     .cal-day-blank { aspect-ratio: 1; min-height: 42px; }
-
     .cal-day-cell {
       aspect-ratio: 1;
       min-height: 42px;
@@ -365,7 +359,6 @@
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
     }
-
     .cal-day-week {
       font: 500 0.65rem/1 'Roboto';
       color: var(--md-sys-color-on-surface-variant);
@@ -374,7 +367,6 @@
       gap: 3px;
     }
     .cal-day-cell.cal-day-selected .cal-day-week { color: var(--md-sys-color-on-primary-container); }
-
     .cal-day-dot {
       width: 6px;
       height: 6px;
@@ -385,7 +377,6 @@
     .cal-day-dot.mode-force { background: var(--app-color-force); }
     .cal-day-dot.mode-volume { background: var(--app-color-volume); }
     .cal-day-dot.mode-deload { background: var(--app-color-deload); }
-
     .cal-legend {
       display: flex;
       justify-content: center;
@@ -396,9 +387,7 @@
       color: var(--md-sys-color-on-surface-variant);
     }
     .cal-legend-item { display: inline-flex; align-items: center; gap: 6px; }
-
     .cal-month-actions { display: flex; justify-content: center; gap: 8px; }
-
     .cal-month-header {
       display: flex;
       align-items: center;
@@ -446,21 +435,17 @@
       background: var(--md-sys-color-surface-container-highest);
       border-color: var(--md-sys-color-primary);
     }
-
     .plan-preview-left { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
-
     .plan-preview-title {
       font: var(--md-sys-typescale-title-small);
       font-weight: 700;
       color: var(--md-sys-color-on-surface);
       line-height: 1.25;
     }
-
     .plan-preview-metrics {
       font: var(--md-sys-typescale-body-small);
       color: var(--md-sys-color-primary);
     }
-
     .plan-preview-chevron {
       width: 40px;
       height: 40px;
@@ -483,21 +468,18 @@
       gap: 8px;
       border: 1px solid rgba(255, 255, 255, 0.04);
     }
-
     .recipe-step-header {
       font: var(--md-sys-typescale-title-small);
       font-weight: 600;
       color: var(--md-sys-color-on-surface);
       line-height: 1.25;
     }
-
     .recipe-metrics-row {
       display: flex;
       align-items: baseline;
       gap: 8px;
       flex-wrap: wrap;
     }
-
     .recipe-sets-count { font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); }
     .recipe-weight-highlight {
       font: 700 1.25rem/1.2 'Roboto';
@@ -529,7 +511,6 @@
       color: var(--md-sys-color-on-surface-variant);
     }
     .recipe-warmup-row .material-symbols-outlined { font-size: 14px; color: var(--md-sys-color-outline-variant); }
-
     .recipe-notes-row {
       display: flex;
       gap: 6px;
@@ -594,7 +575,7 @@
     }
 
     /* =========================================================
-     * LIVE WORKOUT OVERLAY (V2.1)
+     * LIVE WORKOUT OVERLAY (V2.2)
      * ========================================================= */
     .live-workout-overlay {
       display: none;
@@ -620,7 +601,6 @@
       top: 0;
       z-index: 10;
     }
-
     .live-top-bar-spacer { flex: 1; }
 
     .live-icon-btn {
@@ -654,7 +634,10 @@
       text-align: center;
       letter-spacing: 0.5px;
       flex-shrink: 0;
+      cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short3);
     }
+    .live-timer-pill:hover { background: rgba(120, 220, 156, 0.2); }
 
     .live-finish-btn {
       display: inline-flex;
@@ -692,7 +675,6 @@
       height: 44px;
       padding: 0 2px;
     }
-
     .live-progress-arrow {
       flex-shrink: 0;
       display: inline-flex;
@@ -723,7 +705,6 @@
       height: 8px;
       min-width: 0;
     }
-
     .live-progress-segment {
       border-radius: 4px;
       background: var(--md-sys-color-surface-container-highest);
@@ -735,7 +716,6 @@
       background: var(--md-sys-color-primary);
       box-shadow: 0 0 6px rgba(168, 200, 255, 0.55);
     }
-
     .live-progress-counter {
       flex-shrink: 0;
       font: 700 0.75rem/1 'Roboto Mono', ui-monospace, monospace;
@@ -767,14 +747,12 @@
       padding: 2px 0;
       min-height: 40px;
     }
-
     .live-ex-header-chevron {
       color: var(--md-sys-color-primary);
       font-size: 20px;
       flex-shrink: 0;
       margin-top: 2px;
     }
-
     .live-ex-header-compact-text {
       flex: 1;
       min-width: 0;
@@ -782,7 +760,6 @@
       flex-direction: column;
       gap: 6px;
     }
-
     .live-ex-name-compact {
       font: 700 0.92rem/1.2 'Roboto';
       color: var(--md-sys-color-on-surface);
@@ -790,13 +767,11 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
-
     .live-ex-compact-chips {
       display: flex;
       flex-wrap: wrap;
       gap: 5px;
     }
-
     .live-compact-chip {
       display: inline-flex;
       align-items: center;
@@ -829,27 +804,23 @@
       flex-direction: column;
       gap: 6px;
     }
-
     .live-ex-header-title-row {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 6px;
     }
-
     .live-ex-name-full {
       font: 700 1.1rem/1.25 'Roboto';
       color: var(--md-sys-color-on-surface);
       flex: 1;
       min-width: 0;
     }
-
     .live-ex-target-sub {
       font: var(--md-sys-typescale-body-medium);
       color: var(--md-sys-color-on-surface-variant);
       line-height: 1.35;
     }
-
     .live-ex-warmup-hint {
       font: var(--md-sys-typescale-body-small);
       color: var(--app-color-success);
@@ -867,7 +838,6 @@
       flex-wrap: wrap;
       margin-top: 4px;
     }
-
     .live-note-chip {
       display: inline-flex;
       align-items: center;
@@ -927,14 +897,12 @@
       gap: 12px;
       border: 1px solid rgba(168, 200, 255, 0.12);
     }
-
     .live-current-set-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
     }
-
     .live-current-set-label {
       font: 700 0.78rem/1.2 'Roboto';
       letter-spacing: 0.6px;
@@ -974,7 +942,6 @@
       grid-template-columns: 1fr 1fr;
       gap: 8px;
     }
-
     .live-cat-btn {
       min-height: var(--app-touch-min);
       border-radius: var(--md-sys-shape-corner-small);
@@ -993,7 +960,6 @@
     }
 
     .live-stepper-block { display: flex; flex-direction: column; gap: 6px; }
-
     .live-stepper-label {
       font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
@@ -1003,14 +969,12 @@
       text-align: center;
       font-size: 0.72rem;
     }
-
     .live-stepper-row {
       display: grid;
       grid-template-columns: 96px 1fr 96px;
       align-items: center;
       gap: 10px;
     }
-
     .live-step-btn {
       height: 64px;
       border-radius: var(--md-sys-shape-corner-medium);
@@ -1026,7 +990,6 @@
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
     }
-
     .live-step-display {
       height: 64px;
       border-radius: var(--md-sys-shape-corner-medium);
@@ -1044,7 +1007,6 @@
       grid-template-columns: 0.9fr 0.9fr 1.2fr 0.9fr;
       gap: 8px;
     }
-
     .live-rir-chip {
       min-height: var(--app-touch-comfortable);
       border-radius: var(--md-sys-shape-corner-medium);
@@ -1073,6 +1035,49 @@
       padding: 3px 0;
     }
 
+    /* =========================================================
+     * CLOSEOUT CHIPS (readiness + sRPE) — восстановлены V2.2
+     * ========================================================= */
+    .live-readiness-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .live-srpe-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
+    }
+    .live-readiness-chip,
+    .live-srpe-chip {
+      min-height: var(--app-touch-min);
+      border-radius: var(--md-sys-shape-corner-small);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface);
+      font: var(--md-sys-typescale-label-large);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 6px 8px;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+    }
+    .live-readiness-chip {
+      font-size: 0.85rem;
+    }
+    .live-srpe-chip {
+      min-height: 48px;
+      font-size: 1rem;
+    }
+    .live-readiness-chip.active,
+    .live-srpe-chip.active {
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      border-color: var(--md-sys-color-primary);
+      border-width: 2px;
+    }
+
     .live-complete-ex-card {
       display: none;
       background: var(--app-color-success-container);
@@ -1095,14 +1100,12 @@
       flex-direction: column;
       gap: 10px;
     }
-
     .live-history-group {
       background: var(--md-sys-color-surface-container);
       border-radius: var(--md-sys-shape-corner-large);
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.04);
     }
-
     .live-history-group-header {
       width: 100%;
       display: flex;
@@ -1117,14 +1120,12 @@
       transition: background-color var(--md-sys-motion-duration-short3);
     }
     .live-history-group-header:hover { background: rgba(255,255,255,0.04); }
-
     .live-history-chevron {
       font-size: 20px;
       color: var(--md-sys-color-primary);
       flex-shrink: 0;
       transition: transform var(--md-sys-motion-duration-short4);
     }
-
     .live-history-group-title {
       flex: 1;
       font: 700 0.78rem/1.2 'Roboto';
@@ -1132,7 +1133,6 @@
       text-transform: uppercase;
       color: var(--md-sys-color-on-surface-variant);
     }
-
     .live-history-group-meta {
       font: 500 0.72rem/1 'Roboto';
       color: var(--md-sys-color-on-surface-variant);
@@ -1143,7 +1143,6 @@
       text-overflow: ellipsis;
       max-width: 200px;
     }
-
     .live-history-group-body {
       padding: 0 10px 10px 10px;
       display: flex;
@@ -1164,7 +1163,6 @@
       gap: 8px;
       transition: background-color var(--md-sys-motion-duration-short4);
     }
-
     .live-delete-set-btn {
       min-width: 40px;
       height: 40px;
@@ -1190,12 +1188,10 @@
       color: var(--md-sys-color-on-error-container);
       border: 1px solid var(--md-sys-color-error);
     }
-    .live-delete-set-btn.is-confirm .delete-label {
-      display: inline;
-    }
+    .live-delete-set-btn.is-confirm .delete-label { display: inline; }
     .live-delete-set-btn .delete-label { display: none; }
 
-    /* Persistent Action Bar (PAB) */
+    /* PAB */
     .live-pab {
       position: fixed;
       left: 0;
@@ -1211,16 +1207,11 @@
       transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
                   border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
-
     .live-pab.is-warning {
       background: rgba(46, 16, 16, 0.86);
       border-top-color: rgba(255, 107, 107, 0.55);
     }
-
-    .live-pab-content {
-      max-width: 600px;
-      margin: 0 auto;
-    }
+    .live-pab-content { max-width: 600px; margin: 0 auto; }
 
     .live-pab-record-btn,
     .live-pab-completed-btn,
@@ -1304,13 +1295,11 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.55; }
     }
-
     .live-pab-rest {
       display: grid;
       grid-template-columns: 1fr 1fr 1.3fr;
       gap: 8px;
     }
-
     .live-pab-rest-btn {
       min-height: 48px;
       border-radius: var(--md-sys-shape-corner-small);
@@ -1334,7 +1323,6 @@
       gap: 8px;
       align-items: stretch;
     }
-
     .live-pab-clock-btn {
       min-height: 72px;
       border-radius: var(--md-sys-shape-corner-large);
@@ -1359,30 +1347,8 @@
       letter-spacing: 0.4px;
     }
 
-    /* Cluster pause floating button (fallback для совместимости) */
-    .live-cluster-float-btn {
-      position: fixed;
-      right: 16px;
-      bottom: calc(120px + env(safe-area-inset-bottom, 0px));
-      width: 58px;
-      height: 58px;
-      border-radius: var(--md-sys-shape-corner-full);
-      border: 2px solid var(--app-color-warning);
-      background: rgba(26, 22, 10, 0.85);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      color: var(--app-color-warning);
-      display: none;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      z-index: 25;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.45);
-    }
-
     /* =========================================================
-     * BIG CLOCK OVERLAY
+     * BIG CLOCK OVERLAY (V2.2 — пассивный секундомер вверх)
      * ========================================================= */
     .live-big-clock-overlay {
       display: none;
@@ -1395,7 +1361,6 @@
       justify-content: center;
       padding: 20px;
     }
-
     .live-big-clock-close {
       position: absolute;
       top: calc(12px + env(safe-area-inset-top, 0px));
@@ -1413,43 +1378,55 @@
     }
     .live-big-clock-close .material-symbols-outlined { font-size: 28px; }
 
-    .live-big-clock-phase {
-      font: 700 1rem/1 'Roboto';
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: rgba(168, 200, 255, 0.65);
-      margin-bottom: 16px;
-      text-align: center;
+    .live-big-clock-corner {
+      position: absolute;
+      top: calc(20px + env(safe-area-inset-top, 0px));
+      left: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-align: left;
+    }
+    .live-big-clock-corner-row {
+      font: 600 0.85rem/1.3 'Roboto';
+      color: rgba(255, 255, 255, 0.55);
+      letter-spacing: 0.3px;
+    }
+    .live-big-clock-corner-row b {
+      color: rgba(168, 200, 255, 0.85);
+      font-weight: 700;
     }
 
+    .live-big-clock-title {
+      font: 700 0.9rem/1 'Roboto';
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: rgba(168, 200, 255, 0.55);
+      margin-bottom: 24px;
+      text-align: center;
+    }
     .live-big-clock-digits {
       font-family: 'Roboto Mono', ui-monospace, monospace;
-      font-size: clamp(10rem, 34vw, 20rem);
+      font-size: clamp(8rem, 30vw, 17rem);
       font-weight: 700;
       color: #ffffff;
       line-height: 0.95;
       letter-spacing: -0.05em;
-      cursor: pointer;
       user-select: none;
-      transition: color var(--md-sys-motion-duration-short4), text-shadow var(--md-sys-motion-duration-short4);
       text-align: center;
+      font-variant-numeric: tabular-nums;
     }
-    .live-big-clock-digits.is-done {
-      color: var(--app-color-success);
-      text-shadow: 0 0 40px rgba(120, 220, 156, 0.55);
-    }
-
     .live-big-clock-hint {
       font: 500 0.85rem/1.4 'Roboto';
-      color: rgba(255, 255, 255, 0.55);
-      margin-top: 28px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 32px;
       text-align: center;
       max-width: 320px;
       letter-spacing: 0.3px;
     }
 
     /* =========================================================
-     * BOTTOM SHEETS for cluster / drop
+     * BOTTOM SHEETS (cluster / drop) — компакт V2.2
      * ========================================================= */
     .live-sheet-overlay {
       display: none;
@@ -1466,13 +1443,13 @@
       width: 100%;
       max-width: 600px;
       border-radius: var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0 0;
-      padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px)) 18px;
+      padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)) 16px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       box-shadow: var(--md-sys-elevation-level3);
       animation: slideUp var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
-      max-height: 88vh;
+      max-height: calc(88vh - env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
     }
     .live-sheet-handle {
@@ -1494,17 +1471,19 @@
       margin-top: -6px;
     }
 
+    /* Компактная строка: 52px | reps-stepper | RIR-chips */
     .live-sheet-row {
       display: grid;
-      grid-template-columns: 80px 1fr auto;
+      grid-template-columns: 52px 1fr auto;
       align-items: center;
       gap: 8px;
-      padding: 10px 12px;
+      padding: 6px 10px;
       border-radius: var(--md-sys-shape-corner-medium);
       background: var(--md-sys-color-surface-container-high);
+      min-height: 56px;
     }
     .live-sheet-row-label {
-      font: 700 0.75rem/1.15 'Roboto';
+      font: 700 0.72rem/1.1 'Roboto';
       letter-spacing: 0.4px;
       color: var(--md-sys-color-on-surface-variant);
       text-transform: uppercase;
@@ -1512,22 +1491,25 @@
     .live-sheet-row-main {
       display: flex;
       align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
+      gap: 4px;
+      flex-wrap: nowrap;
+      min-width: 0;
+      justify-content: center;
     }
 
     .live-sheet-mini-btn {
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
-      font: 700 1rem/1 'Roboto';
+      font: 700 0.95rem/1 'Roboto';
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
       transition: background-color var(--md-sys-motion-duration-short2);
     }
     .live-sheet-mini-btn:active {
@@ -1536,39 +1518,42 @@
     }
 
     .live-sheet-value {
-      font: 700 1.35rem/1 'Roboto';
+      font: 700 1.15rem/1 'Roboto';
       color: var(--md-sys-color-primary);
-      min-width: 44px;
+      min-width: 34px;
       text-align: center;
       letter-spacing: -0.4px;
     }
 
     .live-sheet-rir {
       display: flex;
-      gap: 4px;
+      gap: 3px;
+      flex-shrink: 0;
     }
     .live-sheet-rir-chip {
-      min-width: 34px;
-      height: 34px;
+      min-width: 30px;
+      height: 30px;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container);
       color: var(--md-sys-color-on-surface-variant);
-      font: 700 0.72rem/1 'Roboto';
+      font: 700 0.68rem/1 'Roboto';
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       transition: background-color var(--md-sys-motion-duration-short2);
+      padding: 0;
     }
     .live-sheet-rir-chip.active {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
+      border-width: 2px;
     }
 
     .live-sheet-add-btn {
-      min-height: 48px;
+      min-height: 44px;
       width: 100%;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px dashed var(--md-sys-color-outline-variant);
@@ -1601,7 +1586,9 @@
       margin-top: 4px;
     }
 
-    /* ANATOMICAL HEATMAP */
+    /* =========================================================
+     * REST / HELPERS
+     * ========================================================= */
     .mannequin-container { display: flex; flex-direction: column; align-items: center; gap: 12px; }
     .mannequin-views-row {
       display: flex;
@@ -1802,7 +1789,6 @@
       border-width: 2px;
       padding: 13px 15px;
     }
-
     textarea.m3-input.notes-single-line {
       resize: none;
       min-height: var(--app-touch-min);
@@ -2074,11 +2060,12 @@
     }
     .terminal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-    /* BOTTOM NAVIGATION */
+    /* BOTTOM NAVIGATION — FIX safe-area V2.2 */
     .navigation-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      height: 80px;
+      height: auto;
+      min-height: calc(80px + env(safe-area-inset-bottom, 0px));
       background: var(--md-sys-color-surface-container);
       display: flex;
       justify-content: space-around;
@@ -2086,6 +2073,7 @@
       border-top: 1px solid var(--md-sys-color-outline-variant);
       z-index: 100;
       padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-top: 8px;
     }
     .nav-item {
       display: flex;
@@ -2096,7 +2084,7 @@
       color: var(--md-sys-color-on-surface-variant);
       font: var(--md-sys-typescale-label-medium);
       user-select: none;
-      padding: 8px 12px;
+      padding: 4px 12px;
       min-width: 64px;
       min-height: var(--app-touch-min);
       border-radius: var(--md-sys-shape-corner-large);
@@ -2117,7 +2105,7 @@
       color: var(--md-sys-color-on-secondary-container);
     }
 
-    /* MODALS */
+    /* MODALS — FIX safe-area V2.2 */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -2135,7 +2123,7 @@
       padding: 20px;
       width: 100%;
       max-width: 500px;
-      max-height: 88vh;
+      max-height: calc(88vh - env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
       display: flex;
       flex-direction: column;
@@ -2143,7 +2131,7 @@
       box-shadow: var(--md-sys-elevation-level3);
     }
 
-    /* BOTTOM SHEET для редактирования заметок */
+    /* BOTTOM SHEET */
     .bottom-sheet-overlay {
       display: none;
       position: fixed;
@@ -2165,7 +2153,7 @@
       gap: 14px;
       box-shadow: var(--md-sys-elevation-level3);
       animation: slideUp var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
-      max-height: 80vh;
+      max-height: calc(80vh - env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
     }
     @keyframes slideUp {
@@ -2474,7 +2462,7 @@
             Динамика тоннажа (тонны)
           </span>
           <button type="button" class="help-trigger-btn" data-help-id="help-tonnage" aria-label="Как читать тоннаж?" title="Как читать тоннаж?">
-            <span class="material-symbols-outlined" aria-hidden="true">outline</span>
+            <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
           </button>
         </div>
         <div class="chart-container">
@@ -2679,9 +2667,7 @@
 
   </main>
 
-  <!-- =========================================================================
-       МОДАЛЬНОЕ ОКНО: ПОЛНЫЙ ПЕРЕЧЕНЬ УПРАЖНЕНИЙ ТРЕНИРОВКИ
-       ========================================================================= -->
+  <!-- МОДАЛЬНОЕ ОКНО: ПОЛНЫЙ ПЕРЕЧЕНЬ УПРАЖНЕНИЙ -->
   <div id="workoutPlanDetailsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalPlanTitle">
     <div class="modal-card">
       <div class="card-title">
@@ -2707,9 +2693,7 @@
     </div>
   </div>
 
-  <!-- =========================================================================
-       МОДАЛЬНОЕ ОКНО: КАЛЕНДАРЬ МЕСЯЦА
-       ========================================================================= -->
+  <!-- МОДАЛЬНОЕ ОКНО: КАЛЕНДАРЬ МЕСЯЦА -->
   <div id="calendarMonthModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="calMonthTitle">
     <div class="modal-card">
       <div class="cal-month-header">
@@ -2745,16 +2729,14 @@
     </div>
   </div>
 
-  <!-- =========================================================================
-       ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY V2.1)
-       ========================================================================= -->
+  <!-- LIVE WORKOUT OVERLAY V2.2 -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
 
     <div class="live-top-bar">
       <button id="liveMinimizeBtn" class="live-icon-btn" aria-label="Свернуть тренировку" title="Свернуть">
         <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
       </button>
-      <span id="liveHeaderTimer" class="live-timer-pill" role="timer" aria-live="off">00:00</span>
+      <button id="liveHeaderTimer" class="live-timer-pill" type="button" aria-label="Открыть большие часы">00:00</button>
       <div class="live-top-bar-spacer"></div>
       <button id="liveOpenTimerSettingsBtn" class="live-icon-btn" aria-label="Настройки таймингов отдыха" title="Тайминги отдыха">
         <span class="material-symbols-outlined" aria-hidden="true">timer</span>
@@ -2893,35 +2875,30 @@
 
     <div id="liveBottomActionBar" class="live-pab" role="toolbar" aria-label="Основное действие"></div>
 
-    <button id="liveClusterPauseBtn" class="live-cluster-float-btn" style="display:none;" aria-label="Кластерная микропауза" title="Микропауза для кластера">
-      <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
-      <span class="live-cluster-float-label" id="liveClusterFloatLabel">20с</span>
-    </button>
-
   </div>
 
-  <!-- =========================================================================
-       BIG CLOCK OVERLAY — полноэкранные часы для кластеров/дропов
-       ========================================================================= -->
-  <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Большие часы паузы">
+  <!-- BIG CLOCK OVERLAY (V2.2 — пассивный секундомер вверх) -->
+  <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Большие часы">
+    <div class="live-big-clock-corner" id="liveBigClockCorner">
+      <div class="live-big-clock-corner-row" id="liveBigClockNow">Сейчас <b>14:23</b></div>
+      <div class="live-big-clock-corner-row" id="liveBigClockEta">Финиш ~<b>15:10</b></div>
+    </div>
     <button id="liveBigClockClose" class="live-big-clock-close" aria-label="Закрыть часы">
       <span class="material-symbols-outlined" aria-hidden="true">close</span>
     </button>
-    <div id="liveBigClockPhase" class="live-big-clock-phase">ПАУЗА 20 СЕК</div>
-    <div id="liveBigClockDigits" class="live-big-clock-digits">20</div>
-    <div class="live-big-clock-hint">Тап по цифрам — перезапустить отсчёт. Кнопка ✕ или системный «Назад» — вернуться к тренировке.</div>
+    <div class="live-big-clock-title" id="liveBigClockTitle">СЕКУНДОМЕР</div>
+    <div id="liveBigClockDigits" class="live-big-clock-digits">00:00</div>
+    <div class="live-big-clock-hint">Секундомер стартовал. Смотри в любой момент — считай от него свои 20 сек между сегментами. Кнопка ✕ или системный «Назад» — вернуться в тренировку.</div>
   </div>
 
-  <!-- =========================================================================
-       BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА
-       ========================================================================= -->
+  <!-- BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА -->
   <div id="liveClusterSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveClusterSheetTitle">
     <div class="live-sheet">
       <div class="live-sheet-handle" aria-hidden="true"></div>
       <div class="live-sheet-title" id="liveClusterSheetTitle">Запись кластера</div>
       <div class="live-sheet-subtitle" id="liveClusterSheetSubtitle">Кластер 4+3+2 @ 55 кг</div>
 
-      <div id="liveClusterSegmentsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <div id="liveClusterSegmentsContainer" style="display:flex; flex-direction:column; gap:6px;"></div>
 
       <div class="live-sheet-summary" id="liveClusterSummary"></div>
 
@@ -2935,9 +2912,7 @@
     </div>
   </div>
 
-  <!-- =========================================================================
-       BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА
-       ========================================================================= -->
+  <!-- BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА -->
   <div id="liveDropSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveDropSheetTitle">
     <div class="live-sheet">
       <div class="live-sheet-handle" aria-hidden="true"></div>
@@ -2950,7 +2925,7 @@
           <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="-2.5">−</button>
           <span class="live-sheet-value" id="liveDropMainWeight">55</span>
           <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="+2.5">+</button>
-          <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.75rem;">кг ×</span>
+          <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.7rem;">кг ×</span>
           <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="-1">−</button>
           <span class="live-sheet-value" id="liveDropMainReps">10</span>
           <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="+1">+</button>
@@ -2958,7 +2933,7 @@
         <div class="live-sheet-rir" id="liveDropMainRir"></div>
       </div>
 
-      <div id="liveDropDropsContainer" style="display:flex; flex-direction:column; gap:8px;"></div>
+      <div id="liveDropDropsContainer" style="display:flex; flex-direction:column; gap:6px;"></div>
 
       <button type="button" id="liveDropAddBtn" class="live-sheet-add-btn">
         <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">add_circle</span>
@@ -2977,7 +2952,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ -->
+  <!-- CLOSEOUT MODAL -->
   <div id="liveCloseoutModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveCloseoutTitle">
     <div class="modal-card">
       <div class="card-title">
@@ -3022,7 +2997,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНОЕ ОКНО НАСТРОЙКИ ТАЙМИНГОВ ОТДЫХА -->
+  <!-- TIMER SETTINGS MODAL -->
   <div id="liveTimerSettingsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveTimerSettingsTitle">
     <div class="modal-card">
       <div class="card-title">
@@ -3041,7 +3016,7 @@
           <input type="number" id="prefTimerIsolation" class="m3-input" value="90" step="10">
         </div>
         <div>
-          <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза, сек:</label>
+          <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза (для отсчёта на больших часах), сек:</label>
           <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5">
         </div>
         <div>
@@ -3055,7 +3030,7 @@
     </div>
   </div>
 
-  <!-- BOTTOM SHEET для редактирования заметок упражнения -->
+  <!-- BOTTOM SHEET: заметки упражнения -->
   <div id="liveNotesSheet" class="bottom-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveNotesSheetTitle">
     <div class="bottom-sheet">
       <div class="bottom-sheet-handle" aria-hidden="true"></div>
