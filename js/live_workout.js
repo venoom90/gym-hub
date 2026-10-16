@@ -1,12 +1,22 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V1.5.2)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.0 THUMB-ZONE)
  * =========================================================================
- * V1.5.2:
- * - Убран auto-resize для поля «Оборудование» — вызывал микро-дрожание
- *   bottom sheet при вводе (Chrome перерисовывал layout на каждой клавише).
- *   Теперь textarea фиксированной высоты 48px, внутренний скролл при длине.
- * - Enter в «Оборудование» по-прежнему переводит фокус на «Технику».
+ * V2.0 (16.10.2026) — UX-редизайн «Thumb-Zone»:
+ *  - PAB (Persistent Action Bar) — основное действие всегда в thumb zone.
+ *  - Rest timer → круговой ring в топбаре (28px) + счётчик + 3 кнопки в PAB.
+ *  - Auto-collapse header упражнения после первого рабочего сета.
+ *  - Мини-карта: horizontal scroll + auto-center на текущем.
+ *  - Журнал подходов: последние 2 + модальное окно «Все N →».
+ *  - RIR «Оптимум» — усиленный визуал (2px border + ✓).
+ *  - «Пауза 20с» показывается только при активном кластере.
+ *  - «X из Y» → «Y/Y (+Z бонус)» при бонусных сетах.
+ *
+ * V1.5.2 (сохранено):
+ *  - textarea вместо input для оборудования (Chrome Password Manager bug).
+ *  - Enter в «Оборудование» → фокус на «Технику».
+ *  - Без auto-resize.
+ * =========================================================================
  */
 
 import {
@@ -19,6 +29,8 @@ import { logToTerminal } from './sync.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
+
+const REST_RING_CIRCUMFERENCE = 2 * Math.PI * 16; // r=16 → ≈100.53
 
 let activeSession = null;
 let workoutDurationInterval = null;
@@ -104,6 +116,19 @@ function registerLiveModals() {
       displayStyle: 'flex'
     });
     notesSheet.onclick = (e) => { if (e.target === notesSheet) closeModal('liveNotesSheet'); };
+  }
+
+  // V2.0: полный журнал подходов упражнения
+  const fullHistoryModal = document.getElementById('liveFullHistoryModal');
+  if (fullHistoryModal) {
+    registerModal('liveFullHistoryModal', {
+      el: fullHistoryModal,
+      displayStyle: 'flex',
+      onOpen: () => renderFullHistoryModal()
+    });
+    const closeFullHistBtn = document.getElementById('closeLiveFullHistoryBtn');
+    if (closeFullHistBtn) closeFullHistBtn.onclick = () => closeModal('liveFullHistoryModal');
+    fullHistoryModal.onclick = (e) => { if (e.target === fullHistoryModal) closeModal('liveFullHistoryModal'); };
   }
 }
 
@@ -297,7 +322,8 @@ export function startNewLiveWorkout(recipePayload) {
       technique: historicalTechnique || '',
       completedSets: [],
       isCompleted: false,
-      allowBonusSet: false
+      allowBonusSet: false,
+      headerCollapsed: false
     };
   });
 
@@ -360,6 +386,10 @@ function checkCrashRecoverySession() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && !parsed.isFinished && Array.isArray(parsed.exercises)) {
+      // Миграция полей для сессий V1.x
+      parsed.exercises.forEach(ex => {
+        if (typeof ex.headerCollapsed !== 'boolean') ex.headerCollapsed = false;
+      });
       activeSession = parsed;
       const totalWorkDone = activeSession.exercises.reduce(
         (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length,
@@ -490,7 +520,7 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * RENDER — MINIMAP
+ * RENDER — MINIMAP (V2.0: horizontal scroll + auto-center)
  * ========================================================= */
 
 function renderExerciseMiniMap() {
@@ -507,11 +537,23 @@ function renderExerciseMiniMap() {
     pill.className = `live-minimap-pill ${isCurrent ? 'current' : ''} ${isCompleted ? 'done' : ''}`;
     pill.innerHTML = isCompleted ? `✓ ${idx + 1}` : `${idx + 1}`;
     pill.title = ex.name;
+    pill.dataset.exIdx = String(idx);
 
     pill.onclick = () => switchActiveExercise(idx);
 
     mapBox.appendChild(pill);
   });
+
+  // Auto-center на текущем pill (V2.0)
+  const currentPill = mapBox.querySelector('.live-minimap-pill.current');
+  if (currentPill && typeof currentPill.scrollIntoView === 'function') {
+    try {
+      currentPill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    } catch (e) {
+      // Fallback для старых браузеров
+      currentPill.scrollIntoView(false);
+    }
+  }
 }
 
 /* =========================================================
@@ -579,8 +621,180 @@ function saveNotesSheet() {
 
   persistActiveSession();
   renderExerciseNoteChips();
+  renderExerciseHeaderState();
   closeModal('liveNotesSheet');
   triggerHaptic([30]);
+}
+
+/* =========================================================
+ * V2.0: HEADER COLLAPSE STATE
+ * ========================================================= */
+
+function renderExerciseHeaderState() {
+  if (!activeSession) return;
+  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!ex) return;
+
+  const card = document.getElementById('liveExHeaderCard');
+  if (!card) return;
+
+  const isCollapsed = Boolean(ex.headerCollapsed);
+  card.classList.toggle('collapsed', isCollapsed);
+
+  if (isCollapsed) {
+    const nameEl = document.getElementById('liveExCollapsedName');
+    const planEl = document.getElementById('liveExCollapsedPlan');
+    const lastEl = document.getElementById('liveExCollapsedLast');
+
+    if (nameEl) nameEl.innerText = ex.name || '—';
+    if (planEl) planEl.innerText = `план ${ex.targetWeight}×${ex.targetRepsStr}`;
+
+    const lastWorkSet = [...(ex.completedSets || [])].reverse().find(s => s.category === 'Рабочий');
+    if (lastEl) {
+      if (lastWorkSet) {
+        const rirTxt = lastWorkSet.reserve
+          ? ` (RIR ${String(lastWorkSet.reserve).replace('+', '')})`
+          : '';
+        lastEl.innerText = `посл. ${lastWorkSet.weight}×${lastWorkSet.reps}${rirTxt}`;
+      } else {
+        lastEl.innerText = 'нет рабочих сетов';
+      }
+    }
+  }
+}
+
+function toggleExerciseHeader() {
+  if (!activeSession) return;
+  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!ex) return;
+
+  ex.headerCollapsed = !ex.headerCollapsed;
+  persistActiveSession();
+  renderExerciseHeaderState();
+  triggerHaptic([20]);
+}
+
+/* =========================================================
+ * V2.0: PERSISTENT ACTION BAR (PAB)
+ * ========================================================= */
+
+function findNextIncompleteExerciseIndex(fromIndex) {
+  if (!activeSession) return -1;
+  const total = activeSession.exercises.length;
+  for (let i = fromIndex + 1; i < total; i++) {
+    const ex = activeSession.exercises[i];
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (!ex.isCompleted && workDone < ex.targetSets) return i;
+  }
+  for (let i = 0; i < fromIndex; i++) {
+    const ex = activeSession.exercises[i];
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (!ex.isCompleted && workDone < ex.targetSets) return i;
+  }
+  return -1;
+}
+
+function updateBottomActionBar() {
+  if (!activeSession) return;
+  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!ex) return;
+
+  const recordBtn = document.getElementById('livePabRecordBtn');
+  const recordLabel = document.getElementById('livePabRecordLabel');
+  const restBlock = document.getElementById('livePabRestBlock');
+  const nextExBtn = document.getElementById('livePabNextExBtn');
+  const nextExLabel = document.getElementById('livePabNextExLabel');
+
+  if (!recordBtn || !restBlock || !nextExBtn) return;
+
+  const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+  const isTargetReached = (workDone >= ex.targetSets) && !ex.allowBonusSet;
+  const isResting = activeSession.restState && activeSession.restState.isActive;
+
+  // Скрываем все состояния по умолчанию
+  recordBtn.hidden = true;
+  restBlock.hidden = true;
+  nextExBtn.hidden = true;
+
+  // Состояние 1: Идёт отдых
+  if (isResting) {
+    restBlock.hidden = false;
+    return;
+  }
+
+  // Состояние 2: Цель достигнута → следующее упражнение / финиш
+  if (isTargetReached) {
+    nextExBtn.hidden = false;
+    const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
+    if (nextExIdx === -1) {
+      if (nextExLabel) nextExLabel.innerText = 'ЗАВЕРШИТЬ ТРЕНИРОВКУ';
+    } else {
+      const nextName = String(activeSession.exercises[nextExIdx].name || '').slice(0, 22);
+      if (nextExLabel) nextExLabel.innerText = `ЗАВЕРШИТЬ → УПР. #${nextExIdx + 1} (${nextName})`;
+    }
+    return;
+  }
+
+  // Состояние 3: Записать сет
+  recordBtn.hidden = false;
+
+  const isWarmup = (activeSession.draftSet.category === 'Разминка');
+  const warmupSetsDone = ex.completedSets.filter(s => s.category === 'Разминка').length;
+  const totalWarmupSteps = Math.max(1, Array.isArray(ex.warmupSteps) ? ex.warmupSteps.length : 1);
+  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, totalWarmupSteps);
+  const currentWorkSetNum = workDone + 1;
+
+  const w = activeSession.draftSet.weight;
+  const r = activeSession.draftSet.reps;
+
+  if (recordLabel) {
+    if (isWarmup) {
+      recordLabel.innerText = `ЗАПИСАТЬ РАЗМИНКУ #${currentWarmupStepNum} (${w} кг × ${r})`;
+    } else {
+      const specLabel = activeSession.draftSet.useSpecialMethod
+        ? ` • ${String(ex.plannedMethod).split(' ')[0].toUpperCase()}`
+        : '';
+      recordLabel.innerText = `ЗАПИСАТЬ СЕТ #${currentWorkSetNum}${specLabel} (${w} кг × ${r})`;
+    }
+  }
+}
+
+/* =========================================================
+ * V2.0: REST RING + PAB COUNTDOWN
+ * ========================================================= */
+
+function updateRestRing() {
+  const wrap = document.getElementById('liveRestRingWrap');
+  const progress = document.getElementById('liveRestRingProgress');
+  if (!wrap || !progress) return;
+
+  if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) {
+    wrap.hidden = true;
+    return;
+  }
+
+  wrap.hidden = false;
+
+  const total = activeSession.restState.totalSeconds || 1;
+  const remainingMs = Math.max(0, activeSession.restState.endsAtMs - Date.now());
+  const remainingSec = Math.ceil(remainingMs / 1000);
+  const ratio = Math.max(0, Math.min(1, remainingSec / total));
+
+  // По мере убывания — кольцо уменьшается
+  progress.style.strokeDashoffset = String(REST_RING_CIRCUMFERENCE * (1 - ratio));
+}
+
+function updatePabRestCountdown() {
+  const el = document.getElementById('livePabRestCountdown');
+  if (!el) return;
+  if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) {
+    el.innerText = '00:00';
+    return;
+  }
+  const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
+  const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+  const s = String(remainingSec % 60).padStart(2, '0');
+  el.innerText = `${m}:${s}`;
 }
 
 /* =========================================================
@@ -596,6 +810,7 @@ function renderLiveWorkoutScreen() {
 
   renderExerciseMiniMap();
   renderExerciseNoteChips();
+  renderExerciseHeaderState();
 
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
@@ -611,7 +826,7 @@ function renderLiveWorkoutScreen() {
   if (titleEl) titleEl.innerText = activeSession.title;
 
   if (progressBadgeEl) {
-    const doneTag = (currentEx.isCompleted || workSetsDone >= currentEx.targetSets) ? ' • ✅ ВЫПОЛНЕНО' : '';
+    const doneTag = (currentEx.isCompleted || workSetsDone >= currentEx.targetSets) ? ' • ✅' : '';
     progressBadgeEl.innerText = `Упражнение ${exIdx + 1} из ${activeSession.exercises.length}${doneTag}`;
   }
 
@@ -645,28 +860,16 @@ function renderLiveWorkoutScreen() {
     if (completedCard) {
       completedCard.style.display = 'flex';
       const titleDone = document.getElementById('liveExCompletedTitle');
-      const nextExBtn = document.getElementById('liveCompleteAndNextExBtn');
-      const nextExIndex = findNextIncompleteExerciseIndex(exIdx);
-
       if (titleDone) {
-        titleDone.innerText = `Упражнение выполнено (${workSetsDone} из ${currentEx.targetSets} рабочих сетов)!`;
-      }
-      if (nextExBtn) {
-        if (nextExIndex !== -1) {
-          const nextName = activeSession.exercises[nextExIndex].name;
-          nextExBtn.innerHTML = `
-            <span class="material-symbols-outlined">task_alt</span>
-            <span>ЗАВЕРШИТЬ → УПР. #${nextExIndex + 1} (${escapeHtml(nextName.slice(0, 22))})</span>
-          `;
-        } else {
-          nextExBtn.innerHTML = `
-            <span class="material-symbols-outlined">emoji_events</span>
-            <span>ЗАВЕРШИТЬ УПРАЖНЕНИЕ И ТРЕНИРОВКУ</span>
-          `;
-        }
+        const bonusCount = Math.max(0, workSetsDone - currentEx.targetSets);
+        const bonusTxt = bonusCount > 0 ? ` (+${bonusCount} бонус)` : '';
+        titleDone.innerText = `✅ Упражнение выполнено (${currentEx.targetSets}/${currentEx.targetSets}${bonusTxt})!`;
       }
     }
     renderCompletedSetsHistory(currentEx);
+    updateBottomActionBar();
+    updateRestRing();
+    updatePabRestCountdown();
     return;
   }
 
@@ -708,6 +911,17 @@ function renderLiveWorkoutScreen() {
       const finalBadge = (currentWorkSetNum === currentEx.targetSets) ? ' (ФИНАЛЬНЫЙ)' : '';
       setBadgeEl.innerText = `РАБОЧИЙ ПОДХОД #${currentWorkSetNum} ИЗ ${currentEx.targetSets}${finalBadge}`;
       setBadgeEl.style.color = 'var(--md-sys-color-primary)';
+    }
+  }
+
+  // V2.0: «Пауза 20с» — только при активном кластере (не в warmup)
+  const clusterPauseBtn = document.getElementById('liveClusterPauseBtn');
+  if (clusterPauseBtn) {
+    const showClusterPause = !isWarmupMode && currentEx.isCluster && isSpecialActive;
+    clusterPauseBtn.style.display = showClusterPause ? 'inline-flex' : 'none';
+    if (showClusterPause) {
+      const prefs = getTimerPrefs();
+      clusterPauseBtn.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">bolt</span><span>Пауза ${prefs.cluster}с</span>`;
     }
   }
 
@@ -759,53 +973,66 @@ function renderLiveWorkoutScreen() {
   document.querySelectorAll('.live-rir-chip').forEach(chip => {
     const val = chip.getAttribute('data-rir');
     chip.classList.toggle('active', val === String(activeSession.draftSet.rir));
+    chip.setAttribute('aria-checked', val === String(activeSession.draftSet.rir) ? 'true' : 'false');
   });
 
-  const clusterPauseBtn = document.getElementById('liveClusterPauseBtn');
-  if (clusterPauseBtn) {
-    const prefs = getTimerPrefs();
-    clusterPauseBtn.style.display = isWarmupMode ? 'none' : 'inline-flex';
-    clusterPauseBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px;">bolt</span><span>Пауза ${prefs.cluster}с</span>`;
-  }
-
-  const recordBtn = document.getElementById('liveRecordSetBtn');
-  if (recordBtn) {
-    if (isWarmupMode) {
-      recordBtn.innerHTML = `
-        <span class="material-symbols-outlined">check_circle</span>
-        <span>ЗАПИСАТЬ РАЗМИНКУ #${currentWarmupStepNum} (${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps})</span>
-      `;
-    } else {
-      const specLabel = isSpecialActive ? ` • ${currentEx.plannedMethod.split(' ')[0].toUpperCase()}` : '';
-      recordBtn.innerHTML = `
-        <span class="material-symbols-outlined">check_circle</span>
-        <span>ЗАПИСАТЬ РАБОЧИЙ СЕТ #${currentWorkSetNum}${specLabel} (${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps})</span>
-      `;
-    }
-  }
-
   renderCompletedSetsHistory(currentEx);
+  updateBottomActionBar();
+  updateRestRing();
+  updatePabRestCountdown();
 }
 
 function renderCompletedSetsHistory(currentEx) {
   const listEl = document.getElementById('liveCompletedSetsList');
+  const showAllBtn = document.getElementById('liveShowAllSetsBtn');
   if (!listEl) return;
 
   if (!currentEx.completedSets || currentEx.completedSets.length === 0) {
     listEl.innerHTML = `<div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Пока нет записанных подходов в этом упражнении</div>`;
+    if (showAllBtn) showAllBtn.hidden = true;
     return;
   }
+
+  const total = currentEx.completedSets.length;
+  const showAll = total <= 2;
+  const setsToRender = showAll ? currentEx.completedSets : currentEx.completedSets.slice(-2);
 
   listEl.innerHTML = '';
   let warmupCounter = 0;
   let workCounter = 0;
 
-  currentEx.completedSets.forEach((s, idx) => {
+  // Счётчики для корректных номеров (нужно пробежать весь список)
+  currentEx.completedSets.forEach(s => {
+    if (s.category === 'Разминка') warmupCounter++;
+    else workCounter++;
+  });
+
+  // Определим с каких индексов рендерить, чтобы номера совпадали
+  const startIdx = showAll ? 0 : (total - 2);
+
+  for (let idx = startIdx; idx < total; idx++) {
+    const s = currentEx.completedSets[idx];
     const row = document.createElement('div');
     row.className = 'live-history-row';
 
     const isWarmup = (s.category === 'Разминка');
-    const displayNum = isWarmup ? (++warmupCounter) : (++workCounter);
+
+    // Считаем сквозной номер для каждого сета
+    let displayNum = 0;
+    if (isWarmup) {
+      let localWarmup = 0;
+      for (let k = 0; k <= idx; k++) {
+        if (currentEx.completedSets[k].category === 'Разминка') localWarmup++;
+      }
+      displayNum = localWarmup;
+    } else {
+      let localWork = 0;
+      for (let k = 0; k <= idx; k++) {
+        if (currentEx.completedSets[k].category === 'Рабочий') localWork++;
+      }
+      displayNum = localWork;
+    }
+
     const labelText = isWarmup ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
     const badgeColor = isWarmup
       ? 'var(--md-sys-color-on-surface-variant)'
@@ -830,9 +1057,91 @@ function renderCompletedSetsHistory(currentEx) {
         currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
         currentEx.isCompleted = false;
         currentEx.allowBonusSet = false;
+        if (currentEx.completedSets.filter(x => x.category === 'Рабочий').length === 0) {
+          currentEx.headerCollapsed = false;
+        }
         activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
         persistActiveSession();
         renderLiveWorkoutScreen();
+      };
+    }
+
+    listEl.appendChild(row);
+  }
+
+  if (showAllBtn) {
+    if (total > 2) {
+      showAllBtn.hidden = false;
+      showAllBtn.innerText = `Показать все ${total} подходов →`;
+      showAllBtn.onclick = () => {
+        registerLiveModals();
+        openModal('liveFullHistoryModal');
+      };
+    } else {
+      showAllBtn.hidden = true;
+    }
+  }
+}
+
+function renderFullHistoryModal() {
+  const listEl = document.getElementById('liveFullHistoryList');
+  const titleEl = document.getElementById('liveFullHistoryTitle');
+  if (!listEl || !activeSession) return;
+
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  if (titleEl) titleEl.innerText = `Подходы: ${currentEx.name}`;
+  listEl.innerHTML = '';
+
+  let warmupCounter = 0;
+  let workCounter = 0;
+
+  currentEx.completedSets.forEach((s, idx) => {
+    const isWarmup = (s.category === 'Разминка');
+    let displayNum;
+    if (isWarmup) {
+      warmupCounter++;
+      displayNum = warmupCounter;
+    } else {
+      workCounter++;
+      displayNum = workCounter;
+    }
+
+    const row = document.createElement('div');
+    row.className = 'live-history-row';
+    const badgeColor = isWarmup
+      ? 'var(--md-sys-color-on-surface-variant)'
+      : 'var(--app-color-success)';
+    const labelText = isWarmup ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
+
+    row.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="font-weight:700; color:${badgeColor}; min-width:68px;">${escapeHtml(labelText)}</span>
+        <span><b>${s.weight} кг × ${s.reps}</b></span>
+        ${!isWarmup && s.reserve ? `<span class="coach-card-chip">RIR ${escapeHtml(String(s.reserve).replace('+', ''))}</span>` : ''}
+        ${!isWarmup && s.method ? `<span class="coach-method-badge">${escapeHtml(s.method)}</span>` : ''}
+      </div>
+      <button class="live-delete-set-btn" data-set-idx="${idx}" title="Удалить подход">
+        <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+      </button>
+    `;
+
+    const delBtn = row.querySelector('.live-delete-set-btn');
+    if (delBtn) {
+      delBtn.onclick = () => {
+        currentEx.completedSets.splice(idx, 1);
+        currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
+        currentEx.isCompleted = false;
+        currentEx.allowBonusSet = false;
+        if (currentEx.completedSets.filter(x => x.category === 'Рабочий').length === 0) {
+          currentEx.headerCollapsed = false;
+        }
+        activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
+        persistActiveSession();
+        renderFullHistoryModal();
+        renderLiveWorkoutScreen();
+        if (currentEx.completedSets.length === 0) closeModal('liveFullHistoryModal');
       };
     }
 
@@ -924,6 +1233,11 @@ function handleRecordCurrentSet() {
     currentEx.isCompleted = true;
   }
 
+  // V2.0: auto-collapse header после первого рабочего сета
+  if (!isWarmup && !currentEx.headerCollapsed) {
+    currentEx.headerCollapsed = true;
+  }
+
   triggerHaptic([80]);
 
   const kind = isWarmup ? 'Разминка' : 'Рабочий';
@@ -948,22 +1262,6 @@ function handleRecordCurrentSet() {
 /* =========================================================
  * NAVIGATION BETWEEN EXERCISES
  * ========================================================= */
-
-function findNextIncompleteExerciseIndex(fromIndex) {
-  if (!activeSession) return -1;
-  const total = activeSession.exercises.length;
-  for (let i = fromIndex + 1; i < total; i++) {
-    const ex = activeSession.exercises[i];
-    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-    if (!ex.isCompleted && workDone < ex.targetSets) return i;
-  }
-  for (let i = 0; i < fromIndex; i++) {
-    const ex = activeSession.exercises[i];
-    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-    if (!ex.isCompleted && workDone < ex.targetSets) return i;
-  }
-  return -1;
-}
 
 function handleCompleteCurrentAndMoveNext() {
   if (!activeSession) return;
@@ -1008,6 +1306,7 @@ function adjustRestTimer(deltaSeconds) {
   activeSession.restState.totalSeconds = Math.max(10, activeSession.restState.totalSeconds + deltaSeconds);
   persistActiveSession();
   syncRestTimerWithWallClock();
+  updateBottomActionBar();
 }
 
 function stopRestTimer() {
@@ -1018,23 +1317,23 @@ function stopRestTimer() {
     clearInterval(restTimerInterval);
     restTimerInterval = null;
   }
-  const bar = document.getElementById('liveRestTimerBar');
-  if (bar) bar.style.display = 'none';
   persistActiveSession();
+
+  // V2.0: перерисовать ring + PAB
+  updateRestRing();
+  updateBottomActionBar();
+  updatePabRestCountdown();
 }
 
 function syncRestTimerWithWallClock() {
-  const bar = document.getElementById('liveRestTimerBar');
-  const countEl = document.getElementById('liveRestCountdown');
-  if (!bar || !countEl || !activeSession) return;
+  if (!activeSession) return;
 
   if (!activeSession.restState || !activeSession.restState.isActive) {
-    bar.style.display = 'none';
-    if (restTimerInterval) clearInterval(restTimerInterval);
+    updateRestRing();
+    updatePabRestCountdown();
     return;
   }
 
-  bar.style.display = 'flex';
   if (restTimerInterval) clearInterval(restTimerInterval);
 
   const tick = () => {
@@ -1052,10 +1351,12 @@ function syncRestTimerWithWallClock() {
       return;
     }
 
-    const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
-    const s = String(remainingSec % 60).padStart(2, '0');
-    countEl.innerText = `${m}:${s}`;
+    updateRestRing();
+    updatePabRestCountdown();
   };
+
+  // Первый тик — переключить PAB в режим отдыха
+  updateBottomActionBar();
 
   tick();
   restTimerInterval = setInterval(tick, 250);
@@ -1318,13 +1619,31 @@ function bindLiveWorkoutDomEvents() {
   if (equipChip) equipChip.onclick = () => openNotesSheet();
   if (techChip) techChip.onclick = () => openNotesSheet();
 
+  // V2.0: тап по header card — toggle collapse
+  const headerCard = document.getElementById('liveExHeaderCard');
+  if (headerCard) {
+    headerCard.addEventListener('click', (e) => {
+      // Не реагируем на клики внутри чипов/кнопок
+      if (e.target.closest('.live-note-chip')) return;
+      if (!activeSession) return;
+      const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+      if (!ex) return;
+      if (ex.headerCollapsed) {
+        toggleExerciseHeader();
+      } else {
+        // Развёрнутый → сворачиваем по тапу (только если уже есть хотя бы 1 рабочий сет)
+        const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+        if (workDone > 0) toggleExerciseHeader();
+      }
+    });
+  }
+
   const notesSaveBtn = document.getElementById('liveNotesSaveBtn');
   const notesCancelBtn = document.getElementById('liveNotesCancelBtn');
   if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
   if (notesCancelBtn) notesCancelBtn.onclick = () => closeModal('liveNotesSheet');
 
-  // Enter в «Оборудование» → фокус на «Технику» (без newline).
-  // Никакого auto-resize — фиксированная высота через CSS.
+  // Enter в «Оборудование» → фокус на «Технику»
   const equipInput = document.getElementById('liveNotesEquipmentInput');
   if (equipInput) {
     equipInput.addEventListener('keydown', (e) => {
@@ -1336,6 +1655,23 @@ function bindLiveWorkoutDomEvents() {
     });
   }
 
+  // === PAB: кнопка «Записать сет» ===
+  const pabRecordBtn = document.getElementById('livePabRecordBtn');
+  if (pabRecordBtn) pabRecordBtn.onclick = () => handleRecordCurrentSet();
+
+  // === PAB: три кнопки таймера отдыха ===
+  const pabMinus30 = document.getElementById('livePabMinus30Btn');
+  const pabPlus30 = document.getElementById('livePabPlus30Btn');
+  const pabSkipRest = document.getElementById('livePabSkipRestBtn');
+  if (pabMinus30) pabMinus30.onclick = () => adjustRestTimer(-30);
+  if (pabPlus30) pabPlus30.onclick = () => adjustRestTimer(30);
+  if (pabSkipRest) pabSkipRest.onclick = () => stopRestTimer();
+
+  // === PAB: кнопка «Завершить → УПР. #N+1» ===
+  const pabNextExBtn = document.getElementById('livePabNextExBtn');
+  if (pabNextExBtn) pabNextExBtn.onclick = () => handleCompleteCurrentAndMoveNext();
+
+  // === Категория (Разминка / Рабочий) ===
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
   if (catWarmupBtn) {
@@ -1396,9 +1732,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  const completeNextBtn = document.getElementById('liveCompleteAndNextExBtn');
   const addBonusSetBtn = document.getElementById('liveAddBonusSetBtn');
-  if (completeNextBtn) completeNextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
   if (addBonusSetBtn) {
     addBonusSetBtn.onclick = () => {
       if (!activeSession) return;
@@ -1417,6 +1751,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
+  // === Степперы ===
   const wMinus = document.getElementById('liveWeightMinusBtn');
   const wPlus = document.getElementById('liveWeightPlusBtn');
   if (wMinus) {
@@ -1469,6 +1804,7 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
+  // === Кластерная пауза ===
   const clusterBtn = document.getElementById('liveClusterPauseBtn');
   if (clusterBtn) {
     clusterBtn.onclick = () => {
@@ -1478,16 +1814,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  const recordBtn = document.getElementById('liveRecordSetBtn');
-  if (recordBtn) recordBtn.onclick = () => handleRecordCurrentSet();
-
-  const restMinusBtn = document.getElementById('liveRestMinus30Btn');
-  const restPlusBtn = document.getElementById('liveRestPlus30Btn');
-  const restSkipBtn = document.getElementById('liveRestSkipBtn');
-  if (restMinusBtn) restMinusBtn.onclick = () => adjustRestTimer(-30);
-  if (restPlusBtn) restPlusBtn.onclick = () => adjustRestTimer(30);
-  if (restSkipBtn) restSkipBtn.onclick = () => stopRestTimer();
-
+  // === Настройки таймингов ===
   const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
   const saveTimerPrefsBtn = document.getElementById('saveLiveTimerSettingsBtn');
 
@@ -1516,6 +1843,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
+  // === Closeout ===
   const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
   const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
 
