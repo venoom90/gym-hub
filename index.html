@@ -1230,6 +1230,16 @@
       padding: 13px 15px;
     }
 
+    /* Однострочная textarea для поля «Оборудование» (обход Chrome password manager) */
+    textarea.m3-input.notes-single-line {
+      resize: none;
+      min-height: var(--app-touch-min);
+      max-height: 80px;
+      overflow-y: auto;
+      line-height: 1.4;
+      padding: 14px 16px;
+    }
+
     /* CHARTS */
     .chart-container { position: relative; height: 240px; width: 100%; }
 
@@ -2396,9 +2406,9 @@
   </div>
 
   <!-- =========================================================================
-       V5.4.1: BOTTOM SHEET для редактирования заметок упражнения
-       Fix: input для оборудования использует autocomplete="new-password" +
-            data-form-type="other" — Chrome не триггерит password manager.
+       V5.4.2: BOTTOM SHEET для редактирования заметок упражнения
+       Fix: input «Оборудование» заменён на <textarea rows="1"> — обход
+            Chrome Password Manager (эвристика движка не триггерится на textarea).
        ========================================================================= -->
   <div id="liveNotesSheet" class="bottom-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveNotesSheetTitle">
     <div class="bottom-sheet">
@@ -2411,15 +2421,14 @@
           <span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">settings</span>
           Оборудование / Настройки
         </label>
-        <input type="text" 
-               id="liveNotesEquipmentInput" 
-               class="m3-input" 
-               placeholder="Например: высота 7, спинка вперёд..." 
-               maxlength="120"
-               autocomplete="new-password"
-               data-form-type="other"
-               autocorrect="off"
-               spellcheck="false">
+        <textarea id="liveNotesEquipmentInput" 
+                  class="m3-input notes-single-line" 
+                  rows="1"
+                  placeholder="Например: высота 7, спинка вперёд..." 
+                  maxlength="120"
+                  autocomplete="off"
+                  autocorrect="off"
+                  spellcheck="false"></textarea>
       </div>
 
       <div class="bottom-sheet-field">
