@@ -575,7 +575,7 @@
     }
 
     /* =========================================================
-     * LIVE WORKOUT OVERLAY (V2.2)
+     * LIVE WORKOUT OVERLAY (V2.3)
      * ========================================================= */
     .live-workout-overlay {
       display: none;
@@ -737,7 +737,6 @@
       transition: padding var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-standard);
     }
     .live-ex-header-card.is-collapsed { padding: 10px 12px; }
-
     .live-ex-header-compact {
       display: flex;
       align-items: flex-start;
@@ -1035,9 +1034,7 @@
       padding: 3px 0;
     }
 
-    /* =========================================================
-     * CLOSEOUT CHIPS (readiness + sRPE) — восстановлены V2.2
-     * ========================================================= */
+    /* Closeout chips */
     .live-readiness-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -1063,19 +1060,44 @@
                   border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
                   color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
-    .live-readiness-chip {
-      font-size: 0.85rem;
-    }
-    .live-srpe-chip {
-      min-height: 48px;
-      font-size: 1rem;
-    }
+    .live-readiness-chip { font-size: 0.85rem; }
+    .live-srpe-chip { min-height: 48px; font-size: 1rem; }
     .live-readiness-chip.active,
     .live-srpe-chip.active {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
       border-width: 2px;
+    }
+
+    /* V2.3: компактный closeout-модал */
+    .live-closeout-modal-card {
+      gap: 10px !important;
+      padding: 16px !important;
+    }
+    .live-closeout-modal-card .live-readiness-chip {
+      min-height: 42px;
+      font-size: 0.78rem;
+      padding: 4px 6px;
+    }
+    .live-closeout-modal-card .live-srpe-chip {
+      min-height: 42px;
+      font-size: 0.92rem;
+      padding: 4px 0;
+    }
+    .live-closeout-summary {
+      font: var(--md-sys-typescale-body-medium);
+      font-size: 0.82rem;
+      line-height: 1.5;
+      color: var(--md-sys-color-on-surface);
+      background: var(--md-sys-color-surface-container-high);
+      padding: 10px 12px;
+      border-radius: var(--md-sys-shape-corner-large);
+    }
+    .live-closeout-label {
+      font: var(--md-sys-typescale-label-large);
+      font-size: 0.82rem;
+      color: var(--md-sys-color-primary);
     }
 
     .live-complete-ex-card {
@@ -1093,6 +1115,27 @@
       font: 700 0.95rem/1.3 'Roboto';
       color: var(--app-color-success);
     }
+
+    /* V2.3: ghost-outlined кнопка для bonus set */
+    .live-bonus-set-btn {
+      width: 100%;
+      min-height: 48px;
+      border-radius: var(--md-sys-shape-corner-medium);
+      border: 1px solid var(--md-sys-color-outline-variant);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--md-sys-color-on-surface);
+      font: 600 0.88rem/1.2 'Roboto';
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 16px;
+      margin-top: 4px;
+      transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    }
+    .live-bonus-set-btn:hover { background: rgba(255, 255, 255, 0.1); }
+    .live-bonus-set-btn:active { background: rgba(255, 255, 255, 0.15); }
 
     /* History groups */
     .live-history-groups-container {
@@ -1265,6 +1308,30 @@
       max-width: 100%;
     }
 
+    /* V2.3: method-combo с круглой кнопкой-часами */
+    .live-pab-method-combo {
+      display: grid;
+      grid-template-columns: 1fr 64px;
+      gap: 8px;
+      align-items: stretch;
+    }
+    .live-pab-clock-round {
+      border-radius: var(--md-sys-shape-corner-full);
+      border: 1.5px solid var(--md-sys-color-primary);
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: opacity var(--md-sys-motion-duration-short3);
+      aspect-ratio: 1;
+      min-width: 64px;
+      min-height: 64px;
+    }
+    .live-pab-clock-round:active { opacity: 0.85; }
+    .live-pab-clock-round .material-symbols-outlined { font-size: 26px; }
+
     .live-pab-rest-info {
       display: flex;
       align-items: center;
@@ -1317,38 +1384,8 @@
       border-color: var(--md-sys-color-primary);
     }
 
-    .live-pab-method-row {
-      display: grid;
-      grid-template-columns: 96px 1fr;
-      gap: 8px;
-      align-items: stretch;
-    }
-    .live-pab-clock-btn {
-      min-height: 72px;
-      border-radius: var(--md-sys-shape-corner-large);
-      border: 1.5px solid var(--md-sys-color-primary);
-      background: rgba(0, 70, 139, 0.35);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      color: var(--md-sys-color-primary);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 2px;
-      cursor: pointer;
-      padding: 4px;
-      transition: opacity var(--md-sys-motion-duration-short3);
-    }
-    .live-pab-clock-btn:active { opacity: 0.85; }
-    .live-pab-clock-btn .material-symbols-outlined { font-size: 24px; }
-    .live-pab-clock-label {
-      font: 700 0.72rem/1 'Roboto';
-      letter-spacing: 0.4px;
-    }
-
     /* =========================================================
-     * BIG CLOCK OVERLAY (V2.2 — пассивный секундомер вверх)
+     * BIG CLOCK OVERLAY (V2.3 — ETA в 3 строки)
      * ========================================================= */
     .live-big-clock-overlay {
       display: none;
@@ -1393,8 +1430,16 @@
       letter-spacing: 0.3px;
     }
     .live-big-clock-corner-row b {
-      color: rgba(168, 200, 255, 0.85);
+      color: rgba(168, 200, 255, 0.9);
       font-weight: 700;
+    }
+    .live-big-clock-corner-row.is-primary {
+      font-size: 0.95rem;
+      color: rgba(255, 255, 255, 0.8);
+    }
+    .live-big-clock-corner-row.is-primary b {
+      color: #a8c8ff;
+      font-size: 1.05rem;
     }
 
     .live-big-clock-title {
@@ -1426,7 +1471,7 @@
     }
 
     /* =========================================================
-     * BOTTOM SHEETS (cluster / drop) — компакт V2.2
+     * BOTTOM SHEETS (V2.3 — двухстрочные карточки)
      * ========================================================= */
     .live-sheet-overlay {
       display: none;
@@ -1471,45 +1516,54 @@
       margin-top: -6px;
     }
 
-    /* Компактная строка: 52px | reps-stepper | RIR-chips */
-    .live-sheet-row {
-      display: grid;
-      grid-template-columns: 52px 1fr auto;
+    /* V2.3: двухстрочная карточка */
+    .live-sheet-row-2 {
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: var(--md-sys-shape-corner-medium);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .live-sheet-row-2-top {
+      display: flex;
+      justify-content: space-between;
       align-items: center;
       gap: 8px;
-      padding: 6px 10px;
-      border-radius: var(--md-sys-shape-corner-medium);
-      background: var(--md-sys-color-surface-container-high);
-      min-height: 56px;
     }
-    .live-sheet-row-label {
+    .live-sheet-row-2-label {
       font: 700 0.72rem/1.1 'Roboto';
       letter-spacing: 0.4px;
       color: var(--md-sys-color-on-surface-variant);
       text-transform: uppercase;
     }
-    .live-sheet-row-main {
+    .live-sheet-row-2-bottom {
       display: flex;
       align-items: center;
       gap: 4px;
-      flex-wrap: nowrap;
-      min-width: 0;
       justify-content: center;
+      flex-wrap: nowrap;
+    }
+    .live-sheet-unit {
+      font: 500 0.7rem/1 'Roboto';
+      color: var(--md-sys-color-on-surface-variant);
+      margin: 0 4px;
     }
 
     .live-sheet-mini-btn {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container-highest);
       color: var(--md-sys-color-on-surface);
-      font: 700 0.95rem/1 'Roboto';
+      font: 700 0.9rem/1 'Roboto';
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
+      padding: 0;
       transition: background-color var(--md-sys-motion-duration-short2);
     }
     .live-sheet-mini-btn:active {
@@ -1518,11 +1572,11 @@
     }
 
     .live-sheet-value {
-      font: 700 1.15rem/1 'Roboto';
+      font: 700 1.05rem/1 'Roboto';
       color: var(--md-sys-color-primary);
-      min-width: 34px;
+      min-width: 30px;
       text-align: center;
-      letter-spacing: -0.4px;
+      letter-spacing: -0.3px;
     }
 
     .live-sheet-rir {
@@ -1532,7 +1586,7 @@
     }
     .live-sheet-rir-chip {
       min-width: 30px;
-      height: 30px;
+      height: 28px;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
       background: var(--md-sys-color-surface-container);
@@ -1559,13 +1613,14 @@
       border: 1px dashed var(--md-sys-color-outline-variant);
       background: transparent;
       color: var(--md-sys-color-primary);
-      font: 600 0.85rem/1 'Roboto';
+      font: 600 0.85rem/1.2 'Roboto';
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 8px;
+      padding: 8px 12px;
+      text-align: center;
     }
     .live-sheet-add-btn:active { background: rgba(168, 200, 255, 0.08); }
 
@@ -1587,7 +1642,7 @@
     }
 
     /* =========================================================
-     * REST / HELPERS
+     * HELPERS
      * ========================================================= */
     .mannequin-container { display: flex; flex-direction: column; align-items: center; gap: 12px; }
     .mannequin-views-row {
@@ -2060,7 +2115,7 @@
     }
     .terminal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-    /* BOTTOM NAVIGATION — FIX safe-area V2.2 */
+    /* BOTTOM NAVIGATION */
     .navigation-bar {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -2105,7 +2160,7 @@
       color: var(--md-sys-color-on-secondary-container);
     }
 
-    /* MODALS — FIX safe-area V2.2 */
+    /* MODALS */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -2729,7 +2784,7 @@
     </div>
   </div>
 
-  <!-- LIVE WORKOUT OVERLAY V2.2 -->
+  <!-- LIVE WORKOUT OVERLAY V2.3 -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
 
     <div class="live-top-bar">
@@ -2846,7 +2901,7 @@
 
       <div id="liveExCompletedCard" class="live-complete-ex-card">
         <div id="liveExCompletedTitle" class="live-complete-title">✅ Упражнение выполнено!</div>
-        <button id="liveAddBonusSetBtn" class="live-method-toggle-btn" style="margin-top:2px;">
+        <button id="liveAddBonusSetBtn" class="live-bonus-set-btn" type="button">
           + Добавить еще 1 подход сверх плана
         </button>
       </div>
@@ -2877,11 +2932,12 @@
 
   </div>
 
-  <!-- BIG CLOCK OVERLAY (V2.2 — пассивный секундомер вверх) -->
+  <!-- BIG CLOCK OVERLAY V2.3 -->
   <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Большие часы">
     <div class="live-big-clock-corner" id="liveBigClockCorner">
-      <div class="live-big-clock-corner-row" id="liveBigClockNow">Сейчас <b>14:23</b></div>
-      <div class="live-big-clock-corner-row" id="liveBigClockEta">Финиш ~<b>15:10</b></div>
+      <div class="live-big-clock-corner-row is-primary" id="liveBigClockNow">Сейчас <b>14:23</b></div>
+      <div class="live-big-clock-corner-row" id="liveBigClockEtaRel">До финиша <b>12 мин</b></div>
+      <div class="live-big-clock-corner-row" id="liveBigClockEtaAbs">Окончание ~<b>14:35</b></div>
     </div>
     <button id="liveBigClockClose" class="live-big-clock-close" aria-label="Закрыть часы">
       <span class="material-symbols-outlined" aria-hidden="true">close</span>
@@ -2891,7 +2947,7 @@
     <div class="live-big-clock-hint">Секундомер стартовал. Смотри в любой момент — считай от него свои 20 сек между сегментами. Кнопка ✕ или системный «Назад» — вернуться в тренировку.</div>
   </div>
 
-  <!-- BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА -->
+  <!-- BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА V2.3 (двухстрочные карточки) -->
   <div id="liveClusterSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveClusterSheetTitle">
     <div class="live-sheet">
       <div class="live-sheet-handle" aria-hidden="true"></div>
@@ -2912,25 +2968,28 @@
     </div>
   </div>
 
-  <!-- BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА -->
+  <!-- BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА V2.3 -->
   <div id="liveDropSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveDropSheetTitle">
     <div class="live-sheet">
       <div class="live-sheet-handle" aria-hidden="true"></div>
       <div class="live-sheet-title" id="liveDropSheetTitle">Запись дроп-сета</div>
       <div class="live-sheet-subtitle" id="liveDropSheetSubtitle"></div>
 
-      <div id="liveDropMainRow" class="live-sheet-row">
-        <span class="live-sheet-row-label">Основной</span>
-        <div class="live-sheet-row-main">
-          <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="-2.5">−</button>
-          <span class="live-sheet-value" id="liveDropMainWeight">55</span>
-          <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="+2.5">+</button>
-          <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.7rem;">кг ×</span>
-          <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="-1">−</button>
-          <span class="live-sheet-value" id="liveDropMainReps">10</span>
-          <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="+1">+</button>
+      <div id="liveDropMainRow" class="live-sheet-row-2">
+        <div class="live-sheet-row-2-top">
+          <span class="live-sheet-row-2-label">Основной</span>
+          <div class="live-sheet-rir" id="liveDropMainRir"></div>
         </div>
-        <div class="live-sheet-rir" id="liveDropMainRir"></div>
+        <div class="live-sheet-row-2-bottom">
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="-2.5" type="button">−</button>
+          <span class="live-sheet-value" id="liveDropMainWeight">45</span>
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="+2.5" type="button">+</button>
+          <span class="live-sheet-unit">кг ×</span>
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="-1" type="button">−</button>
+          <span class="live-sheet-value" id="liveDropMainReps">8</span>
+          <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="+1" type="button">+</button>
+          <span class="live-sheet-unit">повт</span>
+        </div>
       </div>
 
       <div id="liveDropDropsContainer" style="display:flex; flex-direction:column; gap:6px;"></div>
@@ -2952,19 +3011,19 @@
     </div>
   </div>
 
-  <!-- CLOSEOUT MODAL -->
+  <!-- CLOSEOUT MODAL V2.3 -->
   <div id="liveCloseoutModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveCloseoutTitle">
-    <div class="modal-card">
+    <div class="modal-card live-closeout-modal-card">
       <div class="card-title">
         <span id="liveCloseoutTitle">Завершение тренировки</span>
         <md-icon-button id="closeLiveCloseoutModalBtn" aria-label="Закрыть окно">
           <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </md-icon-button>
       </div>
-      <div id="liveCloseoutSummaryStats" style="font: var(--md-sys-typescale-body-medium); line-height:1.65; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high); padding:12px 14px; border-radius: var(--md-sys-shape-corner-large);"></div>
+      <div id="liveCloseoutSummaryStats" class="live-closeout-summary"></div>
 
-      <div style="display:flex; flex-direction:column; gap:6px;">
-        <span style="font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-primary);">Самочувствие и готовность ЦНС (Readiness):</span>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <span class="live-closeout-label">Самочувствие и готовность ЦНС:</span>
         <div class="live-readiness-grid" role="radiogroup">
           <button class="live-readiness-chip active" data-readiness="🟢 Оптимум" role="radio" aria-checked="true">🟢 Оптимум</button>
           <button class="live-readiness-chip" data-readiness="🟡 Норма" role="radio" aria-checked="false">🟡 Норма</button>
@@ -2972,8 +3031,8 @@
         </div>
       </div>
       
-      <div style="display:flex; flex-direction:column; gap:6px;">
-        <span style="font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-primary);">Оценка тяжести сессии (sRPE по шкале 6–10):</span>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <span class="live-closeout-label">Оценка тяжести сессии (sRPE 6–10):</span>
         <div class="live-srpe-grid" role="radiogroup">
           <button class="live-srpe-chip" data-srpe="6" role="radio" aria-checked="false">6</button>
           <button class="live-srpe-chip" data-srpe="7" role="radio" aria-checked="false">7</button>
@@ -2985,7 +3044,7 @@
 
       <div id="liveCloseoutSyncStatus" style="display:none; font: var(--md-sys-typescale-body-small); line-height:1.45;" role="status" aria-live="polite"></div>
 
-      <div style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
+      <div style="display:flex; flex-direction:column; gap:8px; margin-top:2px;">
         <md-filled-button id="liveConfirmFinishBtn">
           <span class="material-symbols-outlined" slot="icon" aria-hidden="true">cloud_upload</span>
           Сохранить в базу Google Таблиц
@@ -3016,7 +3075,7 @@
           <input type="number" id="prefTimerIsolation" class="m3-input" value="90" step="10">
         </div>
         <div>
-          <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза (для отсчёта на больших часах), сек:</label>
+          <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза (для отсчёта), сек:</label>
           <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5">
         </div>
         <div>
