@@ -529,9 +529,7 @@
     }
     .recipe-warmup-row .material-symbols-outlined { font-size: 14px; color: var(--md-sys-color-outline-variant); }
 
-    /* =========================================================
-     * V5.4.0: RECIPE NOTE CHIPS (read-only) — в Plan Preview Modal
-     * ========================================================= */
+    /* RECIPE NOTE CHIPS (read-only) — в Plan Preview Modal */
     .recipe-notes-row {
       display: flex;
       gap: 6px;
@@ -709,9 +707,7 @@
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
-    /* =========================================================
-     * V5.4.0: NOTE CHIPS в Live Workout Exercise Header
-     * ========================================================= */
+    /* NOTE CHIPS в Live Workout Exercise Header */
     .live-ex-notes-row {
       display: flex;
       gap: 8px;
@@ -748,7 +744,6 @@
       white-space: nowrap;
       max-width: 200px;
     }
-    /* Пустое состояние — dashed border */
     .live-note-chip.is-empty {
       border-style: dashed;
       color: var(--md-sys-color-outline);
@@ -1566,9 +1561,7 @@
       box-shadow: var(--md-sys-elevation-level3);
     }
 
-    /* =========================================================
-     * V5.4.0: BOTTOM SHEET для редактирования заметок
-     * ========================================================= */
+    /* BOTTOM SHEET для редактирования заметок */
     .bottom-sheet-overlay {
       display: none;
       position: fixed;
@@ -2211,7 +2204,6 @@
         <div id="liveExName" style="font: 700 1.15rem/1.3 'Roboto'; color: var(--md-sys-color-on-surface);">Упражнение</div>
         <div id="liveExTargetSubtitle" style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant);">Цель: ...</div>
 
-        <!-- V5.4.0: NOTE CHIPS -->
         <div id="liveExNotesRow" class="live-ex-notes-row">
           <button type="button" id="liveEquipmentChip" class="live-note-chip is-empty" aria-label="Настройки оборудования">
             <span class="material-symbols-outlined" aria-hidden="true">settings</span>
@@ -2404,7 +2396,9 @@
   </div>
 
   <!-- =========================================================================
-       V5.4.0: BOTTOM SHEET для редактирования заметок упражнения
+       V5.4.1: BOTTOM SHEET для редактирования заметок упражнения
+       Fix: input для оборудования использует autocomplete="new-password" +
+            data-form-type="other" — Chrome не триггерит password manager.
        ========================================================================= -->
   <div id="liveNotesSheet" class="bottom-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveNotesSheetTitle">
     <div class="bottom-sheet">
@@ -2417,7 +2411,15 @@
           <span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">settings</span>
           Оборудование / Настройки
         </label>
-        <input type="text" id="liveNotesEquipmentInput" class="m3-input" placeholder="Например: высота 7, спинка вперёд..." maxlength="120">
+        <input type="text" 
+               id="liveNotesEquipmentInput" 
+               class="m3-input" 
+               placeholder="Например: высота 7, спинка вперёд..." 
+               maxlength="120"
+               autocomplete="new-password"
+               data-form-type="other"
+               autocorrect="off"
+               spellcheck="false">
       </div>
 
       <div class="bottom-sheet-field">
@@ -2425,14 +2427,21 @@
           <span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">notes</span>
           Техника / Позиционирование
         </label>
-        <textarea id="liveNotesTechniqueInput" class="m3-input" rows="3" placeholder="Например: локти вниз, тяга к поясу..." maxlength="500"></textarea>
+        <textarea id="liveNotesTechniqueInput" 
+                  class="m3-input" 
+                  rows="3" 
+                  placeholder="Например: локти вниз, тяга к поясу..." 
+                  maxlength="500"
+                  autocomplete="off"
+                  autocorrect="off"
+                  spellcheck="false"></textarea>
       </div>
 
       <div class="bottom-sheet-actions">
         <md-outlined-button id="liveNotesCancelBtn">Отмена</md-outlined-button>
         <md-filled-button id="liveNotesSaveBtn">
           <span class="material-symbols-outlined" slot="icon" aria-hidden="true">check</span>
-          Сохранить
+          Готово
         </md-filled-button>
       </div>
     </div>
