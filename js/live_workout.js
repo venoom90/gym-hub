@@ -1,20 +1,21 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.0 COMPACT & FLOATING)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.1 CLUSTER & DROP EDITION)
  * =========================================================================
- * V2.0 «Compact & Thumb»:
- * - Компактный топбар 48px: ‹ | таймер | ⚙ | Финиш
- * - Progress Strip 44px: chevrons + сегменты + счётчик (вместо мини-карты)
- * - Сворачиваемый header упражнения (автосвёртка после первого сета)
- * - PAB (Persistent Action Bar) — fixed bottom, blur, меняется по контексту:
- *     • запись сета → зелёная кнопка «ЗАПИСАТЬ»
- *     • отдых → 3 кнопки −30/+30/Пропустить + обратный отсчёт
- *     • упражнение выполнено → primary «ЗАВЕРШИТЬ → УПР. #N»
- * - Rest-timer живёт в PAB, красный при <15 сек
- * - Точечные апдейты DOM для RIR/степперов (без полного re-render)
- * - Журнал: группы Разминка (свёрнута) / Рабочие (развёрнуты)
- * - Floating-кнопка «Пауза 20с» над PAB при активном кластере
- * - V1.5.2: Enter в «Оборудование» → фокус на «Технику» (bottom sheet)
+ * V2.1:
+ * - Big Clock overlay — полноэкранные часы паузы для кластеров и дропов.
+ *   Тап по цифрам — перезапуск. Вибрация по завершении. Hardware back — выход.
+ * - Cluster Sheet — bottom sheet с сегментами (4+3+2 → 3 строки) и RIR
+ *   каждого сегмента. Сохраняется как одна строка с method-разметкой.
+ * - Drop Sheet — bottom sheet с основным сетом и N дропами (по умолчанию 1).
+ *   Кнопка «+ Ещё дроп» добавляет -25% от предыдущего. Тоннаж суммируется.
+ * - Удаление сета — двойной тап с подтверждением (is-confirm → 3 сек автосброс).
+ * - Компактный method-чип в углу строки (⚡ 4+3+2) вместо большой кнопки.
+ * - Приоритет «Завершить → УПР.» над таймером отдыха + автозапуск compound
+ *   rest-timer после перехода на следующее упражнение.
+ * - Свёрнутый header — чипсы (progress / план / RIR / метод / посл. сет).
+ * - PAB flexible height 72-92px (2 строки с line-clamp). Без обрезки.
+ * - V1.5.2: Enter в «Оборудование» → фокус на «Технику».
  */
 
 import {
@@ -35,10 +36,21 @@ let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
 let isLiveWorkoutInitialized = false;
 
+// V2.1: Big Clock state
+let bigClockEndsAtMs = 0;
+let bigClockDurationSec = 0;
+let bigClockInterval = null;
+let bigClockPhaseLabel = '';
+
+// V2.1: Sheet states
+let activeClusterSheetState = null;
+let activeDropSheetState = null;
+
 const DEFAULT_TIMERS = {
   compound: 150,
   isolation: 90,
   cluster: 20,
+  drop: 15,
   warmup: 60
 };
 
@@ -51,6 +63,7 @@ export function initLiveWorkoutModule(onComplete) {
     if (document.visibilityState === 'visible' && activeSession && !activeSession.isFinished) {
       await requestScreenWakeLock();
       syncRestTimerWithWallClock();
+      syncBigClockWithWallClock();
     }
   });
 }
@@ -80,6 +93,35 @@ function registerLiveModals() {
         showRecoveryBanner();
       }
     });
+  }
+
+  const bigClock = document.getElementById('liveBigClockOverlay');
+  if (bigClock) {
+    registerModal('liveBigClockOverlay', {
+      el: bigClock,
+      displayStyle: 'flex',
+      onClose: () => { stopBigClock(); }
+    });
+  }
+
+  const clusterSheet = document.getElementById('liveClusterSheet');
+  if (clusterSheet) {
+    registerModal('liveClusterSheet', {
+      el: clusterSheet,
+      displayStyle: 'flex',
+      onClose: () => { activeClusterSheetState = null; }
+    });
+    clusterSheet.onclick = (e) => { if (e.target === clusterSheet) closeModal('liveClusterSheet'); };
+  }
+
+  const dropSheet = document.getElementById('liveDropSheet');
+  if (dropSheet) {
+    registerModal('liveDropSheet', {
+      el: dropSheet,
+      displayStyle: 'flex',
+      onClose: () => { activeDropSheetState = null; }
+    });
+    dropSheet.onclick = (e) => { if (e.target === dropSheet) closeModal('liveDropSheet'); };
   }
 
   const closeoutModal = document.getElementById('liveCloseoutModal');
@@ -185,6 +227,7 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
       return {
         isCluster: true,
         schemeText: plusMatch[1],
+        segments: segments,
         totalReps: sum,
         firstSegmentReps: segments[0]
       };
@@ -194,6 +237,7 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
     return {
       isCluster: true,
       schemeText: '4+3+2',
+      segments: [4, 3, 2],
       totalReps: 9,
       firstSegmentReps: 4
     };
@@ -201,9 +245,17 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
   return {
     isCluster: false,
     schemeText: '',
+    segments: [defaultWorkReps],
     totalReps: defaultWorkReps,
     firstSegmentReps: defaultWorkReps
   };
+}
+
+function defaultRirForSegment(index, total) {
+  if (total <= 1) return '1';
+  if (index === 0) return '3';
+  if (index === total - 1) return '1';
+  return '2';
 }
 
 function computeSmartDraftSetForExercise(ex) {
@@ -335,7 +387,6 @@ export function startNewLiveWorkout(recipePayload) {
     readinessPre: '🟢 Оптимум',
     sRPE: 8,
     isFinished: false,
-    // V2.0 UI state
     headerCollapsed: false,
     headerManuallyToggled: false,
     historyUiState: { warmupCollapsed: false, workCollapsed: false }
@@ -372,7 +423,6 @@ function checkCrashRecoverySession() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && !parsed.isFinished && Array.isArray(parsed.exercises)) {
-      // V2.0: миграция старых сессий
       if (typeof parsed.headerCollapsed !== 'boolean') parsed.headerCollapsed = false;
       if (typeof parsed.headerManuallyToggled !== 'boolean') parsed.headerManuallyToggled = false;
       if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') {
@@ -380,8 +430,7 @@ function checkCrashRecoverySession() {
       }
       activeSession = parsed;
       const totalWorkDone = activeSession.exercises.reduce(
-        (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length,
-        0
+        (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length, 0
       );
       logToTerminal('LIVE_RECOVER', `Восстановлена сессия: ${activeSession.title} • ${totalWorkDone} раб. сетов`, 'info');
       showRecoveryBanner();
@@ -397,12 +446,9 @@ function showRecoveryBanner() {
   if (!banner || !activeSession) return;
 
   const totalWorkDone = activeSession.exercises.reduce(
-    (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length,
-    0
+    (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length, 0
   );
-  if (infoText) {
-    infoText.innerText = `${activeSession.title} • Рабочих сетов: ${totalWorkDone}`;
-  }
+  if (infoText) infoText.innerText = `${activeSession.title} • Рабочих сетов: ${totalWorkDone}`;
   banner.style.display = 'flex';
 }
 
@@ -436,14 +482,12 @@ async function releaseScreenWakeLock() {
 
 function triggerHaptic(pattern) {
   if ('vibrate' in navigator) {
-    try {
-      navigator.vibrate(pattern);
-    } catch (e) {}
+    try { navigator.vibrate(pattern); } catch (e) {}
   }
 }
 
 /* =========================================================
- * OVERLAY OPEN/MINIMIZE (через ModalManager)
+ * OVERLAY OPEN/MINIMIZE
  * ========================================================= */
 
 function openLiveWorkoutOverlay() {
@@ -472,6 +516,7 @@ function discardLiveWorkoutSession() {
   logToTerminal('LIVE_DISCARD', `Тренировка удалена без сохранения: ${activeSession ? activeSession.title : '—'}`, 'info');
 
   stopAllTimers();
+  stopBigClock();
   releaseScreenWakeLock();
   activeSession = null;
   persistActiveSession();
@@ -482,14 +527,8 @@ function discardLiveWorkoutSession() {
 }
 
 function stopAllTimers() {
-  if (workoutDurationInterval) {
-    clearInterval(workoutDurationInterval);
-    workoutDurationInterval = null;
-  }
-  if (restTimerInterval) {
-    clearInterval(restTimerInterval);
-    restTimerInterval = null;
-  }
+  if (workoutDurationInterval) { clearInterval(workoutDurationInterval); workoutDurationInterval = null; }
+  if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
 }
 
 function startDurationTicker() {
@@ -508,7 +547,75 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * MAIN RENDER (V2.0 — точечный, разбит на подмодули)
+ * BIG CLOCK (кластер/дроп микропауза)
+ * ========================================================= */
+
+function openBigClock(durationSec, phaseLabel) {
+  const overlay = document.getElementById('liveBigClockOverlay');
+  const digits = document.getElementById('liveBigClockDigits');
+  const phase = document.getElementById('liveBigClockPhase');
+  if (!overlay || !digits) return;
+
+  bigClockDurationSec = Math.max(1, parseInt(durationSec, 10) || 20);
+  bigClockEndsAtMs = Date.now() + bigClockDurationSec * 1000;
+  bigClockPhaseLabel = phaseLabel || 'ПАУЗА';
+
+  if (phase) phase.innerText = `${bigClockPhaseLabel.toUpperCase()} ${bigClockDurationSec} СЕК`;
+  digits.classList.remove('is-done');
+  digits.innerText = String(bigClockDurationSec);
+
+  registerLiveModals();
+  openModal('liveBigClockOverlay');
+
+  syncBigClockWithWallClock();
+}
+
+function syncBigClockWithWallClock() {
+  if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
+  if (!bigClockEndsAtMs) return;
+
+  const tick = () => {
+    const digits = document.getElementById('liveBigClockDigits');
+    if (!digits) return;
+    const remaining = Math.max(0, Math.ceil((bigClockEndsAtMs - Date.now()) / 1000));
+    if (remaining <= 0) {
+      digits.innerText = '0';
+      digits.classList.add('is-done');
+      triggerHaptic([400, 180, 400, 180, 400]);
+      if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
+      return;
+    }
+    digits.innerText = String(remaining);
+  };
+
+  tick();
+  bigClockInterval = setInterval(tick, 200);
+}
+
+function restartBigClock() {
+  if (!bigClockDurationSec) return;
+  bigClockEndsAtMs = Date.now() + bigClockDurationSec * 1000;
+  const digits = document.getElementById('liveBigClockDigits');
+  if (digits) {
+    digits.classList.remove('is-done');
+    digits.innerText = String(bigClockDurationSec);
+  }
+  triggerHaptic([40]);
+  syncBigClockWithWallClock();
+}
+
+function stopBigClock() {
+  if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
+  bigClockEndsAtMs = 0;
+}
+
+function closeBigClock() {
+  stopBigClock();
+  if (isModalOpen('liveBigClockOverlay')) closeModal('liveBigClockOverlay');
+}
+
+/* =========================================================
+ * MAIN RENDER
  * ========================================================= */
 
 function renderLiveWorkoutScreen() {
@@ -516,12 +623,9 @@ function renderLiveWorkoutScreen() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
 
-  // Ensure UI state defaults exist (migration safety)
   if (typeof activeSession.headerCollapsed !== 'boolean') activeSession.headerCollapsed = false;
   if (typeof activeSession.headerManuallyToggled !== 'boolean') activeSession.headerManuallyToggled = false;
-  if (!activeSession.historyUiState) {
-    activeSession.historyUiState = { warmupCollapsed: false, workCollapsed: false };
-  }
+  if (!activeSession.historyUiState) activeSession.historyUiState = { warmupCollapsed: false, workCollapsed: false };
 
   renderProgressStrip();
   renderExerciseHeader();
@@ -536,7 +640,6 @@ function renderLiveWorkoutScreen() {
   renderCompletedCard();
   renderHistoryGroups();
   renderPAB();
-  renderClusterFloatBtn();
 }
 
 /* -------- Progress Strip -------- */
@@ -550,7 +653,6 @@ function renderProgressStrip() {
 
   const current = activeSession.currentExerciseIndex;
   const total = activeSession.exercises.length;
-
   container.innerHTML = '';
 
   activeSession.exercises.forEach((ex, idx) => {
@@ -559,13 +661,10 @@ function renderProgressStrip() {
     const width = Math.max(1, parseInt(ex.targetSets, 10) || 3);
     seg.style.flexGrow = String(width);
     seg.style.flexBasis = '0';
-
     const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
     const isDone = ex.isCompleted || workDone >= ex.targetSets;
-    const isCurrent = idx === current;
-
     if (isDone) seg.classList.add('is-done');
-    else if (isCurrent) seg.classList.add('is-current');
+    else if (idx === current) seg.classList.add('is-current');
     seg.setAttribute('title', ex.name);
     container.appendChild(seg);
   });
@@ -575,7 +674,7 @@ function renderProgressStrip() {
   if (nextBtn) nextBtn.disabled = current >= total - 1;
 }
 
-/* -------- Exercise Header (collapsible) -------- */
+/* -------- Exercise Header (collapsible + chips) -------- */
 
 function renderExerciseHeader() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -587,6 +686,8 @@ function renderExerciseHeader() {
   if (!card) return;
 
   const isCollapsed = activeSession.headerCollapsed === true;
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const totalSets = currentEx.targetSets;
 
   if (isCollapsed) {
     if (compactEl) compactEl.style.display = 'flex';
@@ -594,17 +695,42 @@ function renderExerciseHeader() {
     card.classList.add('is-collapsed');
 
     const nameEl = document.getElementById('liveExNameCompact');
-    const subEl = document.getElementById('liveExSubCompact');
     if (nameEl) nameEl.innerText = currentEx.name;
 
-    const lastWorkSet = [...currentEx.completedSets].reverse().find(s => s.category === 'Рабочий');
-    const planPart = `план ${currentEx.targetWeight}×${currentEx.targetRepsStr}`;
-    let lastPart = '';
-    if (lastWorkSet) {
-      const rirTxt = lastWorkSet.reserve ? ` (RIR ${lastWorkSet.reserve.replace('+','')})` : '';
-      lastPart = ` · посл. ${lastWorkSet.weight}×${lastWorkSet.reps}${rirTxt}`;
+    const chipsContainer = document.getElementById('liveExCompactChips');
+    if (chipsContainer) {
+      const chips = [];
+
+      // Progress chip
+      const progressClass = workDone >= totalSets ? 'is-success' : '';
+      chips.push(`<span class="live-compact-chip ${progressClass}">${workDone}/${totalSets}${workDone >= totalSets ? ' ✓' : ''}</span>`);
+
+      // Plan chip
+      chips.push(`<span class="live-compact-chip is-primary">${currentEx.targetWeight}×${escapeHtml(currentEx.targetRepsStr)}</span>`);
+
+      // RIR chip
+      chips.push(`<span class="live-compact-chip">RIR ${escapeHtml(currentEx.targetRir)}</span>`);
+
+      // Method chip (if not standard)
+      if (currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт') {
+        let methodLabel = currentEx.plannedMethod;
+        const schemeMatch = currentEx.plannedMethod.match(/(\d+(?:\+\d+)+)/);
+        if (schemeMatch) methodLabel = `⚡ ${schemeMatch[1]}`;
+        else if (methodLabel.toLowerCase().includes('дроп')) methodLabel = '⚡ Дроп';
+        else if (methodLabel.toLowerCase().includes('кластер')) methodLabel = '⚡ Кластер';
+        else methodLabel = `⚡ ${methodLabel}`;
+        chips.push(`<span class="live-compact-chip is-method">${escapeHtml(methodLabel)}</span>`);
+      }
+
+      // Last set chip
+      const lastWorkSet = [...currentEx.completedSets].reverse().find(s => s.category === 'Рабочий');
+      if (lastWorkSet) {
+        const rirTxt = lastWorkSet.reserve ? ` RIR${lastWorkSet.reserve.replace('+','')}` : '';
+        chips.push(`<span class="live-compact-chip">Посл. ${lastWorkSet.weight}×${lastWorkSet.reps}${rirTxt}</span>`);
+      }
+
+      chipsContainer.innerHTML = chips.join('');
     }
-    if (subEl) subEl.innerText = `${planPart}${lastPart}`;
   } else {
     if (compactEl) compactEl.style.display = 'none';
     if (fullEl) fullEl.style.display = 'flex';
@@ -714,28 +840,28 @@ function renderCategoryToggle() {
   }
 }
 
-/* -------- Method toggle -------- */
+/* -------- Method chip (compact, V2.1) -------- */
 
 function renderMethodToggle() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   const isWarmupMode = activeSession.draftSet.category === 'Разминка';
   const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
 
-  const row = document.getElementById('liveMethodToggleRow');
-  const btn = document.getElementById('liveToggleSpecialMethodBtn');
-  if (!row || !btn) return;
+  const btn = document.getElementById('liveMethodToggleBtn');
+  const txt = document.getElementById('liveMethodChipText');
+  if (!btn || !txt) return;
 
   if (!isWarmupMode && currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт') {
-    row.style.display = 'flex';
-    if (isSpecialActive) {
-      btn.classList.add('active');
-      btn.innerText = `⚡ Активен метод: ${currentEx.plannedMethod} (нажмите для обычного)`;
-    } else {
-      btn.classList.remove('active');
-      btn.innerText = `Обычный рабочий сет (включить ${currentEx.plannedMethod})`;
-    }
+    btn.hidden = false;
+    let chipLabel = currentEx.plannedMethod;
+    const schemeMatch = currentEx.plannedMethod.match(/(\d+(?:\+\d+)+)/);
+    if (schemeMatch) chipLabel = schemeMatch[1];
+    else if (chipLabel.toLowerCase().includes('дроп')) chipLabel = 'Дроп';
+    else if (chipLabel.toLowerCase().includes('кластер')) chipLabel = 'Кластер';
+    txt.innerText = chipLabel;
+    btn.classList.toggle('is-active', isSpecialActive);
   } else {
-    row.style.display = 'none';
+    btn.hidden = true;
   }
 }
 
@@ -777,14 +903,14 @@ function renderIntensifierBanner() {
     el.style.display = 'flex';
     el.innerHTML = `
       <span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">bolt</span>
-      <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха (учтётся в тоннаже автоматически).</div>
+      <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха. Тап по <b>[⏱]</b> откроет большие часы паузы. Запись — через <b>[✓ ЗАПИСАТЬ ДРОП-СЕТ]</b>.</div>
     `;
   } else if (isSpecialActive && currentEx.isCluster) {
     const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
     el.style.display = 'flex';
     el.innerHTML = `
       <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span>
-      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> кнопка «Пауза» — плавающая справа внизу. В зачёт идёт сумма повторений (${clusterInfo.totalReps}).</div>
+      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> тап по <b>[⏱]</b> откроет большие часы паузы между сегментами. Запись — <b>[✓ ЗАПИСАТЬ КЛАСТЕР]</b> откроет форму с разбивкой сегментов.</div>
     `;
   } else {
     el.style.display = 'none';
@@ -797,7 +923,6 @@ function renderControlsVisibility() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
-
   const controls = document.getElementById('liveActiveSetControlsCard');
   if (controls) controls.style.display = isTargetReached ? 'none' : 'flex';
 }
@@ -842,41 +967,33 @@ function renderHistoryGroups() {
   const warmupMeta = document.getElementById('liveWarmupGroupMeta');
   const workMeta = document.getElementById('liveWorkGroupMeta');
 
-  // --- Warmup group ---
   if (warmupSets.length > 0 && warmupGroup && warmupBody) {
     warmupGroup.style.display = 'block';
     const last = warmupSets[warmupSets.length - 1];
-    if (warmupMeta) {
-      warmupMeta.innerText = `${warmupSets.length} • посл. ${last.weight} кг × ${last.reps}`;
-    }
+    if (warmupMeta) warmupMeta.innerText = `${warmupSets.length} • посл. ${last.weight} кг × ${last.reps}`;
     const isCollapsed = activeSession.historyUiState.warmupCollapsed === true;
     warmupGroup.classList.toggle('is-collapsed', isCollapsed);
     const chevron = document.getElementById('liveWarmupChevron');
     if (chevron) chevron.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
     const header = document.getElementById('liveWarmupGroupHeader');
     if (header) header.setAttribute('aria-expanded', String(!isCollapsed));
-
     warmupBody.innerHTML = warmupSets.map((s, idx) => renderHistoryRow(s, idx + 1, 'warmup')).join('');
     attachHistoryRowHandlers(warmupBody, warmupSets, currentEx);
   } else if (warmupGroup) {
     warmupGroup.style.display = 'none';
   }
 
-  // --- Work group ---
   if (workSets.length > 0 && workGroup && workBody) {
     workGroup.style.display = 'block';
     const last = workSets[workSets.length - 1];
     const rirTxt = last.reserve ? ` · RIR ${last.reserve.replace('+','')}` : '';
-    if (workMeta) {
-      workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weight}×${last.reps}${rirTxt}`;
-    }
+    if (workMeta) workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weight}×${last.reps}${rirTxt}`;
     const isCollapsed = activeSession.historyUiState.workCollapsed === true;
     workGroup.classList.toggle('is-collapsed', isCollapsed);
     const chevron = document.getElementById('liveWorkChevron');
     if (chevron) chevron.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
     const header = document.getElementById('liveWorkGroupHeader');
     if (header) header.setAttribute('aria-expanded', String(!isCollapsed));
-
     workBody.innerHTML = workSets.map((s, idx) => renderHistoryRow(s, idx + 1, 'work')).join('');
     attachHistoryRowHandlers(workBody, workSets, currentEx);
   } else if (workGroup) {
@@ -890,21 +1007,41 @@ function renderHistoryRow(set, displayNum, kind) {
     ? 'var(--md-sys-color-on-surface-variant)'
     : 'var(--app-color-success)';
 
-  const rirChip = (kind === 'work' && set.reserve)
-    ? `<span class="coach-card-chip">RIR ${escapeHtml(set.reserve.replace('+',''))}</span>` : '';
-  const methodChip = (kind === 'work' && set.method)
-    ? `<span class="coach-method-badge">${escapeHtml(set.method)}</span>` : '';
+  const chips = [];
+
+  // Reps display: for drop, show chain
+  let repsDisplay = `${set.weight} кг × ${set.reps}`;
+  const methodLower = String(set.method || '').toLowerCase();
+  if (kind === 'work' && methodLower.includes('дроп') && set.dropWeight > 0 && set.dropReps > 0) {
+    repsDisplay = `${set.weight}×${set.reps} + ${set.dropWeight}×${set.dropReps}`;
+  }
+
+  // RIR chip
+  if (kind === 'work' && set.reserve) {
+    chips.push(`<span class="coach-card-chip">RIR ${escapeHtml(set.reserve.replace('+',''))}</span>`);
+  }
+
+  // Method chip
+  if (kind === 'work' && set.method) {
+    let methodLabel = set.method;
+    const schemeMatch = set.method.match(/(\d+(?:\+\d+)+)/);
+    if (schemeMatch) methodLabel = `⚡ ${schemeMatch[1]}`;
+    else if (methodLower.includes('дроп')) methodLabel = '⚡ Дроп';
+    else if (methodLower.includes('кластер')) methodLabel = '⚡ Кластер';
+    else methodLabel = `⚡ ${methodLabel}`;
+    chips.push(`<span class="coach-method-badge">${escapeHtml(methodLabel)}</span>`);
+  }
 
   return `
     <div class="live-history-row">
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:0;">
         <span style="font-weight:700; color:${color}; min-width:66px; flex-shrink:0;">${label}</span>
-        <span><b>${set.weight} кг × ${set.reps}</b></span>
-        ${rirChip}
-        ${methodChip}
+        <span><b>${repsDisplay}</b></span>
+        ${chips.join('')}
       </div>
-      <button class="live-delete-set-btn" data-set-idx="${displayNum - 1}" data-kind="${kind}" title="Удалить подход">
+      <button class="live-delete-set-btn" data-set-idx="${displayNum - 1}" data-kind="${kind}" data-state="idle" title="Удалить подход (двойной тап)">
         <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+        <span class="delete-label">Удалить?</span>
       </button>
     </div>
   `;
@@ -913,47 +1050,44 @@ function renderHistoryRow(set, displayNum, kind) {
 function attachHistoryRowHandlers(container, sets, currentEx) {
   container.querySelectorAll('.live-delete-set-btn').forEach(btn => {
     const idx = parseInt(btn.getAttribute('data-set-idx'), 10);
+    let resetTimer = null;
+
     btn.onclick = () => {
-      const targetSet = sets[idx];
-      if (!targetSet) return;
-      const globalIdx = currentEx.completedSets.indexOf(targetSet);
-      if (globalIdx === -1) return;
-      currentEx.completedSets.splice(globalIdx, 1);
-      currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
-      currentEx.isCompleted = false;
-      currentEx.allowBonusSet = false;
-      activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
-      persistActiveSession();
-      renderLiveWorkoutScreen();
+      const state = btn.getAttribute('data-state') || 'idle';
+      if (state === 'idle') {
+        btn.setAttribute('data-state', 'confirm');
+        btn.classList.add('is-confirm');
+        if (resetTimer) clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => {
+          btn.setAttribute('data-state', 'idle');
+          btn.classList.remove('is-confirm');
+          resetTimer = null;
+        }, 3000);
+        triggerHaptic([20]);
+        return;
+      }
+
+      if (state === 'confirm') {
+        if (resetTimer) clearTimeout(resetTimer);
+        const targetSet = sets[idx];
+        if (!targetSet) return;
+        const globalIdx = currentEx.completedSets.indexOf(targetSet);
+        if (globalIdx === -1) return;
+        currentEx.completedSets.splice(globalIdx, 1);
+        currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
+        currentEx.isCompleted = false;
+        currentEx.allowBonusSet = false;
+        activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
+        persistActiveSession();
+        triggerHaptic([60]);
+        renderLiveWorkoutScreen();
+      }
     };
   });
 }
 
-/* -------- Cluster floating button -------- */
-
-function renderClusterFloatBtn() {
-  const btn = document.getElementById('liveClusterPauseBtn');
-  if (!btn || !activeSession) return;
-
-  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  if (!currentEx) return;
-
-  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
-  const isClusterActive = !isWarmupMode && activeSession.draftSet.useSpecialMethod && currentEx.isCluster;
-  const restActive = activeSession.restState && activeSession.restState.isActive;
-
-  if (isClusterActive && !restActive) {
-    const prefs = getTimerPrefs();
-    const labelEl = document.getElementById('liveClusterFloatLabel');
-    if (labelEl) labelEl.innerText = `${prefs.cluster}с`;
-    btn.style.display = 'flex';
-  } else {
-    btn.style.display = 'none';
-  }
-}
-
 /* =========================================================
- * PAB (Persistent Action Bar)
+ * PAB
  * ========================================================= */
 
 function renderPAB() {
@@ -965,7 +1099,47 @@ function renderPAB() {
 
   pab.classList.remove('is-warning');
 
-  // ----- State 1: Rest active -----
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+
+  // Priority 1: exercise completed (переход важнее таймера)
+  if (isTargetReached) {
+    const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
+    let primaryLabel = 'ЗАВЕРШИТЬ УПРАЖНЕНИЕ';
+    let secondaryLabel = 'Все упражнения → финиш тренировки';
+    if (nextExIdx !== -1) {
+      const nextName = activeSession.exercises[nextExIdx].name;
+      primaryLabel = `ЗАВЕРШИТЬ → УПР. #${nextExIdx + 1}`;
+      secondaryLabel = nextName;
+    }
+
+    let restInlineHtml = '';
+    if (activeSession.restState && activeSession.restState.isActive) {
+      const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
+      const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+      const s = String(remainingSec % 60).padStart(2, '0');
+      restInlineHtml = `<div class="live-pab-rest-info" style="margin-bottom:6px;">
+        <span class="live-pab-rest-label">⏱ Отдых (можно подождать)</span>
+        <span class="live-pab-rest-countdown" id="livePabRestCountdownInline">${m}:${s}</span>
+      </div>`;
+      if (remainingSec <= 15 && remainingSec > 0) pab.classList.add('is-warning');
+    }
+
+    pab.innerHTML = `
+      <div class="live-pab-content">
+        ${restInlineHtml}
+        <button class="live-pab-completed-btn" id="livePabCompleteNext" type="button">
+          <span class="live-pab-primary-label">${escapeHtml(primaryLabel)}</span>
+          <span class="live-pab-secondary-label">${escapeHtml(secondaryLabel)}</span>
+        </button>
+      </div>
+    `;
+    const nextBtn = document.getElementById('livePabCompleteNext');
+    if (nextBtn) nextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
+    return;
+  }
+
+  // Priority 2: rest active
   if (activeSession.restState && activeSession.restState.isActive) {
     const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
     const isWarning = remainingSec <= 15 && remainingSec > 0;
@@ -996,37 +1170,61 @@ function renderPAB() {
     return;
   }
 
-  // ----- State 2: Exercise completed -----
-  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+  // Priority 3: recording
+  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
+  const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
+  const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, Math.max(1, (currentEx.warmupSteps || []).length));
+  const prefs = getTimerPrefs();
 
-  if (isTargetReached) {
-    const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
-    let primaryLabel = 'ЗАВЕРШИТЬ УПРАЖНЕНИЕ';
-    let secondaryLabel = 'Все упражнения → финиш тренировки';
-    if (nextExIdx !== -1) {
-      const nextName = activeSession.exercises[nextExIdx].name;
-      primaryLabel = `ЗАВЕРШИТЬ → УПР. #${nextExIdx + 1}`;
-      secondaryLabel = nextName.length > 30 ? (nextName.slice(0, 28) + '…') : nextName;
-    }
+  // Special: cluster
+  if (isSpecialActive && currentEx.isCluster) {
     pab.innerHTML = `
       <div class="live-pab-content">
-        <button class="live-pab-completed-btn" id="livePabCompleteNext" type="button">
-          <span class="live-pab-primary-label">${escapeHtml(primaryLabel)}</span>
-          <span class="live-pab-secondary-label">${escapeHtml(secondaryLabel)}</span>
-        </button>
+        <div class="live-pab-method-row">
+          <button class="live-pab-clock-btn" id="livePabBigClockBtn" type="button" aria-label="Большие часы паузы">
+            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+            <span class="live-pab-clock-label">${prefs.cluster}с</span>
+          </button>
+          <button class="live-pab-method-btn" id="livePabRecordCluster" type="button">
+            <span class="live-pab-primary-label">ЗАПИСАТЬ КЛАСТЕР</span>
+            <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг · схема ниже</span>
+          </button>
+        </div>
       </div>
     `;
-    const nextBtn = document.getElementById('livePabCompleteNext');
-    if (nextBtn) nextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
+    const clockBtn = document.getElementById('livePabBigClockBtn');
+    const recBtn = document.getElementById('livePabRecordCluster');
+    if (clockBtn) clockBtn.onclick = () => openBigClock(prefs.cluster, 'Пауза кластера');
+    if (recBtn) recBtn.onclick = () => openClusterSheet();
     return;
   }
 
-  // ----- State 3: Recording -----
-  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
-  const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
-  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, Math.max(1, (currentEx.warmupSteps || []).length));
+  // Special: drop
+  if (isSpecialActive && currentEx.isDrop) {
+    const dropEstimate = roundToGymStep(activeSession.draftSet.weight * 0.75);
+    pab.innerHTML = `
+      <div class="live-pab-content">
+        <div class="live-pab-method-row">
+          <button class="live-pab-clock-btn" id="livePabBigClockBtn" type="button" aria-label="Большие часы паузы">
+            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+            <span class="live-pab-clock-label">${prefs.drop}с</span>
+          </button>
+          <button class="live-pab-method-btn" id="livePabRecordDrop" type="button">
+            <span class="live-pab-primary-label">ЗАПИСАТЬ ДРОП-СЕТ</span>
+            <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг → ~${dropEstimate} кг</span>
+          </button>
+        </div>
+      </div>
+    `;
+    const clockBtn = document.getElementById('livePabBigClockBtn');
+    const recBtn = document.getElementById('livePabRecordDrop');
+    if (clockBtn) clockBtn.onclick = () => openBigClock(prefs.drop, 'Сброс веса');
+    if (recBtn) recBtn.onclick = () => openDropSheet();
+    return;
+  }
 
+  // Default: simple set
   let primaryLabel = '';
   let secondaryLabel = '';
 
@@ -1035,9 +1233,7 @@ function renderPAB() {
     secondaryLabel = `${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps}`;
   } else {
     const currentWorkSetNum = workDone + 1;
-    const isSpecial = activeSession.draftSet.useSpecialMethod && currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт';
-    const specialTag = isSpecial ? ' • ' + currentEx.plannedMethod.split(' ')[0].toUpperCase() : '';
-    primaryLabel = `ЗАПИСАТЬ СЕТ #${currentWorkSetNum}${specialTag}`;
+    primaryLabel = `ЗАПИСАТЬ СЕТ #${currentWorkSetNum}`;
     secondaryLabel = `${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps}`;
   }
 
@@ -1054,7 +1250,7 @@ function renderPAB() {
 }
 
 /* =========================================================
- * POINT-WISE UPDATES (без полного re-render)
+ * POINT-WISE UPDATES
  * ========================================================= */
 
 function patchDraftSetDisplay() {
@@ -1076,7 +1272,7 @@ function patchDraftSetDisplay() {
 }
 
 /* =========================================================
- * NOTE CHIPS (equipment/technique)
+ * NOTE CHIPS
  * ========================================================= */
 
 function openNotesSheet() {
@@ -1103,7 +1299,6 @@ function saveNotesSheet() {
 
   const equipInput = document.getElementById('liveNotesEquipmentInput');
   const techInput = document.getElementById('liveNotesTechniqueInput');
-
   ex.equipment = equipInput ? equipInput.value.trim() : '';
   ex.technique = techInput ? techInput.value.trim() : '';
 
@@ -1114,7 +1309,7 @@ function saveNotesSheet() {
 }
 
 /* =========================================================
- * RECORD SET
+ * RECORD SET — роутер
  * ========================================================= */
 
 function handleRecordCurrentSet() {
@@ -1122,6 +1317,27 @@ function handleRecordCurrentSet() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
 
+  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
+  const isSpecialActive = !isWarmupMode && activeSession.draftSet.useSpecialMethod;
+
+  if (isSpecialActive && currentEx.isCluster) {
+    openClusterSheet();
+    return;
+  }
+  if (isSpecialActive && currentEx.isDrop) {
+    openDropSheet();
+    return;
+  }
+
+  recordSimpleSet();
+}
+
+/* =========================================================
+ * RECORD SIMPLE SET (обычный сет/разминка)
+ * ========================================================= */
+
+function recordSimpleSet() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   const isWarmup = (activeSession.draftSet.category === 'Разминка');
   const weight = parseFloat(activeSession.draftSet.weight) || 0;
   const reps = parseInt(activeSession.draftSet.reps, 10) || 0;
@@ -1134,55 +1350,53 @@ function handleRecordCurrentSet() {
 
   let effort = 'Высокое';
   let reserve = `+${rirRaw.replace('+', '')}`;
-
-  if (isWarmup) {
-    effort = 'Размин.';
-    reserve = '';
-  } else if (rirRaw === '0') {
-    effort = 'Максим.';
-    reserve = '+0';
-  } else if (rirRaw === '3+') {
-    effort = 'Среднее';
-    reserve = '+3';
-  }
-
-  const appliedMethod = (!isWarmup && activeSession.draftSet.useSpecialMethod && currentEx.plannedMethod !== 'Стандарт')
-    ? currentEx.plannedMethod
-    : '';
-
-  let firstSegmentReps = reps;
-  let totalTonnage = weight * reps;
-  let dropWeight = 0;
-  let dropReps = 0;
-
-  if (appliedMethod && currentEx.isCluster) {
-    const clusterInfo = parseClusterScheme(appliedMethod, currentEx.defaultReps);
-    firstSegmentReps = clusterInfo.firstSegmentReps;
-  } else if (appliedMethod && currentEx.isDrop) {
-    firstSegmentReps = reps;
-    dropWeight = roundToGymStep(weight * 0.75);
-    dropReps = 5;
-    totalTonnage += (dropWeight * dropReps);
-  }
+  if (isWarmup) { effort = 'Размин.'; reserve = ''; }
+  else if (rirRaw === '0') { effort = 'Максим.'; reserve = '+0'; }
+  else if (rirRaw === '3+') { effort = 'Среднее'; reserve = '+3'; }
 
   const setNum = currentEx.completedSets.length + 1;
-  const tonnage = parseFloat(totalTonnage.toFixed(1));
+  const tonnage = parseFloat((weight * reps).toFixed(1));
+  const e1rm = isWarmup ? 0.0 : computeE1RM(weight, reps);
 
-  const e1rm = isWarmup ? 0.0 : computeE1RM(weight, firstSegmentReps);
-
-  const recordedSet = {
+  commitRecordedSet({
     setNum: setNum,
     weight: weight,
     reps: reps,
-    firstSegmentReps: firstSegmentReps,
-    dropWeight: dropWeight,
-    dropReps: dropReps,
+    firstSegmentReps: reps,
+    dropWeight: 0,
+    dropReps: 0,
     effort: effort,
     reserve: reserve,
-    method: appliedMethod,
+    method: '',
     category: isWarmup ? 'Разминка' : 'Рабочий',
     tonnage: tonnage,
-    e1rm: e1rm,
+    e1rm: e1rm
+  });
+
+  const kind = isWarmup ? 'Разминка' : 'Рабочий';
+  logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weight} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}`, 'success');
+}
+
+/* =========================================================
+ * COMMIT — общая точка записи сета
+ * ========================================================= */
+
+function commitRecordedSet(partialSet) {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+
+  const recordedSet = {
+    setNum: partialSet.setNum,
+    weight: partialSet.weight,
+    reps: partialSet.reps,
+    firstSegmentReps: partialSet.firstSegmentReps,
+    dropWeight: partialSet.dropWeight,
+    dropReps: partialSet.dropReps,
+    effort: partialSet.effort,
+    reserve: partialSet.reserve,
+    method: partialSet.method,
+    category: partialSet.category,
+    tonnage: partialSet.tonnage,
+    e1rm: partialSet.e1rm,
     equipment: currentEx.equipment || '',
     positioning: currentEx.technique || '',
     recordedAt: new Date().toTimeString().slice(0, 8),
@@ -1193,42 +1407,345 @@ function handleRecordCurrentSet() {
   currentEx.allowBonusSet = false;
 
   const workDoneAfter = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  if (workDoneAfter >= currentEx.targetSets) {
-    currentEx.isCompleted = true;
-  }
+  if (workDoneAfter >= currentEx.targetSets) currentEx.isCompleted = true;
 
-  // V2.0: авто-свёртка header после ПЕРВОГО сета (если пользователь не разворачивал вручную)
+  // Авто-свёртка header после первого сета
   if (!activeSession.headerManuallyToggled && currentEx.completedSets.length === 1) {
     activeSession.headerCollapsed = true;
   }
 
-  // V2.0: авто-свёртка группы разминки при первом рабочем сете
+  // Авто-свёртка группы разминки при первом рабочем сете
   if (recordedSet.category === 'Рабочий' && !activeSession.historyUiState.warmupCollapsed) {
     const warmupCount = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
-    if (warmupCount > 0) {
-      activeSession.historyUiState.warmupCollapsed = true;
-    }
+    if (warmupCount > 0) activeSession.historyUiState.warmupCollapsed = true;
   }
 
   triggerHaptic([80]);
 
-  const kind = isWarmup ? 'Разминка' : 'Рабочий';
-  const methodTag = appliedMethod ? ` [${appliedMethod}]` : '';
-  logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weight} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}${methodTag}`, 'success');
-
+  // Обновляем draft
   activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
 
+  // Rest timer
   const prefs = getTimerPrefs();
   let restSeconds = prefs.compound;
-  if (isWarmup) {
-    restSeconds = prefs.warmup;
-  } else if (currentEx.order > 2) {
-    restSeconds = prefs.isolation;
-  }
+  if (recordedSet.category === 'Разминка') restSeconds = prefs.warmup;
+  else if (currentEx.order > 2) restSeconds = prefs.isolation;
 
   startRestTimer(restSeconds);
   persistActiveSession();
   renderLiveWorkoutScreen();
+}
+
+/* =========================================================
+ * CLUSTER SHEET
+ * ========================================================= */
+
+function openClusterSheet() {
+  if (!activeSession) return;
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const scheme = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
+  const segments = scheme.segments.length > 0 ? scheme.segments : [4, 3, 2];
+
+  activeClusterSheetState = {
+    schemeText: scheme.schemeText || segments.join('+'),
+    weight: activeSession.draftSet.weight,
+    segments: segments.map((reps, idx) => ({
+      reps: reps,
+      rir: defaultRirForSegment(idx, segments.length)
+    }))
+  };
+
+  renderClusterSheet();
+  registerLiveModals();
+  openModal('liveClusterSheet');
+}
+
+function renderClusterSheet() {
+  const state = activeClusterSheetState;
+  if (!state) return;
+
+  const titleEl = document.getElementById('liveClusterSheetTitle');
+  const subtitleEl = document.getElementById('liveClusterSheetSubtitle');
+  const container = document.getElementById('liveClusterSegmentsContainer');
+  const summaryEl = document.getElementById('liveClusterSummary');
+  if (!container) return;
+
+  if (titleEl) titleEl.innerText = `Запись кластера ${state.schemeText}`;
+  if (subtitleEl) subtitleEl.innerText = `Вес ${state.weight} кг · рабочий подход`;
+
+  container.innerHTML = state.segments.map((seg, idx) => `
+    <div class="live-sheet-row">
+      <span class="live-sheet-row-label">Сег ${idx + 1}</span>
+      <div class="live-sheet-row-main">
+        <button class="live-sheet-mini-btn" data-cluster-reps="${idx}" data-delta="-1" type="button">−</button>
+        <span class="live-sheet-value">${seg.reps}</span>
+        <button class="live-sheet-mini-btn" data-cluster-reps="${idx}" data-delta="+1" type="button">+</button>
+        <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.7rem; margin-left:4px;">повт</span>
+      </div>
+      <div class="live-sheet-rir">
+        ${['0','1','2','3+'].map(v => `
+          <button class="live-sheet-rir-chip ${seg.rir === v ? 'active' : ''}" data-cluster-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  // Summary
+  const totalReps = state.segments.reduce((a, s) => a + s.reps, 0);
+  const tonnage = parseFloat((state.weight * totalReps).toFixed(1));
+  const firstSeg = state.segments[0] ? state.segments[0].reps : totalReps;
+  const e1rm = computeE1RM(state.weight, firstSeg);
+
+  if (summaryEl) {
+    summaryEl.innerHTML = `Итого: <b>${totalReps} повт.</b> · тоннаж <b>${tonnage} кг</b> · e1RM по 1-му сегменту: <b>~${e1rm} кг</b>`;
+  }
+
+  // Listeners
+  container.querySelectorAll('[data-cluster-reps]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.getAttribute('data-cluster-reps'), 10);
+      const delta = parseInt(btn.getAttribute('data-delta'), 10);
+      state.segments[idx].reps = Math.max(1, state.segments[idx].reps + delta);
+      triggerHaptic([15]);
+      renderClusterSheet();
+    };
+  });
+  container.querySelectorAll('[data-cluster-rir]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.getAttribute('data-cluster-rir'), 10);
+      const val = btn.getAttribute('data-rir-val');
+      state.segments[idx].rir = val;
+      triggerHaptic([15]);
+      renderClusterSheet();
+    };
+  });
+}
+
+function saveClusterSet() {
+  const state = activeClusterSheetState;
+  if (!state || !activeSession) return;
+
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const segments = state.segments;
+  const totalReps = segments.reduce((a, s) => a + s.reps, 0);
+  const firstSegmentReps = segments[0] ? segments[0].reps : totalReps;
+  const lastRir = segments[segments.length - 1] ? segments[segments.length - 1].rir : '1';
+  const rirChain = segments.map(s => s.rir).join('/');
+  const weight = state.weight;
+  const tonnage = parseFloat((weight * totalReps).toFixed(1));
+  const e1rm = computeE1RM(weight, firstSegmentReps);
+
+  const method = `Кластер ${state.schemeText} (RIR ${rirChain})`;
+  const setNum = currentEx.completedSets.length + 1;
+
+  commitRecordedSet({
+    setNum: setNum,
+    weight: weight,
+    reps: totalReps,
+    firstSegmentReps: firstSegmentReps,
+    dropWeight: 0,
+    dropReps: 0,
+    effort: 'Максим.',
+    reserve: `+${lastRir.replace('+','')}`,
+    method: method,
+    category: 'Рабочий',
+    tonnage: tonnage,
+    e1rm: e1rm
+  });
+
+  logToTerminal('LIVE_SET', `${currentEx.name} • Кластер #${setNum}: ${weight} кг [${state.schemeText}] = ${totalReps} повт (RIR ${rirChain})`, 'success');
+
+  activeClusterSheetState = null;
+  closeModal('liveClusterSheet');
+}
+
+/* =========================================================
+ * DROP SHEET
+ * ========================================================= */
+
+function openDropSheet() {
+  if (!activeSession) return;
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const mainWeight = parseFloat(activeSession.draftSet.weight) || currentEx.targetWeight;
+  const mainReps = parseInt(activeSession.draftSet.reps, 10) || currentEx.defaultReps;
+  const mainRir = String(activeSession.draftSet.rir || '2');
+
+  const firstDropWeight = roundToGymStep(mainWeight * 0.75);
+
+  activeDropSheetState = {
+    mainWeight: mainWeight,
+    mainReps: mainReps,
+    mainRir: mainRir,
+    drops: [
+      { weight: firstDropWeight, reps: 5, rir: '0' }
+    ]
+  };
+
+  renderDropSheet();
+  registerLiveModals();
+  openModal('liveDropSheet');
+}
+
+function renderDropSheet() {
+  const state = activeDropSheetState;
+  if (!state) return;
+
+  const subtitleEl = document.getElementById('liveDropSheetSubtitle');
+  const mainWeightEl = document.getElementById('liveDropMainWeight');
+  const mainRepsEl = document.getElementById('liveDropMainReps');
+  const mainRirEl = document.getElementById('liveDropMainRir');
+  const dropsContainer = document.getElementById('liveDropDropsContainer');
+  const summaryEl = document.getElementById('liveDropSummary');
+  if (!dropsContainer) return;
+
+  if (subtitleEl) subtitleEl.innerText = `Вес ${state.mainWeight} кг · основной + ${state.drops.length} дроп${state.drops.length > 1 ? 'а' : ''}`;
+  if (mainWeightEl) mainWeightEl.innerText = state.mainWeight;
+  if (mainRepsEl) mainRepsEl.innerText = state.mainReps;
+
+  if (mainRirEl) {
+    mainRirEl.innerHTML = ['0','1','2','3+'].map(v => `
+      <button class="live-sheet-rir-chip ${state.mainRir === v ? 'active' : ''}" data-drop-main-rir="${v}" type="button">${v}</button>
+    `).join('');
+  }
+
+  dropsContainer.innerHTML = state.drops.map((drop, idx) => `
+    <div class="live-sheet-row">
+      <span class="live-sheet-row-label">Дроп ${idx + 1}</span>
+      <div class="live-sheet-row-main">
+        <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="-2.5" type="button">−</button>
+        <span class="live-sheet-value">${drop.weight}</span>
+        <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="+2.5" type="button">+</button>
+        <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.7rem; margin-left:2px;">кг ×</span>
+        <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="-1" type="button">−</button>
+        <span class="live-sheet-value">${drop.reps}</span>
+        <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="+1" type="button">+</button>
+      </div>
+      <div class="live-sheet-rir">
+        ${['0','1','2','3+'].map(v => `
+          <button class="live-sheet-rir-chip ${drop.rir === v ? 'active' : ''}" data-drop-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  // Summary
+  const totalTonnage = state.mainWeight * state.mainReps
+    + state.drops.reduce((a, d) => a + d.weight * d.reps, 0);
+  const e1rm = computeE1RM(state.mainWeight, state.mainReps);
+
+  if (summaryEl) {
+    summaryEl.innerHTML = `Тоннаж: <b>${totalTonnage.toFixed(1)} кг</b> · e1RM по основному: <b>~${e1rm} кг</b>`;
+  }
+
+  // Listeners
+  dropsContainer.querySelectorAll('[data-drop-adjust]').forEach(btn => {
+    btn.onclick = () => {
+      const field = btn.getAttribute('data-drop-adjust');
+      const idx = parseInt(btn.getAttribute('data-drop-idx'), 10);
+      const delta = parseFloat(btn.getAttribute('data-delta'));
+      if (field === 'weight') {
+        state.drops[idx].weight = Math.max(0, parseFloat((state.drops[idx].weight + delta).toFixed(2)));
+      } else {
+        state.drops[idx].reps = Math.max(1, state.drops[idx].reps + Math.round(delta));
+      }
+      triggerHaptic([15]);
+      renderDropSheet();
+    };
+  });
+  dropsContainer.querySelectorAll('[data-drop-rir]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.getAttribute('data-drop-rir'), 10);
+      const val = btn.getAttribute('data-rir-val');
+      state.drops[idx].rir = val;
+      triggerHaptic([15]);
+      renderDropSheet();
+    };
+  });
+
+  // Main weight/reps listeners
+  const mainRow = document.getElementById('liveDropMainRow');
+  if (mainRow) {
+    mainRow.querySelectorAll('[data-drop-adjust]').forEach(btn => {
+      btn.onclick = () => {
+        const field = btn.getAttribute('data-drop-adjust');
+        const delta = parseFloat(btn.getAttribute('data-delta'));
+        if (field === 'main-weight') {
+          state.mainWeight = Math.max(0, parseFloat((state.mainWeight + delta).toFixed(2)));
+        } else if (field === 'main-reps') {
+          state.mainReps = Math.max(1, state.mainReps + Math.round(delta));
+        }
+        triggerHaptic([15]);
+        renderDropSheet();
+      };
+    });
+  }
+  if (mainRirEl) {
+    mainRirEl.querySelectorAll('[data-drop-main-rir]').forEach(btn => {
+      btn.onclick = () => {
+        state.mainRir = btn.getAttribute('data-drop-main-rir');
+        triggerHaptic([15]);
+        renderDropSheet();
+      };
+    });
+  }
+}
+
+function addDropStep() {
+  const state = activeDropSheetState;
+  if (!state || !state.drops.length) return;
+
+  const lastDrop = state.drops[state.drops.length - 1];
+  const newWeight = roundToGymStep(lastDrop.weight * 0.75);
+  state.drops.push({ weight: newWeight, reps: 5, rir: '0' });
+  triggerHaptic([25]);
+  renderDropSheet();
+}
+
+function saveDropSet() {
+  const state = activeDropSheetState;
+  if (!state || !activeSession) return;
+
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const mainWeight = state.mainWeight;
+  const mainReps = state.mainReps;
+  const mainRir = state.mainRir;
+  const drops = state.drops;
+
+  const firstDrop = drops[0] || { weight: 0, reps: 0 };
+  const totalTonnage = mainWeight * mainReps + drops.reduce((a, d) => a + d.weight * d.reps, 0);
+  const e1rm = computeE1RM(mainWeight, mainReps);
+
+  let methodLabel;
+  if (drops.length === 1) methodLabel = `Дроп-сет (осн. RIR ${mainRir.replace('+','')})`;
+  else if (drops.length === 2) methodLabel = `Двойной дроп-сет (осн. RIR ${mainRir.replace('+','')})`;
+  else methodLabel = `${drops.length}-й дроп-сет (осн. RIR ${mainRir.replace('+','')})`;
+
+  const setNum = currentEx.completedSets.length + 1;
+
+  commitRecordedSet({
+    setNum: setNum,
+    weight: mainWeight,
+    reps: mainReps,
+    firstSegmentReps: mainReps,
+    dropWeight: firstDrop.weight,
+    dropReps: firstDrop.reps,
+    effort: 'Максим.',
+    reserve: `+${mainRir.replace('+','')}`,
+    method: methodLabel,
+    category: 'Рабочий',
+    tonnage: parseFloat(totalTonnage.toFixed(1)),
+    e1rm: e1rm
+  });
+
+  const chain = drops.map(d => `${d.weight}×${d.reps}`).join(' → ');
+  logToTerminal('LIVE_SET', `${currentEx.name} • ${methodLabel}: ${mainWeight}×${mainReps} → ${chain}`, 'success');
+
+  activeDropSheetState = null;
+  closeModal('liveDropSheet');
 }
 
 /* =========================================================
@@ -1263,6 +1780,9 @@ function handleCompleteCurrentAndMoveNext() {
   const nextIdx = findNextIncompleteExerciseIndex(curIdx);
   if (nextIdx !== -1) {
     switchActiveExercise(nextIdx);
+    // V2.1: автозапуск compound rest-timer на новом упражнении
+    const prefs = getTimerPrefs();
+    startRestTimer(prefs.compound);
   } else {
     persistActiveSession();
     renderLiveWorkoutScreen();
@@ -1276,14 +1796,12 @@ function handleCompleteCurrentAndMoveNext() {
 
 function startRestTimer(seconds) {
   if (!activeSession) return;
-
   activeSession.restState = {
     isActive: true,
     endsAtMs: Date.now() + (seconds * 1000),
     totalSeconds: seconds,
     notified10s: false
   };
-
   persistActiveSession();
   renderPAB();
   syncRestTimerWithWallClock();
@@ -1301,28 +1819,21 @@ function stopRestTimer() {
   if (!activeSession) return;
   activeSession.restState.isActive = false;
   activeSession.restState.endsAtMs = 0;
-  if (restTimerInterval) {
-    clearInterval(restTimerInterval);
-    restTimerInterval = null;
-  }
+  if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
   persistActiveSession();
   renderPAB();
-  renderClusterFloatBtn();
 }
 
 function syncRestTimerWithWallClock() {
   if (!activeSession) return;
 
-  // Ensure PAB shows rest state
   if (!activeSession.restState || !activeSession.restState.isActive) {
-    if (restTimerInterval) {
-      clearInterval(restTimerInterval);
-      restTimerInterval = null;
-    }
+    if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
     return;
   }
 
-  if (!document.getElementById('livePabRestCountdown')) {
+  // Ensure PAB shows rest state
+  if (!document.getElementById('livePabRestCountdown') && !document.getElementById('livePabRestCountdownInline')) {
     renderPAB();
   }
 
@@ -1345,10 +1856,13 @@ function syncRestTimerWithWallClock() {
 
     const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
     const s = String(remainingSec % 60).padStart(2, '0');
+
     const countdownEl = document.getElementById('livePabRestCountdown');
+    const inlineEl = document.getElementById('livePabRestCountdownInline');
     const pab = document.getElementById('liveBottomActionBar');
 
     if (countdownEl) countdownEl.innerText = `${m}:${s}`;
+    if (inlineEl) inlineEl.innerText = `${m}:${s}`;
 
     if (pab) {
       const isWarning = remainingSec <= 15 && remainingSec > 0;
@@ -1367,8 +1881,6 @@ function switchActiveExercise(newIndex) {
   activeSession.currentExerciseIndex = newIndex;
   const ex = activeSession.exercises[newIndex];
   activeSession.draftSet = computeSmartDraftSetForExercise(ex);
-
-  // V2.0: сброс UI-состояния на новом упражнении
   activeSession.headerCollapsed = (ex.completedSets.length > 0);
   activeSession.headerManuallyToggled = false;
   activeSession.historyUiState = { warmupCollapsed: false, workCollapsed: false };
@@ -1391,17 +1903,12 @@ function calculateWorkoutSummaryMetrics() {
 
   activeSession.exercises.forEach(ex => {
     ex.completedSets.forEach(s => {
-      if (s.timestampMs) {
-        allTimestamps.push(s.timestampMs);
-      }
+      if (s.timestampMs) allTimestamps.push(s.timestampMs);
       if (s.category === 'Рабочий') {
         totalWorkSets++;
         workTonnageKg += (s.tonnage || 0);
         const rirClean = parseFloat(String(s.reserve || '').replace('+', ''));
-        if (!isNaN(rirClean)) {
-          rirSum += rirClean;
-          rirCount++;
-        }
+        if (!isNaN(rirClean)) { rirSum += rirClean; rirCount++; }
       } else {
         totalWarmupSets++;
       }
@@ -1424,10 +1931,7 @@ function calculateWorkoutSummaryMetrics() {
   let restDiffsCount = 0;
   for (let i = 1; i < allTimestamps.length; i++) {
     const diffSec = Math.round((allTimestamps[i] - allTimestamps[i - 1]) / 1000);
-    if (diffSec >= 15 && diffSec <= 600) {
-      restDiffsSum += diffSec;
-      restDiffsCount++;
-    }
+    if (diffSec >= 15 && diffSec <= 600) { restDiffsSum += diffSec; restDiffsCount++; }
   }
   const avgRestSec = restDiffsCount > 0 ? Math.round(restDiffsSum / restDiffsCount) : 0;
   const sRPE = parseFloat(activeSession.sRPE) || 8;
@@ -1458,13 +1962,11 @@ function calculateWorkoutSummaryMetrics() {
 
 function openCloseoutModal() {
   if (!activeSession) return;
-
   const metrics = calculateWorkoutSummaryMetrics();
   if (metrics.totalWorkSets === 0 && metrics.totalWarmupSets === 0) {
     alert('Вы еще не записали ни одного подхода!');
     return;
   }
-
   registerLiveModals();
   openModal('liveCloseoutModal');
 }
@@ -1501,7 +2003,6 @@ async function finalizeAndSyncLiveWorkout() {
     if (ex.completedSets.length > 0 && !allExercises.includes(ex.name)) {
       allExercises.push(ex.name);
     }
-
     ex.completedSets.forEach(s => {
       globalIdx++;
       const setId = `${activeSession.date}_${activeSession.startTime}_${ex.name}_set${s.setNum}_idx${globalIdx}`;
@@ -1561,13 +2062,12 @@ async function finalizeAndSyncLiveWorkout() {
     logToTerminal('LIVE_SYNC_OK', `Записано ${flatSets.length} строк за ${elapsed} мс. Верификация...`, 'success');
 
     const freshData = await fetchAnalyticsData();
-    if (freshData.success && freshData.data) {
-      setInitialData(freshData.data);
-    }
+    if (freshData.success && freshData.data) setInitialData(freshData.data);
 
     logToTerminal('LIVE_SYNC_VERIFIED', `Локальный кэш обновлен: ${(freshData.data.sets || []).length} сетов`, 'success');
 
     stopAllTimers();
+    stopBigClock();
     await releaseScreenWakeLock();
     const closedTitle = activeSession ? activeSession.title : '';
     activeSession = null;
@@ -1614,30 +2114,20 @@ function bindLiveWorkoutDomEvents() {
 
   const prevBtn = document.getElementById('livePrevExBtn');
   const nextBtn = document.getElementById('liveNextExBtn');
-  if (prevBtn) prevBtn.onclick = () => {
-    if (activeSession) switchActiveExercise(activeSession.currentExerciseIndex - 1);
-  };
-  if (nextBtn) nextBtn.onclick = () => {
-    if (activeSession) switchActiveExercise(activeSession.currentExerciseIndex + 1);
-  };
+  if (prevBtn) prevBtn.onclick = () => { if (activeSession) switchActiveExercise(activeSession.currentExerciseIndex - 1); };
+  if (nextBtn) nextBtn.onclick = () => { if (activeSession) switchActiveExercise(activeSession.currentExerciseIndex + 1); };
 
   // Collapsible header
   const headerCompact = document.getElementById('liveExHeaderCompact');
   if (headerCompact) {
     headerCompact.onclick = () => toggleHeaderCollapse(false);
     headerCompact.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        toggleHeaderCollapse(false);
-      }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHeaderCollapse(false); }
     });
   }
   const headerCollapseBtn = document.getElementById('liveExHeaderCollapseBtn');
   if (headerCollapseBtn) {
-    headerCollapseBtn.onclick = (e) => {
-      e.stopPropagation();
-      toggleHeaderCollapse(true);
-    };
+    headerCollapseBtn.onclick = (e) => { e.stopPropagation(); toggleHeaderCollapse(true); };
   }
 
   // History group headers
@@ -1671,7 +2161,6 @@ function bindLiveWorkoutDomEvents() {
   if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
   if (notesCancelBtn) notesCancelBtn.onclick = () => closeModal('liveNotesSheet');
 
-  // Enter в «Оборудование» → фокус на «Технику» (без newline).
   const equipInput = document.getElementById('liveNotesEquipmentInput');
   if (equipInput) {
     equipInput.addEventListener('keydown', (e) => {
@@ -1693,7 +2182,6 @@ function bindLiveWorkoutDomEvents() {
       const warmupDone = ex.completedSets.filter(s => s.category === 'Разминка').length;
       const steps = Array.isArray(ex.warmupSteps) && ex.warmupSteps.length > 0 ? ex.warmupSteps : [];
       const targetWarmupStep = steps[Math.min(warmupDone, Math.max(0, steps.length - 1))];
-
       activeSession.draftSet.category = 'Разминка';
       activeSession.draftSet.weight = targetWarmupStep ? targetWarmupStep.weight : roundToGymStep(ex.targetWeight * 0.6);
       activeSession.draftSet.reps = targetWarmupStep ? targetWarmupStep.reps : 6;
@@ -1710,12 +2198,8 @@ function bindLiveWorkoutDomEvents() {
       const isFinalSet = (workDone + 1 === ex.targetSets);
       const hasSpecial = ex.plannedMethod && ex.plannedMethod !== 'Стандарт';
       const useSpecial = Boolean(hasSpecial && isFinalSet);
-
       let reps = ex.defaultReps;
-      if (useSpecial && ex.isCluster) {
-        reps = parseClusterScheme(ex.plannedMethod, ex.defaultReps).totalReps;
-      }
-
+      if (useSpecial && ex.isCluster) reps = parseClusterScheme(ex.plannedMethod, ex.defaultReps).totalReps;
       activeSession.draftSet.category = 'Рабочий';
       activeSession.draftSet.weight = ex.targetWeight;
       activeSession.draftSet.reps = reps;
@@ -1725,10 +2209,10 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Method toggle
-  const toggleSpecialBtn = document.getElementById('liveToggleSpecialMethodBtn');
-  if (toggleSpecialBtn) {
-    toggleSpecialBtn.onclick = () => {
+  // Method chip toggle
+  const methodChip = document.getElementById('liveMethodToggleBtn');
+  if (methodChip) {
+    methodChip.onclick = () => {
       if (!activeSession) return;
       const ex = activeSession.exercises[activeSession.currentExerciseIndex];
       activeSession.draftSet.useSpecialMethod = !activeSession.draftSet.useSpecialMethod;
@@ -1745,7 +2229,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Bonus set button
+  // Bonus set
   const addBonusSetBtn = document.getElementById('liveAddBonusSetBtn');
   if (addBonusSetBtn) {
     addBonusSetBtn.onclick = () => {
@@ -1765,7 +2249,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Weight steppers — ТОЧЕЧНЫЕ апдейты
+  // Weight steppers
   const wMinus = document.getElementById('liveWeightMinusBtn');
   const wPlus = document.getElementById('liveWeightPlusBtn');
   if (wMinus) {
@@ -1787,7 +2271,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // Reps steppers — ТОЧЕЧНЫЕ апдейты
+  // Reps steppers
   const rMinus = document.getElementById('liveRepsMinusBtn');
   const rPlus = document.getElementById('liveRepsPlusBtn');
   if (rMinus) {
@@ -1809,7 +2293,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // RIR chips — ТОЧЕЧНЫЕ апдейты (без скролл-прыжка)
+  // RIR chips
   document.querySelectorAll('.live-rir-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;
@@ -1820,91 +2304,7 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
-  // Cluster pause floating button
+  // Cluster pause floating (старая кнопка — оставлена для совместимости)
   const clusterBtn = document.getElementById('liveClusterPauseBtn');
   if (clusterBtn) {
-    clusterBtn.onclick = () => {
-      const prefs = getTimerPrefs();
-      triggerHaptic(50);
-      startRestTimer(prefs.cluster);
-    };
-  }
-
-  // Timer settings
-  const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
-  const saveTimerPrefsBtn = document.getElementById('saveLiveTimerSettingsBtn');
-
-  if (openTimerPrefsBtn) {
-    openTimerPrefsBtn.onclick = () => {
-      const prefs = getTimerPrefs();
-      const cEl = document.getElementById('prefTimerCompound');
-      const iEl = document.getElementById('prefTimerIsolation');
-      const clEl = document.getElementById('prefTimerCluster');
-      if (cEl) cEl.value = prefs.compound;
-      if (iEl) iEl.value = prefs.isolation;
-      if (clEl) clEl.value = prefs.cluster;
-      registerLiveModals();
-      openModal('liveTimerSettingsModal');
-    };
-  }
-
-  if (saveTimerPrefsBtn) {
-    saveTimerPrefsBtn.onclick = () => {
-      const cEl = document.getElementById('prefTimerCompound');
-      const iEl = document.getElementById('prefTimerIsolation');
-      const clEl = document.getElementById('prefTimerCluster');
-      const newPrefs = {
-        compound: Math.max(10, parseInt(cEl ? cEl.value : '150', 10) || 150),
-        isolation: Math.max(10, parseInt(iEl ? iEl.value : '90', 10) || 90),
-        cluster: Math.max(5, parseInt(clEl ? clEl.value : '20', 10) || 20),
-        warmup: 60
-      };
-      saveTimerPrefs(newPrefs);
-      closeModal('liveTimerSettingsModal');
-      renderClusterFloatBtn();
-    };
-  }
-
-  // Closeout modal chips
-  document.querySelectorAll('.live-readiness-chip').forEach(chip => {
-    chip.onclick = () => {
-      if (!activeSession) return;
-      activeSession.readinessPre = chip.getAttribute('data-readiness') || '🟢 Оптимум';
-      document.querySelectorAll('.live-readiness-chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      persistActiveSession();
-    };
-  });
-
-  document.querySelectorAll('.live-srpe-chip').forEach(chip => {
-    chip.onclick = () => {
-      if (!activeSession) return;
-      activeSession.sRPE = parseInt(chip.getAttribute('data-srpe'), 10) || 8;
-      document.querySelectorAll('.live-srpe-chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      persistActiveSession();
-      renderCloseoutSummaryBox();
-    };
-  });
-
-  const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
-  const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
-  if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
-  if (discardSessionBtn) discardSessionBtn.onclick = () => discardLiveWorkoutSession();
-}
-
-/* =========================================================
- * HEADER COLLAPSE
- * ========================================================= */
-
-function toggleHeaderCollapse(forceCollapsed) {
-  if (!activeSession) return;
-  if (typeof forceCollapsed === 'boolean') {
-    activeSession.headerCollapsed = forceCollapsed;
-  } else {
-    activeSession.headerCollapsed = !activeSession.headerCollapsed;
-  }
-  activeSession.headerManuallyToggled = true;
-  persistActiveSession();
-  renderExerciseHeader();
-}
+    clusterBtn.on
