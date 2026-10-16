@@ -1155,17 +1155,163 @@
     .chart-container { position: relative; height: 240px; width: 100%; }
 
     /* =========================================================
-     * VOLUME LANDMARKS
+     * MUSCLE LOAD ANALYZER (V5.2.0)
      * ========================================================= */
-    .volume-list { display: flex; flex-direction: column; gap: 12px; }
-    .volume-item { display: flex; flex-direction: column; gap: 4px; }
-    .volume-header {
+    .volume-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .volume-section-header {
       display: flex;
       justify-content: space-between;
+      align-items: center;
+      font: var(--md-sys-typescale-label-large);
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+      padding: 2px 0;
+      letter-spacing: 0.3px;
+    }
+
+    .volume-section-count {
+      font: var(--md-sys-typescale-label-medium);
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface-variant);
+      background: var(--md-sys-color-surface-container-high);
+      padding: 2px 8px;
+      border-radius: var(--md-sys-shape-corner-small);
+    }
+
+    .muscle-lag-card {
+      background: rgba(255, 180, 171, 0.08);
+      border-left: 3px solid var(--md-sys-color-error);
+      border-radius: var(--md-sys-shape-corner-medium);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .lag-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font: var(--md-sys-typescale-body-medium);
+      gap: 8px;
+    }
+
+    .lag-name {
+      font-weight: 700;
+      color: var(--md-sys-color-on-surface);
+    }
+
+    .lag-num {
+      font-weight: 700;
+      color: var(--md-sys-color-error);
+      font-size: 0.95rem;
+      white-space: nowrap;
+    }
+
+    .lag-bar {
+      height: 6px;
+      background: var(--md-sys-color-surface-container-highest);
+      border-radius: var(--md-sys-shape-corner-full);
+      overflow: hidden;
+    }
+
+    .lag-bar-fill {
+      height: 100%;
+      background: var(--md-sys-color-error);
+      transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
+    }
+
+    .lag-advice {
+      font: var(--md-sys-typescale-body-small);
+      color: var(--md-sys-color-on-surface);
+      line-height: 1.35;
+    }
+
+    .lag-delta {
+      font: var(--md-sys-typescale-label-small);
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: var(--md-sys-shape-corner-small);
+      align-self: flex-start;
+    }
+
+    .delta-positive {
+      background: rgba(120, 220, 156, 0.15);
+      color: var(--app-color-success);
+    }
+
+    .delta-negative {
+      background: rgba(255, 180, 171, 0.15);
+      color: var(--md-sys-color-error);
+    }
+
+    .optimal-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .optimal-chip {
+      background: rgba(120, 220, 156, 0.12);
+      color: var(--app-color-success);
+      font: var(--md-sys-typescale-label-medium);
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: var(--md-sys-shape-corner-small);
+      border: 1px solid rgba(120, 220, 156, 0.25);
+    }
+
+    .maint-list, .overload-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .maint-row, .overload-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: var(--md-sys-color-surface-container-high);
+      border-radius: var(--md-sys-shape-corner-medium);
       font: var(--md-sys-typescale-body-small);
       gap: 8px;
-      flex-wrap: wrap;
     }
+
+    .maint-name, .overload-name {
+      font-weight: 600;
+      color: var(--md-sys-color-on-surface);
+    }
+
+    .maint-value {
+      color: var(--md-sys-color-on-surface-variant);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .overload-row {
+      background: var(--app-color-warning-container);
+      border-left: 3px solid var(--app-color-warning);
+    }
+
+    .overload-value {
+      color: var(--app-color-warning);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .volume-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
     .volume-progress-bg {
       height: 10px;
       background: var(--md-sys-color-surface-container-highest);
@@ -1173,14 +1319,11 @@
       overflow: hidden;
       display: flex;
     }
+
     .volume-progress-bar {
       height: 100%;
       transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
     }
-    .zone-maint { background-color: #64748b; }
-    .zone-mev { background-color: var(--app-color-success); }
-    .zone-mav { background-color: var(--md-sys-color-primary); }
-    .zone-mrv { background-color: var(--app-color-warning); }
 
     /* =========================================================
      * PR PILL
@@ -1738,17 +1881,18 @@
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
             <span class="material-symbols-outlined" aria-hidden="true">network_intelligence</span>
-            <span id="volumeTitle">Объем по мышцам</span>
+            <span id="volumeTitle">Нагрузка на мышцы</span>
           </span>
           <div style="display: flex; align-items: center; gap: 4px;">
             <span id="unmappedWarning" style="display: none; font: var(--md-sys-typescale-label-medium); color: var(--app-color-warning);">
               ⚠ Есть новые
             </span>
-            <button type="button" class="help-trigger-btn" data-help-id="help-volume" aria-label="Что такое Volume Landmarks?" title="Что такое Volume Landmarks?">
+            <button type="button" class="help-trigger-btn" data-help-id="help-volume" aria-label="Что такое Muscle Load Analyzer?" title="Что такое Muscle Load Analyzer?">
               <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
             </button>
           </div>
         </div>
+        <div id="volumeSubtitle" style="display: none; font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant); padding: 0 0 4px 0;"></div>
         <div id="muscleVolumeContainer" class="volume-list">
           <div style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Загрузка данных...</div>
         </div>
