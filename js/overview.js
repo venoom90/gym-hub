@@ -7,6 +7,18 @@ let latestPreparedWorkoutPayload = null;
 let cachedBothSplitsPayloads = { A: null, B: null };
 let activeModalSplitKey = 'A';
 
+// V5.3.0: Навигация по календарю
+let calendarBaseDate = null; // выбранная дата (стартовая = сегодня)
+let calMonthViewDate = new Date(); // месяц, отображаемый в модале
+
+function getCalendarBaseDate() {
+  if (!calendarBaseDate) {
+    calendarBaseDate = new Date();
+    calendarBaseDate.setHours(12, 0, 0, 0);
+  }
+  return calendarBaseDate;
+}
+
 export function renderOverviewModule() {
   initOverviewModalListeners();
   renderCalendarStrip();
@@ -76,8 +88,147 @@ function initOverviewModalListeners() {
     };
   }
 
+  // === V5.3.0: КАЛЕНДАРЬ МЕСЯЦА ===
+  initCalendarMonthModalListeners();
+
   isOverviewInitialized = true;
 }
+
+/* =========================================================================
+ * V5.3.0: КАЛЕНДАРЬ МЕСЯЦА
+ * ========================================================================= */
+
+function initCalendarMonthModalListeners() {
+  const calModal = document.getElementById('calendarMonthModal');
+  const openCalBtn = document.getElementById('openCalendarMonthBtn');
+  const closeCalBtn = document.getElementById('closeCalendarMonthBtn');
+  const prevBtn = document.getElementById('calMonthPrevBtn');
+  const nextBtn = document.getElementById('calMonthNextBtn');
+  const todayBtn = document.getElementById('calMonthTodayBtn');
+
+  if (openCalBtn) {
+    openCalBtn.onclick = () => openCalendarMonthModal();
+  }
+  if (closeCalBtn && calModal) {
+    closeCalBtn.onclick = () => { calModal.style.display = 'none'; };
+  }
+  if (calModal) {
+    calModal.onclick = (e) => {
+      if (e.target === calModal) calModal.style.display = 'none';
+    };
+  }
+  if (prevBtn) {
+    prevBtn.onclick = () => {
+      calMonthViewDate = new Date(calMonthViewDate.getFullYear(), calMonthViewDate.getMonth() - 1, 1);
+      renderCalendarMonthModal();
+    };
+  }
+  if (nextBtn) {
+    nextBtn.onclick = () => {
+      calMonthViewDate = new Date(calMonthViewDate.getFullYear(), calMonthViewDate.getMonth() + 1, 1);
+      renderCalendarMonthModal();
+    };
+  }
+  if (todayBtn) {
+    todayBtn.onclick = () => {
+      calendarBaseDate = new Date();
+      calendarBaseDate.setHours(12, 0, 0, 0);
+      const m = document.getElementById('calendarMonthModal');
+      if (m) m.style.display = 'none';
+      renderCalendarStrip();
+    };
+  }
+}
+
+function openCalendarMonthModal() {
+  const modal = document.getElementById('calendarMonthModal');
+  if (!modal) return;
+  const base = getCalendarBaseDate();
+  calMonthViewDate = new Date(base.getFullYear(), base.getMonth(), 1);
+  renderCalendarMonthModal();
+  modal.style.display = 'flex';
+}
+
+function getCycleInfoForDate(dateKey) {
+  const set = (state.dbData.sets || []).find(s =>
+    getDateKey(s.date) === dateKey && s.category === 'Рабочий'
+  );
+  if (!set) return null;
+
+  const week = parseInt(set.cycleWeek, 10) || 1;
+  const mode = String(set.cycleMode || 'Сила').trim();
+  const isDeload = (week >= 5 || mode === 'Делоад' || mode === 'Разгрузка');
+
+  if (isDeload) return { digit: 'Д', dotClass: 'mode-deload', week, mode: 'Делоад' };
+  if (mode === 'Объем' || mode === 'Объём') return { digit: String(week), dotClass: 'mode-volume', week, mode: 'Объём' };
+  return { digit: String(week), dotClass: 'mode-force', week, mode: 'Сила' };
+}
+
+function renderCalendarMonthModal() {
+  const titleEl = document.getElementById('calMonthTitle');
+  const gridEl = document.getElementById('calMonthGrid');
+  if (!titleEl || !gridEl) return;
+
+  const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+                      'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+  const y = calMonthViewDate.getFullYear();
+  const m = calMonthViewDate.getMonth();
+  titleEl.innerText = `${monthNames[m]} ${y}`;
+
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m + 1, 0);
+  const startWeekday = (firstDay.getDay() + 6) % 7; // 0 = понедельник
+
+  const todayKey = getDateKey(new Date());
+  const baseKey = getDateKey(getCalendarBaseDate());
+
+  gridEl.innerHTML = '';
+
+  // Пустые ячейки до первого дня
+  for (let i = 0; i < startWeekday; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cal-day-blank';
+    gridEl.appendChild(blank);
+  }
+
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dayDate = new Date(y, m, d, 12, 0, 0, 0);
+    const dayKey = getDateKey(dayDate);
+    const isToday = (dayKey === todayKey);
+    const isSelected = (dayKey === baseKey);
+    const info = getCycleInfoForDate(dayKey);
+
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'cal-day-cell';
+    if (isToday) cell.classList.add('cal-day-current');
+    if (isSelected) cell.classList.add('cal-day-selected');
+
+    let ariaParts = [`${d} ${monthNames[m]} ${y}`];
+    if (info) ariaParts.push(`Неделя ${info.week}, ${info.mode}`);
+    cell.setAttribute('aria-label', ariaParts.join(', '));
+
+    let inner = `<span>${d}</span>`;
+    if (info) {
+      inner += `<span class="cal-day-week">${info.digit}<span class="cal-day-dot ${info.dotClass}"></span></span>`;
+    }
+    cell.innerHTML = inner;
+
+    cell.onclick = () => {
+      calendarBaseDate = new Date(dayDate);
+      const modal = document.getElementById('calendarMonthModal');
+      if (modal) modal.style.display = 'none';
+      renderCalendarStrip();
+    };
+
+    gridEl.appendChild(cell);
+  }
+}
+
+/* =========================================================================
+ * РАЗМИНКА
+ * ========================================================================= */
 
 function roundToGymStep(weight) {
   if (!weight || weight <= 0) return 0;
@@ -135,19 +286,22 @@ function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
   return `1 калибровочный сет × ${steps[0].weight} кг (${steps[0].reps} повт.)`;
 }
 
+/* =========================================================================
+ * КАЛЕНДАРЬ 7 ДНЕЙ (использует calendarBaseDate)
+ * ========================================================================= */
+
 function renderCalendarStrip() {
   const container = document.getElementById('calendarStripContainer');
   const rangeLabel = document.getElementById('calendarWeekRange');
   if (!container) return;
   container.innerHTML = '';
 
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  const todayKey = getDateKey(today);
+  const base = getCalendarBaseDate();
+  const baseKey = getDateKey(base);
 
   const days = [];
   for (let i = -3; i <= 3; i++) {
-    const d = new Date(today);
+    const d = new Date(base);
     d.setDate(d.getDate() + i);
     days.push(d);
   }
@@ -200,11 +354,11 @@ function renderCalendarStrip() {
 
   days.forEach(day => {
     const key = getDateKey(day);
-    const isToday = (key === todayKey);
+    const isBase = (key === baseKey);
     const session = sessionDatesMap[key];
 
     const card = document.createElement('div');
-    card.className = `calendar-day-card ${isToday ? 'today' : ''}`;
+    card.className = `calendar-day-card ${isBase ? 'today' : ''}`;
 
     let badgeHtml = '<div class="badge-rest"></div>';
     if (session && session.setsCount > 0) {
@@ -262,26 +416,10 @@ function openDaySummaryModal(date, session) {
   modal.style.display = 'flex';
 }
 
-/**
- * V5.2.1 (Шаг 2.3): Проверка, что упражнение тренируется в режиме Maintenance.
- *
- * Проблема старой версии: rir.includes('3') давал ложные срабатывания на
- * диапазонах ("1-3"), составных числах ("+13") и т.д.
- *
- * Новая логика:
- *   1. Мышца — из нижней группы (квадрицепс / бицепс бедра / ягодичные).
- *   2. ИЛИ в notes есть слово "поддерж"/"maintenance".
- *   3. ИЛИ RIR-диапазон начинается с 2+ (через isMaintenanceRir).
- *
- * Тест-кейсы:
- *   Нога + rir "1-2"     → false (не maintenance)
- *   Нога + rir "2-3"     → true
- *   Нога + rir "+3..+4"  → true
- *   Нога + rir "1-3"     → false (исправлен старый баг!)
- *   Нога + rir "3+"      → true
- *   Верх + rir "3+"      → false (не нога)
- *   Нога + notes "Поддерживающий объем" → true (по notes)
- */
+/* =========================================================================
+ * MAINTENANCE / PREPARE PAYLOAD
+ * ========================================================================= */
+
 function isMaintenanceExercise(ex, muscle) {
   const m = String(muscle || '').toLowerCase();
   const isLegGroup = (m.includes('квадрицепс') || m.includes('бедр') || m.includes('ягодиц'));
@@ -289,7 +427,6 @@ function isMaintenanceExercise(ex, muscle) {
 
   const notes = String(ex.notes || '').toLowerCase();
   const hasMaintNote = notes.includes('поддерж') || notes.includes('maintenance');
-
   const hasMaintRir = isMaintenanceRir(ex.rir);
 
   return hasMaintNote || hasMaintRir;
@@ -348,9 +485,6 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
         }
       }
     } else {
-      // Режим «Сила» (Неделя 1 или Неделя 3):
-      // Во 2-й волне (Неделя 3) шаг +2.5 кг добавляется только к движениям с весом >= 50 кг (около +2.5..5%),
-      // чтобы не перегружать легкую изоляцию с гантелями (12.5-20 кг).
       if (String(waveIndex) === '2' && !isMaint && baseWeight >= 50) {
         calculatedWeight = roundToGymStep(baseWeight + 2.5);
       } else {
@@ -392,16 +526,15 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
   };
 }
 
+/* =========================================================================
+ * ПЛАН ТРЕНИРОВКИ (карточка)
+ * ========================================================================= */
+
 function renderAiRecipeCard() {
   const sets = state.dbData.sets || [];
   const catalog = state.dbData.catalog || [];
-  const muscleTagsRow = document.getElementById('overviewMuscleTagsRow');
-  const cycleBadge = document.getElementById('overviewCycleBadge');
-  const nextTag = document.getElementById('overviewNextTag');
   const previewTitleEl = document.getElementById('overviewPlanPreviewTitle');
   const previewMetricsEl = document.getElementById('overviewPlanPreviewMetrics');
-
-  if (muscleTagsRow) muscleTagsRow.innerHTML = '';
 
   const catalogMap = {};
   catalog.forEach(item => {
@@ -470,9 +603,6 @@ function renderAiRecipeCard() {
     ? `Тренировка ${nextSplit} Делоад ${nextCycleId}`
     : `Тренировка ${nextSplit}${nextWave} ${nextMode} ${nextCycleId}`;
 
-  if (cycleBadge) cycleBadge.innerText = nextCycleId;
-  if (nextTag) nextTag.innerText = nextTitle;
-
   activeModalSplitKey = (nextSplit === 'А' || nextSplit === 'A') ? 'A' : 'B';
   cachedBothSplitsPayloads = { A: null, B: null };
 
@@ -507,7 +637,7 @@ function renderAiRecipeCard() {
 
   if (sets.length === 0) {
     if (previewTitleEl) previewTitleEl.innerText = 'План еще не сформирован';
-    if (previewMetricsEl) previewMetricsEl.innerText = 'Сгенерируйте план во вкладке «Тренер» или загрузите отчет';
+    if (previewMetricsEl) previewMetricsEl.innerText = 'Сгенерируйте план во вкладке «Тренер»';
     return;
   }
 
@@ -523,8 +653,8 @@ function renderAiRecipeCard() {
   });
 
   if (prevSplitSets.length === 0) {
-    if (previewTitleEl) previewTitleEl.innerText = `День ${nextSplit} (Нет архивных записей)`;
-    if (previewMetricsEl) previewMetricsEl.innerText = 'Рассчитайте план во вкладке «Тренер»';
+    if (previewTitleEl) previewTitleEl.innerText = `День ${nextSplit} — нет истории`;
+    if (previewMetricsEl) previewMetricsEl.innerText = 'Сгенерируйте план во вкладке «Тренер»';
     return;
   }
 
@@ -626,32 +756,25 @@ function renderAiRecipeCard() {
 }
 
 function updatePlanPreviewCardUI(payload) {
-  const muscleTagsRow = document.getElementById('overviewMuscleTagsRow');
   const previewTitleEl = document.getElementById('overviewPlanPreviewTitle');
   const previewMetricsEl = document.getElementById('overviewPlanPreviewMetrics');
-
-  if (muscleTagsRow) {
-    muscleTagsRow.innerHTML = '';
-    (payload.targetMuscles || []).forEach(m => {
-      const chip = document.createElement('span');
-      chip.className = 'muscle-tag';
-      chip.innerText = m;
-      muscleTagsRow.appendChild(chip);
-    });
-  }
-
-  const exCount = payload.exercises.length;
-  const totalWorkSets = payload.exercises.reduce((acc, ex) => acc + (parseInt(ex.sets, 10) || 3), 0);
-  const specialCount = payload.exercises.filter(ex => ex.method && ex.method !== 'Стандарт').length;
 
   if (previewTitleEl) {
     previewTitleEl.innerText = payload.title || `Тренировка Дня ${payload.splitDay}`;
   }
+
   if (previewMetricsEl) {
-    const specBadge = specialCount > 0 ? ` • ⚡ Интенсификаторов: ${specialCount}` : '';
-    previewMetricsEl.innerText = `${exCount} упражнений • ${totalWorkSets} рабочих подходов${specBadge}`;
+    const exCount = payload.exercises.length;
+    const totalWorkSets = payload.exercises.reduce((acc, ex) => acc + (parseInt(ex.sets, 10) || 3), 0);
+    const specialCount = payload.exercises.filter(ex => ex.method && ex.method !== 'Стандарт').length;
+    const specBadge = specialCount > 0 ? ` • ⚡ ${specialCount} инт.` : '';
+    previewMetricsEl.innerText = `${exCount} упражнений • ${totalWorkSets} подходов${specBadge}`;
   }
 }
+
+/* =========================================================================
+ * МОДАЛЬНОЕ ОКНО: полный перечень упражнений
+ * ========================================================================= */
 
 function openWorkoutPlanDetailsModal() {
   const modal = document.getElementById('workoutPlanDetailsModal');
@@ -727,6 +850,10 @@ function renderModalSplitExercises(payload) {
     container.appendChild(step);
   });
 }
+
+/* =========================================================================
+ * МАНЕКЕН 2.0 (без изменений)
+ * ========================================================================= */
 
 function interpolateHexColor(hex1, hex2, factor) {
   const f = Math.max(0, Math.min(1, factor));

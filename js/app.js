@@ -6,14 +6,14 @@ import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
 import { initLiveWorkoutModule } from './live_workout.js';
 
-let deferredInstallPrompt = null;
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
+const LAST_SYNC_KEY = 'gym_last_sync_ts';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initServiceWorker();
-  initPwaInstall();
   initNavigation();
   initNetworkStatus();
+  initLastSyncLabel();
   initSettingsModal();
   initRefreshButton();
 
@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 1. Проверка входящего отчета из Web Share Target ДО сетевых запросов
   const hasSharedData = await checkSharedReportCache();
 
-  // 2. Отрисовка вкладки (если был отчет — откроется вкладка синхронизации)
+  // 2. Отрисовка вкладки
   if (!hasSharedData) {
     handleRouteHash();
   }
@@ -49,33 +49,6 @@ function initServiceWorker() {
         });
     });
   }
-}
-
-function initPwaInstall() {
-  const installBtn = document.getElementById('installAppBtn');
-
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredInstallPrompt = e;
-    if (installBtn) {
-      installBtn.style.display = 'inline-flex';
-      installBtn.onclick = async () => {
-        if (!deferredInstallPrompt) return;
-        deferredInstallPrompt.prompt();
-        const choice = await deferredInstallPrompt.userChoice;
-        if (choice.outcome === 'accepted') {
-          installBtn.style.display = 'none';
-        }
-        deferredInstallPrompt = null;
-      };
-    }
-  });
-
-  window.addEventListener('appinstalled', () => {
-    if (installBtn) installBtn.style.display = 'none';
-    deferredInstallPrompt = null;
-    console.log('[PWA] Приложение установлено на устройство.');
-  });
 }
 
 function initNavigation() {
@@ -159,6 +132,8 @@ async function refreshApplicationData() {
   const res = await fetchAnalyticsData();
   if (res.success && res.data) {
     setInitialData(res.data);
+    localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+    renderLastSyncLabel();
     if (statusDot) statusDot.classList.remove('offline');
 
     const activeNav = document.querySelector('#bottomNav .nav-item.active');
@@ -199,6 +174,36 @@ function initNetworkStatus() {
   window.addEventListener('online', update);
   window.addEventListener('offline', update);
   update();
+}
+
+/* =========================================================
+ * V5.3.0: ИНДИКАТОР СВЕЖЕСТИ ДАННЫХ
+ * ========================================================= */
+
+function getLastSyncLabel() {
+  const ts = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0', 10);
+  if (!ts) return 'Нет данных';
+  const diffMin = Math.floor((Date.now() - ts) / 60000);
+  if (diffMin < 1) return 'Обновлено сейчас';
+  if (diffMin < 60) return `Обновлено ${diffMin} мин назад`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `Обновлено ${diffH} ч назад`;
+  return 'Устарело — обновите';
+}
+
+function renderLastSyncLabel() {
+  const el = document.getElementById('lastSyncLabel');
+  if (!el) return;
+  el.innerText = getLastSyncLabel();
+  const ts = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0', 10);
+  const stale = !ts || (Date.now() - ts > 24 * 3600 * 1000);
+  el.style.color = stale ? 'var(--app-color-warning)' : 'var(--md-sys-color-on-surface-variant)';
+}
+
+function initLastSyncLabel() {
+  renderLastSyncLabel();
+  // Обновление раз в минуту, чтобы «5 мин назад» становилось «6 мин назад» без перезагрузки
+  setInterval(renderLastSyncLabel, 60000);
 }
 
 function initSettingsModal() {
