@@ -1,11 +1,12 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V1.5.1 MODAL MANAGER + NOTES + LOG)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V1.5.2)
  * =========================================================================
- * V1.5.1:
- * - Логирование ключевых событий в общий терминал Sync (logToTerminal).
- * - Enter в поле «Оборудование» переводит фокус на «Технику» (без newline).
- * - Auto-resize textarea оборудования при вводе.
+ * V1.5.2:
+ * - Убран auto-resize для поля «Оборудование» — вызывал микро-дрожание
+ *   bottom sheet при вводе (Chrome перерисовывал layout на каждой клавише).
+ *   Теперь textarea фиксированной высоты 48px, внутренний скролл при длине.
+ * - Enter в «Оборудование» по-прежнему переводит фокус на «Технику».
  */
 
 import {
@@ -548,12 +549,6 @@ function renderExerciseNoteChips() {
   }
 }
 
-function autoResizeNotesField(el) {
-  if (!el) return;
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 80) + 'px';
-}
-
 function openNotesSheet() {
   if (!activeSession) return;
   const ex = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -569,11 +564,6 @@ function openNotesSheet() {
 
   registerLiveModals();
   openModal('liveNotesSheet');
-
-  // После отображения (когда layout посчитан) — auto-resize
-  setTimeout(() => {
-    if (equipInput) autoResizeNotesField(equipInput);
-  }, 50);
 }
 
 function saveNotesSheet() {
@@ -936,7 +926,6 @@ function handleRecordCurrentSet() {
 
   triggerHaptic([80]);
 
-  // V5.4.2: лог в общий терминал
   const kind = isWarmup ? 'Разминка' : 'Рабочий';
   const methodTag = appliedMethod ? ` [${appliedMethod}]` : '';
   logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weight} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}${methodTag}`, 'success');
@@ -1334,11 +1323,10 @@ function bindLiveWorkoutDomEvents() {
   if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
   if (notesCancelBtn) notesCancelBtn.onclick = () => closeModal('liveNotesSheet');
 
-  // V5.4.2: Enter в textarea «Оборудование» → фокус на «Технику», без newline.
-  // Плюс auto-resize при вводе.
+  // Enter в «Оборудование» → фокус на «Технику» (без newline).
+  // Никакого auto-resize — фиксированная высота через CSS.
   const equipInput = document.getElementById('liveNotesEquipmentInput');
   if (equipInput) {
-    equipInput.addEventListener('input', () => autoResizeNotesField(equipInput));
     equipInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
