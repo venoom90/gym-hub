@@ -1,15 +1,21 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.3 STOPWATCH & SHEET POLISH)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.4 DROPS ARRAY FIX)
  * =========================================================================
- * V2.3:
- * - Big Clock: угловые метки в 3 строки — Сейчас / До финиша / Окончание ~.
- * - Круглая кнопка-часы в PAB (method-combo) для быстрого доступа к секундомеру
- *   из thumb-zone. Дублирует верхнюю пилюлю.
- * - Cluster/Drop Sheet: двухстрочные карточки (метка + RIR сверху,
- *   степперы веса/reps снизу) — текст больше не наезжает.
- * - Bonus Set — с новым классом .live-bonus-set-btn.
- * - Closeout — компактные чипы readiness/sRPE (42px), модал влезает на экран.
+ * V2.4:
+ * - Сет хранит полный массив дропов: `drops: [{weight, reps, rir}, ...]`.
+ *   Раньше сохранялся только первый дроп — остальные терялись.
+ * - renderHistoryRow показывает все дропы:
+ *     • 1 дроп → inline: `42.5×8 + 32.5×5`
+ *     • 2+ дропа → цепочкой на второй строке: `+ 32.5×5 → 25×5 → 20×5`
+ * - renderHistoryGroups meta показывает `+N дроп.` для много-дроповых сетов.
+ * - finalizeAndSync передаёт массив drops в payload (для будущего бэкенда).
+ * - Fallback на legacy dropWeight/dropReps для старых сессий.
+ *
+ * V2.3 (сохранено):
+ * - Big Clock — пассивный секундомер вверх, 3 строки в углу.
+ * - Круглая кнопка-часы в PAB (method-combo).
+ * - Компактные двухстрочные Cluster/Drop Sheet.
  * - Логирование отдыха: startedAtMs / recordedAtMs → честный avgRestSec.
  */
 
@@ -537,7 +543,7 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * BIG CLOCK — пассивный секундомер вверх (V2.3, 3 строки в углу)
+ * BIG CLOCK
  * ========================================================= */
 
 function openBigClockOverlay() {
@@ -601,10 +607,6 @@ function syncBigClockWithWallClock() {
   }
 }
 
-/**
- * Расчёт ETA тренировки: среднее durationMin последних 5 тренировок того же split.
- * Fallback — 55 мин.
- */
 function computeSessionEta() {
   if (!activeSession) return null;
 
@@ -971,8 +973,13 @@ function renderHistoryGroups() {
   if (workSets.length > 0 && workGroup && workBody) {
     workGroup.style.display = 'block';
     const last = workSets[workSets.length - 1];
+
+    // V2.4: мета с учётом дропов
+    const lastDropsCount = Array.isArray(last.drops) ? last.drops.length : (last.dropWeight > 0 ? 1 : 0);
+    const dropsMetaTxt = lastDropsCount > 1 ? ` (+${lastDropsCount} дроп.)` : '';
     const rirTxt = last.reserve ? ` · RIR ${last.reserve.replace('+','')}` : '';
-    if (workMeta) workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weight}×${last.reps}${rirTxt}`;
+    if (workMeta) workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weight}×${last.reps}${dropsMetaTxt}${rirTxt}`;
+
     const isCollapsed = activeSession.historyUiState.workCollapsed === true;
     workGroup.classList.toggle('is-collapsed', isCollapsed);
     const chevron = document.getElementById('liveWorkChevron');
@@ -986,16 +993,38 @@ function renderHistoryGroups() {
   }
 }
 
+/**
+ * V2.4: рендер строки с поддержкой массива дропов.
+ *   - 1 дроп → inline: `42.5×8 + 32.5×5`
+ *   - 2+ дропа → main + цепочка на 2-й строке: `+ 32.5×5 → 25×5 → 20×5`
+ *   - legacy (dropWeight/dropReps без массива) → как раньше, inline.
+ */
 function renderHistoryRow(set, displayNum, kind) {
   const label = kind === 'warmup' ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
   const color = kind === 'warmup' ? 'var(--md-sys-color-on-surface-variant)' : 'var(--app-color-success)';
 
   const chips = [];
   const methodLower = String(set.method || '').toLowerCase();
+  const isDrop = kind === 'work' && methodLower.includes('дроп');
 
-  let repsDisplay = `${set.weight} кг × ${set.reps}`;
-  if (kind === 'work' && methodLower.includes('дроп') && set.dropWeight > 0 && set.dropReps > 0) {
-    repsDisplay = `${set.weight}×${set.reps} + ${set.dropWeight}×${set.dropReps}`;
+  const dropsArr = Array.isArray(set.drops) ? set.drops : [];
+  const hasArrayDrops = dropsArr.length > 0;
+  const hasLegacyDrop = set.dropWeight > 0 && set.dropReps > 0;
+
+  let mainLine = `${set.weight} кг × ${set.reps}`;
+  let dropsChainHtml = '';
+
+  if (isDrop) {
+    if (hasArrayDrops && dropsArr.length === 1) {
+      const d = dropsArr[0];
+      mainLine = `${set.weight}×${set.reps} + ${d.weight}×${d.reps}`;
+    } else if (hasArrayDrops && dropsArr.length > 1) {
+      mainLine = `${set.weight}×${set.reps}`;
+      const dropsStr = dropsArr.map(d => `${d.weight}×${d.reps}`).join(' → ');
+      dropsChainHtml = `<div style="margin-top:4px; font-size:0.75rem; color:var(--md-sys-color-on-surface-variant); padding-left:2px;">+ ${dropsStr}</div>`;
+    } else if (!hasArrayDrops && hasLegacyDrop) {
+      mainLine = `${set.weight}×${set.reps} + ${set.dropWeight}×${set.dropReps}`;
+    }
   }
 
   if (kind === 'work' && set.reserve) {
@@ -1014,10 +1043,13 @@ function renderHistoryRow(set, displayNum, kind) {
 
   return `
     <div class="live-history-row">
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:0;">
-        <span style="font-weight:700; color:${color}; min-width:66px; flex-shrink:0;">${label}</span>
-        <span><b>${repsDisplay}</b></span>
-        ${chips.join('')}
+      <div style="display:flex; flex-direction:column; flex:1; min-width:0;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span style="font-weight:700; color:${color}; min-width:66px; flex-shrink:0;">${label}</span>
+          <span><b>${mainLine}</b></span>
+          ${chips.join('')}
+        </div>
+        ${dropsChainHtml}
       </div>
       <button class="live-delete-set-btn" data-set-idx="${displayNum - 1}" data-kind="${kind}" data-state="idle" title="Удалить подход (двойной тап)">
         <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
@@ -1322,6 +1354,7 @@ function recordSimpleSet() {
     firstSegmentReps: reps,
     dropWeight: 0,
     dropReps: 0,
+    drops: [],
     effort: effort,
     reserve: reserve,
     method: '',
@@ -1347,6 +1380,7 @@ function commitRecordedSet(partialSet) {
     firstSegmentReps: partialSet.firstSegmentReps,
     dropWeight: partialSet.dropWeight,
     dropReps: partialSet.dropReps,
+    drops: Array.isArray(partialSet.drops) ? partialSet.drops : [],
     effort: partialSet.effort,
     reserve: partialSet.reserve,
     method: partialSet.method,
@@ -1501,6 +1535,7 @@ function saveClusterSet() {
     firstSegmentReps: firstSegmentReps,
     dropWeight: 0,
     dropReps: 0,
+    drops: [],
     effort: 'Максим.',
     reserve: `+${lastRir.replace('+','')}`,
     method: method,
@@ -1516,7 +1551,7 @@ function saveClusterSet() {
 }
 
 /* =========================================================
- * DROP SHEET (V2.3: двухстрочные карточки)
+ * DROP SHEET — V2.4: сохраняем ПОЛНЫЙ массив drops
  * ========================================================= */
 
 function openDropSheet() {
@@ -1678,6 +1713,13 @@ function saveDropSet() {
 
   const setNum = currentEx.completedSets.length + 1;
 
+  // V2.4: сохраняем массив drops целиком
+  const dropsPayload = drops.map(d => ({
+    weight: parseFloat(d.weight) || 0,
+    reps: parseInt(d.reps, 10) || 0,
+    rir: String(d.rir || '0')
+  }));
+
   commitRecordedSet({
     setNum: setNum,
     weight: mainWeight,
@@ -1685,6 +1727,7 @@ function saveDropSet() {
     firstSegmentReps: mainReps,
     dropWeight: firstDrop.weight,
     dropReps: firstDrop.reps,
+    drops: dropsPayload,
     effort: 'Максим.',
     reserve: `+${mainRir.replace('+','')}`,
     method: methodLabel,
@@ -1939,7 +1982,7 @@ function renderCloseoutSummaryBox() {
 }
 
 /* =========================================================
- * FINALIZE SYNC
+ * FINALIZE SYNC — V2.4: передаём массив drops в payload
  * ========================================================= */
 
 async function finalizeAndSyncLiveWorkout() {
@@ -1971,6 +2014,7 @@ async function finalizeAndSyncLiveWorkout() {
         firstSegmentReps: s.firstSegmentReps || s.reps,
         dropWeight: s.dropWeight || 0,
         dropReps: s.dropReps || 0,
+        drops: Array.isArray(s.drops) ? s.drops : [],
         effort: s.effort,
         reserve: s.reserve,
         method: s.method,
