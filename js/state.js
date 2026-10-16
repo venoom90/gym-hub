@@ -199,3 +199,136 @@ export function formatDateDisplay(dateVal) {
   const year = d.getFullYear();
   return `${day}.${month}.${year}`;
 }
+
+/* =========================================================================
+ * MUSCLE LOAD ANALYZER (Шаг 2.2-new, V5.2.0)
+ * -------------------------------------------------------------------------
+ * Единая система порогов MEV/MAV/MRV по Mike Israetel (Scientific Principles
+ * of Hypertrophy Training, 2023). Пороги заданы как средненедельные
+ * RIR-взвешенные сеты на мышечную группу.
+ *
+ * isMaintenance: true → мышца тренируется в режиме поддержки (квадрицепс,
+ * бицепс бедра, ягодичные при фуллбади с приоритетом верха). Целевой
+ * диапазон: 2-5 сетов/нед. Пороги MEV/MAV/MRV для таких мышц не применяются.
+ * ========================================================================= */
+
+export const MUSCLE_THRESHOLDS = {
+  'Грудь':           { mev: 8,  mavMin: 12, mavMax: 20, mrv: 22, isMaintenance: false },
+  'Широчайшие':      { mev: 10, mavMin: 14, mavMax: 22, mrv: 25, isMaintenance: false },
+  'Верх спины':      { mev: 10, mavMin: 14, mavMax: 22, mrv: 25, isMaintenance: false },
+  'Средняя дельта':  { mev: 8,  mavMin: 16, mavMax: 22, mrv: 26, isMaintenance: false },
+  'Передняя дельта': { mev: 6,  mavMin: 8,  mavMax: 14, mrv: 18, isMaintenance: false },
+  'Задняя дельта':   { mev: 6,  mavMin: 12, mavMax: 20, mrv: 25, isMaintenance: false },
+  'Трицепс':         { mev: 6,  mavMin: 10, mavMax: 16, mrv: 18, isMaintenance: false },
+  'Бицепс':          { mev: 8,  mavMin: 14, mavMax: 20, mrv: 26, isMaintenance: false },
+  'Квадрицепс':      { mev: 8,  mavMin: 12, mavMax: 18, mrv: 20, isMaintenance: true },
+  'Бицепс бедра':    { mev: 6,  mavMin: 10, mavMax: 16, mrv: 20, isMaintenance: true },
+  'Ягодичные':       { mev: 4,  mavMin: 8,  mavMax: 16, mrv: 20, isMaintenance: true },
+  'Икры':            { mev: 8,  mavMin: 12, mavMax: 16, mrv: 20, isMaintenance: false }
+};
+
+export const MAINTENANCE_LOWER_BOUND = 2;
+export const MAINTENANCE_UPPER_BOUND = 5;
+
+/**
+ * RIR-взвешивание подходов. Дифференцированная модель:
+ *   - Компаунды (жим/тяга/присед): RIR 3 → 0.5, RIR 4+ → 0.25
+ *   - Изоляция (разведения/сгибания/махи): RIR 3 → 0.6, RIR 4+ → 0.3
+ *
+ * Обоснование: на изоляции даже недоборные подходы дают заметный
+ * локальный метаболический стимул (Refalo et al., 2023).
+ *
+ * @param {string} reserve — поле RIR из сета (например, "+2", "+3")
+ * @param {boolean} isIsolation — true для изоляционных упражнений
+ * @returns {number} коэффициент 0..1
+ */
+export function rirWeight(reserve, isIsolation) {
+  const clean = String(reserve || '').trim().replace(/^\+/, '');
+  const r = parseFloat(clean);
+  if (isNaN(r)) return 1.0;
+  if (r <= 1) return 1.0;
+  if (r === 2) return 0.85;
+  if (r === 3) return isIsolation ? 0.6 : 0.5;
+  return isIsolation ? 0.3 : 0.25;
+}
+
+/**
+ * Классификация упражнения как изоляция/компаунд по эвристике имени.
+ * Компаунды: жим, тяга, присед, становая, подтягивания, отжимания, брусья.
+ * Изоляция: разведения, махи, сгибания, разгибания, французский, пуловер и т.д.
+ */
+export function isIsolationExercise(exerciseName) {
+  const n = String(exerciseName || '').toLowerCase();
+  const compoundPatterns = ['жим', 'тяга', 'присед', 'становая', 'подтягиван', 'отжиман', 'брусь'];
+  for (let i = 0; i < compoundPatterns.length; i++) {
+    if (n.includes(compoundPatterns[i])) return false;
+  }
+  const isolationPatterns = [
+    'разведен', 'махи', 'сгибан', 'разгибан', 'концентрирован',
+    'молитв', 'кикбэк', 'француз', 'пуловер', 'подъём на носки', 'подъем на носки'
+  ];
+  for (let i = 0; i < isolationPatterns.length; i++) {
+    if (n.includes(isolationPatterns[i])) return true;
+  }
+  return false;
+}
+
+/**
+ * Проверка: относится ли сет к делоад-фазе.
+ * Учитывает cycleWeek >= 5 и cycleMode 'Делоад' / 'Разгрузка'.
+ */
+export function isDeloadSet(cycleWeek, cycleMode) {
+  const w = parseInt(cycleWeek, 10) || 1;
+  const m = String(cycleMode || '').trim();
+  return w >= 5 || m === 'Делоад' || m === 'Разгрузка' || m === 'Делоад/Разгрузка';
+}
+
+/**
+ * Возвращает ID предыдущего мезоцикла (C-N → C-(N-1)).
+ * Возвращает null, если цикл C-1 или формат некорректен.
+ */
+export function getPreviousCycleId(cycleId) {
+  const m = String(cycleId || '').match(/[CcСсЦц]-(\d+)/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return n > 1 ? ('C-' + (n - 1)) : null;
+}
+
+/**
+ * Классификация состояния мышцы по её недельному RIR-взвешенному объёму.
+ * Возвращает объект { status, label }:
+ *   - lagging (ниже MEV)
+ *   - optimal (в диапазоне MEV..MRV)
+ *   - overload (выше MRV)
+ *   - maintenance-low / maintenance-ok / maintenance-high
+ */
+export function classifyMuscleState(weeklyVolume, thresholds) {
+  if (!thresholds) return { status: 'unknown', label: 'Не размечено' };
+  if (thresholds.isMaintenance) {
+    if (weeklyVolume < MAINTENANCE_LOWER_BOUND) return { status: 'maintenance-low', label: 'Maintenance (ниже)' };
+    if (weeklyVolume <= MAINTENANCE_UPPER_BOUND) return { status: 'maintenance-ok', label: 'Maintenance (Цель)' };
+    return { status: 'maintenance-high', label: 'Выше Maintenance' };
+  }
+  if (weeklyVolume < thresholds.mev) return { status: 'lagging', label: 'ЛАГАЕТ' };
+  if (weeklyVolume <= thresholds.mrv) return { status: 'optimal', label: 'ОПТИМАЛЬНО' };
+  return { status: 'overload', label: 'MRV (Перегруз)' };
+}
+
+/**
+ * Рекомендации по конкретному упражнению для добавления объёма
+ * отстающей мышечной группы.
+ */
+export const MUSCLE_ADVICE = {
+  'Грудь':           'жим в тренажере или сведение рук',
+  'Широчайшие':      'тяга верхнего блока или подтягивания',
+  'Верх спины':      'шраги или тяга к поясу',
+  'Средняя дельта':  'махи в стороны',
+  'Передняя дельта': 'жим гантелей сидя',
+  'Задняя дельта':   'reverse fly / разведения в наклоне',
+  'Трицепс':         'разгибания на блоке или французский жим',
+  'Бицепс':          'сгибания с супинацией или молот',
+  'Квадрицепс':      'жим ногами или разгибания',
+  'Бицепс бедра':    'сгибания ног лежа или румынская тяга',
+  'Ягодичные':       'ягодичный мост или гиперэкстензия',
+  'Икры':            'подъёмы на носки стоя'
+};

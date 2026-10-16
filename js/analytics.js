@@ -1,4 +1,8 @@
-import { state, setSelectedCycle, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, computeE1RM } from './state.js';
+import {
+  state, setSelectedCycle, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, computeE1RM,
+  MUSCLE_THRESHOLDS, MUSCLE_ADVICE, classifyMuscleState, rirWeight, isIsolationExercise,
+  isDeloadSet, getPreviousCycleId, MAINTENANCE_LOWER_BOUND, MAINTENANCE_UPPER_BOUND
+} from './state.js';
 import { extractPeriodization } from './parser.js';
 
 let tonnageChartInstance = null;
@@ -8,7 +12,7 @@ let isHelpModalInitialized = false;
 const METRIC_HELP_DICTIONARY = {
   'help-cycle': {
     title: 'Выбор мезоцикла',
-    text: 'Фильтрует всю аналитику, KPI и графики по выбранному 5-недельному волновому блоку (например, C-1 или C-2).\n\nВ режиме «Все циклы» недельный объем усредняется по активным тренировочным неделям.'
+    text: 'Фильтрует всю аналитику, KPI и графики по выбранному 5-недельному волновому блоку (например, C-1 или C-2).\n\nВ режиме «Все циклы» недельный объем усредняется по скользящему окну 14 дней.'
   },
   'help-hardsets': {
     title: 'Hard Sets (Тяжелые рабочие подходы)',
@@ -23,8 +27,8 @@ const METRIC_HELP_DICTIONARY = {
     text: 'Автоматический индикатор накопленного утомления ЦНС и связочного аппарата.\n\nАнализирует текущую неделю мезоцикла и средний запас сил (RIR), подсказывая, когда пора провести разгрузочную неделю (Делоад).'
   },
   'help-volume': {
-    title: 'Volume Landmarks (Ориентиры объема)',
-    text: 'Научная шкала недельного объема по Майку Израэтелю (с учетом вклада синергистов):\n\n• Maintenance (Поддержка): 2–5 сетов (сохранение мышц, режим для ног).\n• MEV (Мин. эффективный объем): 6–11 сетов.\n• MAV (Оптимальный объем роста): 12–18 сетов.\n• MRV (Макс. переносимый объем): >18 сетов (риск перетренированности).'
+    title: 'Нагрузка на мышцы (Muscle Load Analyzer)',
+    text: 'Недельный RIR-взвешенный объём по каждой мышце в сравнении с научными порогами Israetel:\n\n• MEV — минимальный эффективный объём для роста.\n• MAV — оптимальный объём гипертрофии.\n• MRV — максимальный переносимый объём (риск перетренированности).\n\nВес каждого подхода зависит от запаса сил (RIR): RIR 0-1 → 1.0, RIR 2 → 0.85, RIR 3 → 0.5-0.6, RIR 4+ → 0.25-0.3.\n\nДелоад-недели исключаются из подсчёта.'
   },
   'help-tonnage': {
     title: 'Динамика рабочего тоннажа',
@@ -273,10 +277,99 @@ function renderPushPullBalance(sets) {
   }
 }
 
+/* =========================================================================
+ * MUSCLE LOAD ANALYZER (Шаг 2.2-new, V5.2.0)
+ * -------------------------------------------------------------------------
+ * Заменяет устаревшую логику с одинаковыми порогами 12-18.
+ *
+ * Ключевые улучшения:
+ *   1. RIR-взвешивание каждого подхода (rirWeight).
+ *   2. Пороги MEV/MAV/MRV по Israetel (MUSCLE_THRESHOLDS).
+ *   3. Исключение делоад-недель из подсчёта.
+ *   4. Окно: активные недели текущего цикла (при selectedCycleId != 'ALL')
+ *      или скользящее 14-дневное окно (при 'ALL').
+ *   5. Группировка по 4 бакетам: lagging / optimal / maintenance / overload.
+ *   6. Дельта к предыдущему мезоциклу.
+ * ========================================================================= */
+
+function resolveDetailedMuscleRegion(rawMuscle, exerciseName) {
+  const m = String(rawMuscle || '').trim();
+  const ex = String(exerciseName || '').toLowerCase();
+
+  if (m === 'Грудь') return 'Грудь';
+  if (m === 'Широчайшие') return 'Широчайшие';
+  if (m === 'Верх спины') return 'Верх спины';
+  if (m === 'Передняя дельта') return 'Передняя дельта';
+  if (m === 'Задняя дельта') return 'Задняя дельта';
+  if (m === 'Средняя дельта') {
+    if (ex.includes('задн') || ex.includes('обратн')) return 'Задняя дельта';
+    if (ex.includes('передн') || ex.includes('армейск') || ex.includes('жим')) return 'Передняя дельта';
+    return 'Средняя дельта';
+  }
+  if (m === 'Бицепс') return 'Бицепс';
+  if (m === 'Трицепс') return 'Трицепс';
+  if (m === 'Руки') {
+    if (ex.includes('трицепс') || ex.includes('разгибан') || ex.includes('француз') || ex.includes('брусь')) return 'Трицепс';
+    return 'Бицепс';
+  }
+  if (m === 'Квадрицепс') return 'Квадрицепс';
+  if (m === 'Бицепс бедра') return 'Бицепс бедра';
+  if (m === 'Ягодичные') return 'Ягодичные';
+  if (m === 'Икры') return 'Икры';
+  return m;
+}
+
+function calcAnalyzerActiveWeeks(sets) {
+  const buckets = new Set();
+  sets.forEach(s => {
+    const d = normalizeDate(s.date);
+    if (!d) return;
+    const wk = Math.floor((d.getTime() + 3 * 86400000) / (7 * 86400000));
+    buckets.add(wk);
+  });
+  return Math.max(1, buckets.size);
+}
+
+function calcWeeklyVolumeByMuscle(sets, activeWeeks) {
+  const catalogMap = {};
+  (state.dbData.catalog || []).forEach(item => {
+    if (item && item.name) catalogMap[item.name.trim()] = item;
+  });
+
+  const volumeByMuscle = {};
+
+  sets.forEach(s => {
+    const cat = catalogMap[(s.exercise || '').trim()];
+    if (!cat || cat.status === 'Требует разметки') return;
+
+    const rirCoef = rirWeight(s.reserve, isIsolationExercise(s.exercise));
+    if (rirCoef <= 0) return;
+
+    const targets = [
+      { m: cat.primaryMuscle, r: parseFloat(cat.primaryRatio) || 1.0 },
+      { m: cat.secondaryMuscle, r: parseFloat(cat.secondaryRatio) || 0.5 },
+      { m: cat.tertiaryMuscle, r: parseFloat(cat.tertiaryRatio) || 0.25 }
+    ];
+
+    targets.forEach(t => {
+      if (!t.m) return;
+      const region = resolveDetailedMuscleRegion(t.m, s.exercise);
+      volumeByMuscle[region] = (volumeByMuscle[region] || 0) + (t.r * rirCoef);
+    });
+  });
+
+  const weekly = {};
+  Object.keys(volumeByMuscle).forEach(m => {
+    weekly[m] = parseFloat((volumeByMuscle[m] / activeWeeks).toFixed(1));
+  });
+  return weekly;
+}
+
 function renderMuscleVolumeLandmarks(sets) {
   const container = document.getElementById('muscleVolumeContainer');
   const warningEl = document.getElementById('unmappedWarning');
   const titleEl = document.getElementById('volumeTitle');
+  const subtitleEl = document.getElementById('volumeSubtitle');
   if (!container) return;
 
   const catalogMap = {};
@@ -292,86 +385,238 @@ function renderMuscleVolumeLandmarks(sets) {
     warningEl.style.display = hasUnmapped ? 'inline-block' : 'none';
   }
 
-  const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
+  // Рабочие не-делоад сеты
+  const workSets = sets.filter(s =>
+    s.category === 'Рабочий' &&
+    s.effort !== 'Размин.' &&
+    !isDeloadSet(s.cycleWeek, s.cycleMode)
+  );
+
+  if (titleEl) titleEl.innerText = 'Нагрузка на мышцы';
+
   if (workSets.length === 0) {
-    container.innerHTML = `<div style="font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Нет рабочих подходов для выбранного фильтра</div>`;
+    container.innerHTML = `<div style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 12px 0;">Нет рабочих подходов (без учёта делоада) для выбранного фильтра</div>`;
+    if (subtitleEl) subtitleEl.style.display = 'none';
     return;
   }
 
-  const activeWeeks = calculateActiveTrainingWeeks(workSets);
-  if (titleEl) {
-    titleEl.innerText = `Объем по мышцам (ср. за ${activeWeeks} нед.)`;
+  // Определяем окно усреднения
+  let analyzerSets = workSets;
+  let activeWeeks = 1;
+  let windowLabel = '';
+
+  if (state.selectedCycleId === 'ALL') {
+    const now = new Date();
+    now.setHours(12, 0, 0, 0);
+    const cutoff = now.getTime() - 14 * 86400000;
+    analyzerSets = workSets.filter(s => {
+      const d = normalizeDate(s.date);
+      return d && d.getTime() >= cutoff;
+    });
+
+    if (analyzerSets.length === 0) {
+      container.innerHTML = `<div style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 12px 0;">За последние 14 дней нет рабочих подходов</div>`;
+      if (subtitleEl) subtitleEl.style.display = 'none';
+      return;
+    }
+    activeWeeks = 2;
+    windowLabel = 'Скользящее окно: 14 дней';
+  } else {
+    activeWeeks = calcAnalyzerActiveWeeks(workSets);
+    windowLabel = `Мезоцикл ${state.selectedCycleId} • активных недель: ${activeWeeks}`;
   }
 
-  const volumeByMuscle = {};
+  // RIR-взвешенный подсчёт
+  const weekly = calcWeeklyVolumeByMuscle(analyzerSets, activeWeeks);
 
-  workSets.forEach(s => {
-    const exName = (s.exercise || '').trim();
-    const cat = catalogMap[exName];
-    if (!cat || cat.status === 'Требует разметки') return;
+  // Дельта к предыдущему мезоциклу
+  let prevWeekly = null;
+  if (state.selectedCycleId !== 'ALL') {
+    const prevCycleId = getPreviousCycleId(state.selectedCycleId);
+    if (prevCycleId) {
+      const prevWorkSets = (state.dbData.sets || []).filter(s =>
+        (s.cycleId || 'C-1') === prevCycleId &&
+        s.category === 'Рабочий' &&
+        s.effort !== 'Размин.' &&
+        !isDeloadSet(s.cycleWeek, s.cycleMode)
+      );
+      if (prevWorkSets.length > 0) {
+        const prevActiveWeeks = calcAnalyzerActiveWeeks(prevWorkSets);
+        prevWeekly = calcWeeklyVolumeByMuscle(prevWorkSets, prevActiveWeeks);
+      }
+    }
+  }
 
-    const targets = [
-      { m: cat.primaryMuscle, r: parseFloat(cat.primaryRatio) || 1.0 },
-      { m: cat.secondaryMuscle, r: parseFloat(cat.secondaryRatio) || 0.5 },
-      { m: cat.tertiaryMuscle, r: parseFloat(cat.tertiaryRatio) || 0.25 }
-    ];
+  // Классификация по бакетам
+  const lagging = [];
+  const optimal = [];
+  const maintenance = [];
+  const overload = [];
 
-    targets.forEach(t => {
-      if (!t.m) return;
-      volumeByMuscle[t.m] = (volumeByMuscle[t.m] || 0) + t.r;
-    });
+  Object.keys(MUSCLE_THRESHOLDS).forEach(muscle => {
+    const thresholds = MUSCLE_THRESHOLDS[muscle];
+    const weeklyVol = weekly[muscle] || 0;
+    const cls = classifyMuscleState(weeklyVol, thresholds);
+
+    if (cls.status === 'lagging') {
+      const deficit = Math.max(1, Math.ceil(thresholds.mev - weeklyVol));
+      let delta = null;
+      if (prevWeekly && prevWeekly[muscle] !== undefined) {
+        delta = parseFloat((weeklyVol - prevWeekly[muscle]).toFixed(1));
+      }
+      lagging.push({
+        muscle,
+        volume: weeklyVol,
+        target: thresholds.mev,
+        deficit,
+        advice: MUSCLE_ADVICE[muscle] || 'изоляция',
+        delta
+      });
+    } else if (cls.status === 'optimal') {
+      optimal.push({ muscle, volume: weeklyVol });
+    } else if (cls.status.indexOf('maintenance') === 0) {
+      maintenance.push({ muscle, volume: weeklyVol, label: cls.label });
+    } else if (cls.status === 'overload') {
+      overload.push({ muscle, volume: weeklyVol, mrv: thresholds.mrv });
+    }
   });
 
-  const entries = Object.entries(volumeByMuscle)
-    .map(([muscle, totalSets]) => ({
-      muscle,
-      weeklySets: parseFloat((totalSets / activeWeeks).toFixed(1))
-    }))
-    .sort((a, b) => b.weeklySets - a.weeklySets);
+  lagging.sort((a, b) => b.deficit - a.deficit);
+  optimal.sort((a, b) => b.volume - a.volume);
+  maintenance.sort((a, b) => b.volume - a.volume);
+
+  // Обновляем подзаголовок
+  if (subtitleEl) {
+    subtitleEl.style.display = 'block';
+    subtitleEl.innerText = `${windowLabel} • RIR-взвешивание: ON`;
+  }
 
   container.innerHTML = '';
 
-  entries.forEach(item => {
-    const isLegMaint = (item.muscle === 'Квадрицепс' || item.muscle === 'Бицепс бедра' || item.muscle === 'Ягодичные');
-    let zoneLabel = 'Maintenance';
-    let barClass = 'zone-maint';
+  // Секция ЛАГАЮТ
+  if (lagging.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'volume-section';
 
-    if (isLegMaint) {
-      if (item.weeklySets >= 2 && item.weeklySets <= 5) {
-        zoneLabel = 'Maintenance (Цель)';
-        barClass = 'zone-mev';
-      } else if (item.weeklySets > 5) {
-        zoneLabel = 'Рост (MEV/MAV)';
-        barClass = 'zone-mav';
-      }
-    } else {
-      if (item.weeklySets >= 6 && item.weeklySets < 12) {
-        zoneLabel = 'MEV (Мин. рост)';
-        barClass = 'zone-mev';
-      } else if (item.weeklySets >= 12 && item.weeklySets <= 18) {
-        zoneLabel = 'MAV (Оптимум)';
-        barClass = 'zone-mav';
-      } else if (item.weeklySets > 18) {
-        zoneLabel = 'MRV (Перегрузка ⚠️)';
-        barClass = 'zone-mrv';
-      }
-    }
-
-    const fillPercent = Math.min(100, Math.round((item.weeklySets / 20) * 100));
-
-    const row = document.createElement('div');
-    row.className = 'volume-item';
-    row.innerHTML = `
-      <div class="volume-header">
-        <span><b>${escapeHtml(item.muscle)}</b></span>
-        <span style="color: var(--md-sys-color-on-surface-variant);">${item.weeklySets} сетов/нед • <b>${escapeHtml(zoneLabel)}</b></span>
-      </div>
-      <div class="volume-progress-bg">
-        <div class="volume-progress-bar ${barClass}" style="width: ${fillPercent}%;"></div>
-      </div>
+    const header = document.createElement('div');
+    header.className = 'volume-section-header';
+    header.innerHTML = `
+      <span>🔴 ЛАГАЮТ (ниже MEV)</span>
+      <span class="volume-section-count">${lagging.length} шт</span>
     `;
-    container.appendChild(row);
-  });
+    section.appendChild(header);
+
+    lagging.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'muscle-lag-card';
+      const pct = Math.min(100, Math.round((item.volume / item.target) * 100));
+
+      let deltaHtml = '';
+      if (item.delta !== null) {
+        const cls = item.delta >= 0 ? 'delta-positive' : 'delta-negative';
+        const sign = item.delta >= 0 ? '+' : '';
+        deltaHtml = `<span class="lag-delta ${cls}">Δ к пред. циклу: ${sign}${item.delta} сет/нед</span>`;
+      }
+
+      card.innerHTML = `
+        <div class="lag-header">
+          <span class="lag-name">• ${escapeHtml(item.muscle)}</span>
+          <span class="lag-num">${item.volume} / ${item.target}</span>
+        </div>
+        <div class="lag-bar"><div class="lag-bar-fill" style="width: ${pct}%;"></div></div>
+        <div class="lag-advice">→ +${item.deficit} подхода: ${escapeHtml(item.advice)}</div>
+        ${deltaHtml}
+      `;
+      section.appendChild(card);
+    });
+
+    container.appendChild(section);
+  }
+
+  // Секция ОПТИМАЛЬНО
+  if (optimal.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'volume-section';
+
+    const header = document.createElement('div');
+    header.className = 'volume-section-header';
+    header.innerHTML = `
+      <span>🟢 ОПТИМАЛЬНО (MEV–MRV)</span>
+      <span class="volume-section-count">${optimal.length} шт</span>
+    `;
+    section.appendChild(header);
+
+    const chips = document.createElement('div');
+    chips.className = 'optimal-chips';
+    optimal.forEach(item => {
+      const chip = document.createElement('span');
+      chip.className = 'optimal-chip';
+      chip.innerText = `${item.muscle} ${item.volume}`;
+      chips.appendChild(chip);
+    });
+    section.appendChild(chips);
+    container.appendChild(section);
+  }
+
+  // Секция MAINTENANCE
+  if (maintenance.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'volume-section';
+
+    const header = document.createElement('div');
+    header.className = 'volume-section-header';
+    header.innerHTML = `
+      <span>🔵 MAINTENANCE (осознанно)</span>
+      <span class="volume-section-count">${maintenance.length} шт</span>
+    `;
+    section.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'maint-list';
+    maintenance.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'maint-row';
+      const statusIcon = item.label.indexOf('Цель') !== -1
+        ? '✅'
+        : (item.label.indexOf('ниже') !== -1 ? '⚠️' : '↑');
+      row.innerHTML = `
+        <span class="maint-name">${escapeHtml(item.muscle)}</span>
+        <span class="maint-value">${item.volume} / цель ${MAINTENANCE_LOWER_BOUND}-${MAINTENANCE_UPPER_BOUND} ${statusIcon}</span>
+      `;
+      list.appendChild(row);
+    });
+    section.appendChild(list);
+    container.appendChild(section);
+  }
+
+  // Секция ПЕРЕГРУЗ (MRV)
+  if (overload.length > 0) {
+    const section = document.createElement('div');
+    section.className = 'volume-section';
+
+    const header = document.createElement('div');
+    header.className = 'volume-section-header';
+    header.style.color = 'var(--app-color-warning)';
+    header.innerHTML = `
+      <span>⚠️ ПЕРЕГРУЗ (выше MRV)</span>
+      <span class="volume-section-count">${overload.length} шт</span>
+    `;
+    section.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'overload-list';
+    overload.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'overload-row';
+      row.innerHTML = `
+        <span class="overload-name">${escapeHtml(item.muscle)}</span>
+        <span class="overload-value">${item.volume} / MRV ${item.mrv} ⚠️</span>
+      `;
+      list.appendChild(row);
+    });
+    section.appendChild(list);
+    container.appendChild(section);
+  }
 }
 
 function renderTonnageChart(sets) {

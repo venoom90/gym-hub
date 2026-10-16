@@ -1,4 +1,8 @@
-import { state, normalizeDate, escapeHtml, computeE1RM } from './state.js';
+import {
+  state, normalizeDate, escapeHtml, computeE1RM,
+  MUSCLE_THRESHOLDS, MUSCLE_ADVICE, classifyMuscleState,
+  rirWeight, isIsolationExercise, isDeloadSet
+} from './state.js';
 import { askGasGeminiCoach, saveAiPlanToSheets } from './api.js';
 
 let activeSplitView = 'A';
@@ -213,6 +217,82 @@ async function syncCachedPlanToSheets() {
   }
 }
 
+/**
+ * V5.2.0: Формирует текстовый блок [ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА] для промпта Gemini.
+ * Считает RIR-взвешенный недельный объём по мышцам, определяет лагающие
+ * (ниже MEV) и возвращает готовую инструкцию для усиления их в плане.
+ */
+function buildAthleteSituationPromptBlock() {
+  const allSets = (state.dbData.sets || []).filter(s =>
+    s.category === 'Рабочий' &&
+    s.effort !== 'Размин.' &&
+    !isDeloadSet(s.cycleWeek, s.cycleMode)
+  );
+  if (allSets.length === 0) return '';
+
+  const cycleId = state.selectedCycleId !== 'ALL'
+    ? state.selectedCycleId
+    : (state.dbData.currentCycleId || 'C-1');
+
+  const cycleSets = allSets.filter(s => (s.cycleId || 'C-1') === cycleId);
+  if (cycleSets.length === 0) return '';
+
+  const weekBuckets = new Set();
+  cycleSets.forEach(s => {
+    const d = normalizeDate(s.date);
+    if (d) weekBuckets.add(Math.floor((d.getTime() + 3 * 86400000) / (7 * 86400000)));
+  });
+  const activeWeeks = Math.max(1, weekBuckets.size);
+
+  const catalogMap = {};
+  (state.dbData.catalog || []).forEach(c => {
+    if (c && c.name) catalogMap[c.name.trim()] = c;
+  });
+
+  const volume = {};
+  cycleSets.forEach(s => {
+    const cat = catalogMap[(s.exercise || '').trim()];
+    if (!cat || cat.status === 'Требует разметки') return;
+
+    const coef = rirWeight(s.reserve, isIsolationExercise(s.exercise));
+    if (coef <= 0) return;
+
+    const targets = [
+      { m: cat.primaryMuscle, r: parseFloat(cat.primaryRatio) || 1.0 },
+      { m: cat.secondaryMuscle, r: parseFloat(cat.secondaryRatio) || 0.5 },
+      { m: cat.tertiaryMuscle, r: parseFloat(cat.tertiaryRatio) || 0.25 }
+    ];
+
+    targets.forEach(t => {
+      if (!t.m) return;
+      volume[t.m] = (volume[t.m] || 0) + (t.r * coef);
+    });
+  });
+
+  const lagging = [];
+  Object.keys(MUSCLE_THRESHOLDS).forEach(m => {
+    const th = MUSCLE_THRESHOLDS[m];
+    if (th.isMaintenance) return;
+
+    const weekly = parseFloat(((volume[m] || 0) / activeWeeks).toFixed(1));
+    const cls = classifyMuscleState(weekly, th);
+
+    if (cls.status === 'lagging') {
+      const deficit = Math.max(1, Math.ceil(th.mev - weekly));
+      const advice = MUSCLE_ADVICE[m] || 'изоляция';
+      lagging.push(`- ${m}: ${weekly} сетов/нед (MEV ${th.mev}) → добавь минимум +${deficit} подхода (${advice})`);
+    }
+  });
+
+  if (lagging.length === 0) return '';
+
+  return `[ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (по данным за ${activeWeeks} активных недель цикла ${cycleId})]:
+${lagging.join('\n')}
+
+ПРИОРИТЕТ: Обязательно включи в план дополнительные подходы для лагающих мышц.
+Их суммарный недельный объём в плане должен быть НЕ НИЖЕ указанного MEV.`;
+}
+
 async function generateMesocyclePlan() {
   const loadingBox = document.getElementById('coachPlanLoadingBox');
   const genBtn = document.getElementById('generateCyclePlanBtn');
@@ -268,6 +348,7 @@ async function generateMesocyclePlan() {
   const exSummaryB = dayBExercises.join('\n') || 'Нет данных';
 
   const currentCid = state.dbData.currentCycleId || 'C-2';
+  const athleteSituation = buildAthleteSituationPromptBlock();
 
   const prompt = `Ты — ведущий эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
 Составь тренировочный план на мезоцикл ${currentCid}.
@@ -280,7 +361,7 @@ ${exSummaryA}
 
 [АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ Б]:
 ${exSummaryB}
-
+${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
 ПРАВИЛА И ПРИОРИТЕТЫ:
 1. ПРИОРИТЕТ УКАЗАНИЙ АТЛЕТА: Если в [ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА] запрошены кластеры, дроп-сеты или специфические методы прямо со старта цикла — ОБЯЗАТЕЛЬНО внедрить их в план! В поле "method" указать точный метод ("Кластер 4+3+2", "Дроп-сет -25%" или "Стандарт").
 2. ПОРЯДОК УПРАЖНЕНИЙ:
