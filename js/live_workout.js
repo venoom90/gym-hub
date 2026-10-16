@@ -1,15 +1,19 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.1 CLUSTER & DROP EDITION)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.2 PASSIVE STOPWATCH EDITION)
  * =========================================================================
- * V2.1:
- * - Big Clock overlay — полноэкранные часы паузы для кластеров и дропов.
- * - Cluster Sheet — bottom sheet с сегментами и RIR каждого сегмента.
- * - Drop Sheet — bottom sheet с основным сетом и N дропами.
- * - Удаление сета — двойной тап с подтверждением.
- * - Компактный method-чип в углу строки.
- * - Приоритет «Завершить → УПР.» над таймером + автозапуск rest при переходе.
- * - Свёрнутый header — чипсы (progress / план / RIR / метод / посл. сет).
+ * V2.2:
+ * - Big Clock → пассивный секундомер ВВЕРХ (00:00 → 00:01 → ...).
+ *   Никаких вибро, никаких вспышек, никаких тапов внутри.
+ *   Открыл → тикает → смотришь → закрыл.
+ * - В углу Big Clock: абсолютное «Сейчас HH:MM» + ETA «Финиш ~HH:MM»
+ *   на основе среднего времени прошлых тренировок того же сплита.
+ * - Тап по пилюле таймера в топбаре открывает Big Clock.
+ * - Логирование отдыха: startedAtMs / recordedAtMs для честного avgRestSec
+ *   (не считает время выполнения сета как «отдых»).
+ * - Cluster/Drop Sheet — компактные строки (56px вместо 230px).
+ * - Восстановлены чипы readiness / sRPE (были потеряны в CSS).
+ * - Safe-area fixes для navigation-bar, modal-card, live-sheet.
  */
 
 import {
@@ -30,10 +34,9 @@ let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
 let isLiveWorkoutInitialized = false;
 
-let bigClockEndsAtMs = 0;
-let bigClockDurationSec = 0;
+// V2.2: Big Clock — пассивный секундомер вверх
+let bigClockStartedAtMs = 0;
 let bigClockInterval = null;
-let bigClockPhaseLabel = '';
 
 let activeClusterSheetState = null;
 let activeDropSheetState = null;
@@ -92,6 +95,7 @@ function registerLiveModals() {
     registerModal('liveBigClockOverlay', {
       el: bigClock,
       displayStyle: 'flex',
+      onOpen: () => { startBigClockCountUp(); },
       onClose: () => { stopBigClock(); }
     });
   }
@@ -376,6 +380,7 @@ export function startNewLiveWorkout(recipePayload) {
       totalSeconds: 150,
       notified10s: false
     },
+    lastRestEndMs: 0,           // V2.2: время окончания последнего отдыха
     readinessPre: '🟢 Оптимум',
     sRPE: 8,
     isFinished: false,
@@ -420,6 +425,7 @@ function checkCrashRecoverySession() {
       if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') {
         parsed.historyUiState = { warmupCollapsed: false, workCollapsed: false };
       }
+      if (typeof parsed.lastRestEndMs !== 'number') parsed.lastRestEndMs = 0;
       activeSession = parsed;
       const totalWorkDone = activeSession.exercises.reduce(
         (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length, 0
@@ -535,65 +541,93 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * BIG CLOCK
+ * BIG CLOCK — пассивный секундомер вверх (V2.2)
  * ========================================================= */
 
-function openBigClock(durationSec, phaseLabel) {
-  const overlay = document.getElementById('liveBigClockOverlay');
-  const digits = document.getElementById('liveBigClockDigits');
-  const phase = document.getElementById('liveBigClockPhase');
-  if (!overlay || !digits) return;
-
-  bigClockDurationSec = Math.max(1, parseInt(durationSec, 10) || 20);
-  bigClockEndsAtMs = Date.now() + bigClockDurationSec * 1000;
-  bigClockPhaseLabel = phaseLabel || 'ПАУЗА';
-
-  if (phase) phase.innerText = `${bigClockPhaseLabel.toUpperCase()} ${bigClockDurationSec} СЕК`;
-  digits.classList.remove('is-done');
-  digits.innerText = String(bigClockDurationSec);
-
+function openBigClockOverlay() {
   registerLiveModals();
   openModal('liveBigClockOverlay');
-  syncBigClockWithWallClock();
 }
 
-function syncBigClockWithWallClock() {
-  if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
-  if (!bigClockEndsAtMs) return;
+function startBigClockCountUp() {
+  bigClockStartedAtMs = Date.now();
 
-  const tick = () => {
-    const digits = document.getElementById('liveBigClockDigits');
-    if (!digits) return;
-    const remaining = Math.max(0, Math.ceil((bigClockEndsAtMs - Date.now()) / 1000));
-    if (remaining <= 0) {
-      digits.innerText = '0';
-      digits.classList.add('is-done');
-      triggerHaptic([400, 180, 400, 180, 400]);
-      if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
-      return;
+  const digitsEl = document.getElementById('liveBigClockDigits');
+  const titleEl = document.getElementById('liveBigClockTitle');
+  const cornerNowEl = document.getElementById('liveBigClockNow');
+  const cornerEtaEl = document.getElementById('liveBigClockEta');
+
+  if (titleEl) titleEl.innerText = 'СЕКУНДОМЕР';
+
+  const eta = computeSessionEta();
+
+  const update = () => {
+    if (!bigClockStartedAtMs) return;
+
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - bigClockStartedAtMs) / 1000));
+    const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+    const s = String(elapsedSec % 60).padStart(2, '0');
+
+    if (digitsEl) digitsEl.innerText = `${m}:${s}`;
+
+    if (cornerNowEl) {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      cornerNowEl.innerHTML = `Сейчас <b>${hh}:${mm}</b>`;
     }
-    digits.innerText = String(remaining);
+
+    if (cornerEtaEl && eta) {
+      const remMin = Math.max(0, Math.round((eta.endsAtMs - Date.now()) / 60000));
+      const hh = String(Math.floor(remMin / 60)).padStart(2, '0');
+      const mm = String(remMin % 60).padStart(2, '0');
+      cornerEtaEl.innerHTML = `До финиша ~<b>${hh}:${mm}</b>`;
+    }
   };
 
-  tick();
-  bigClockInterval = setInterval(tick, 200);
-}
-
-function restartBigClock() {
-  if (!bigClockDurationSec) return;
-  bigClockEndsAtMs = Date.now() + bigClockDurationSec * 1000;
-  const digits = document.getElementById('liveBigClockDigits');
-  if (digits) {
-    digits.classList.remove('is-done');
-    digits.innerText = String(bigClockDurationSec);
-  }
-  triggerHaptic([40]);
-  syncBigClockWithWallClock();
+  if (bigClockInterval) clearInterval(bigClockInterval);
+  update();
+  bigClockInterval = setInterval(update, 500);
 }
 
 function stopBigClock() {
   if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
-  bigClockEndsAtMs = 0;
+  bigClockStartedAtMs = 0;
+}
+
+function syncBigClockWithWallClock() {
+  if (bigClockStartedAtMs && !bigClockInterval) {
+    startBigClockCountUp();
+  }
+}
+
+/**
+ * Расчёт ETA тренировки.
+ * Берём прошлые workouts в state.dbData с тем же split и усредняем durationMin.
+ * Fallback — 55 минут, если нет истории.
+ */
+function computeSessionEta() {
+  if (!activeSession) return null;
+
+  const history = Array.isArray(state.dbData.workouts) ? state.dbData.workouts : [];
+  const sameSplit = history.filter(w => {
+    const s = String(w.split || '').toUpperCase();
+    const mySplit = String(activeSession.splitDay || '').toUpperCase();
+    return (s === mySplit || (mySplit === 'А' && s === 'A') || (mySplit === 'Б' && s === 'B'));
+  });
+
+  let avgDurationMin = 55;
+
+  if (sameSplit.length >= 2) {
+    const recent = sameSplit.slice(-5);
+    const sum = recent.reduce((acc, w) => acc + (parseFloat(w.durationMin) || 0), 0);
+    if (sum > 0) avgDurationMin = Math.round(sum / recent.length);
+  }
+
+  return {
+    avgDurationMin,
+    endsAtMs: activeSession.startedAtMs + avgDurationMin * 60 * 1000
+  };
 }
 
 /* =========================================================
@@ -858,14 +892,14 @@ function renderIntensifierBanner() {
     el.style.display = 'flex';
     el.innerHTML = `
       <span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">bolt</span>
-      <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха. Тап по <b>[⏱]</b> откроет большие часы. Запись — <b>[✓ ЗАПИСАТЬ ДРОП-СЕТ]</b>.</div>
+      <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха. Запись — <b>[✓ ЗАПИСАТЬ ДРОП-СЕТ]</b>.</div>
     `;
   } else if (isSpecialActive && currentEx.isCluster) {
     const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
     el.style.display = 'flex';
     el.innerHTML = `
       <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span>
-      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> тап по <b>[⏱]</b> откроет большие часы паузы между сегментами. Запись — <b>[✓ ЗАПИСАТЬ КЛАСТЕР]</b>.</div>
+      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> тап по пилюле времени в топбаре откроет секундомер. Запись — <b>[✓ ЗАПИСАТЬ КЛАСТЕР]</b>.</div>
     `;
   } else {
     el.style.display = 'none';
@@ -1044,7 +1078,6 @@ function renderPAB() {
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
 
-  // Priority 1: exercise completed
   if (isTargetReached) {
     const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
     let primaryLabel = 'ЗАВЕРШИТЬ УПРАЖНЕНИЕ';
@@ -1081,7 +1114,6 @@ function renderPAB() {
     return;
   }
 
-  // Priority 2: rest active
   if (activeSession.restState && activeSession.restState.isActive) {
     const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
     const isWarning = remainingSec <= 15 && remainingSec > 0;
@@ -1112,31 +1144,22 @@ function renderPAB() {
     return;
   }
 
-  // Priority 3: recording
   const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
   const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const currentWarmupStepNum = Math.min(warmupSetsDone + 1, Math.max(1, (currentEx.warmupSteps || []).length));
-  const prefs = getTimerPrefs();
 
   if (isSpecialActive && currentEx.isCluster) {
+    const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
     pab.innerHTML = `
       <div class="live-pab-content">
-        <div class="live-pab-method-row">
-          <button class="live-pab-clock-btn" id="livePabBigClockBtn" type="button" aria-label="Большие часы паузы">
-            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
-            <span class="live-pab-clock-label">${prefs.cluster}с</span>
-          </button>
-          <button class="live-pab-method-btn" id="livePabRecordCluster" type="button">
-            <span class="live-pab-primary-label">ЗАПИСАТЬ КЛАСТЕР</span>
-            <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг · схема ниже</span>
-          </button>
-        </div>
+        <button class="live-pab-method-btn" id="livePabRecordCluster" type="button">
+          <span class="live-pab-primary-label">ЗАПИСАТЬ КЛАСТЕР ${escapeHtml(clusterInfo.schemeText)}</span>
+          <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг · открой пилюлю ⏱ в топбаре для секундомера</span>
+        </button>
       </div>
     `;
-    const clockBtn = document.getElementById('livePabBigClockBtn');
     const recBtn = document.getElementById('livePabRecordCluster');
-    if (clockBtn) clockBtn.onclick = () => openBigClock(prefs.cluster, 'Пауза кластера');
     if (recBtn) recBtn.onclick = () => openClusterSheet();
     return;
   }
@@ -1145,21 +1168,13 @@ function renderPAB() {
     const dropEstimate = roundToGymStep(activeSession.draftSet.weight * 0.75);
     pab.innerHTML = `
       <div class="live-pab-content">
-        <div class="live-pab-method-row">
-          <button class="live-pab-clock-btn" id="livePabBigClockBtn" type="button" aria-label="Большие часы паузы">
-            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
-            <span class="live-pab-clock-label">${prefs.drop}с</span>
-          </button>
-          <button class="live-pab-method-btn" id="livePabRecordDrop" type="button">
-            <span class="live-pab-primary-label">ЗАПИСАТЬ ДРОП-СЕТ</span>
-            <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг → ~${dropEstimate} кг</span>
-          </button>
-        </div>
+        <button class="live-pab-method-btn" id="livePabRecordDrop" type="button">
+          <span class="live-pab-primary-label">ЗАПИСАТЬ ДРОП-СЕТ</span>
+          <span class="live-pab-secondary-label">${activeSession.draftSet.weight} кг → ~${dropEstimate} кг</span>
+        </button>
       </div>
     `;
-    const clockBtn = document.getElementById('livePabBigClockBtn');
     const recBtn = document.getElementById('livePabRecordDrop');
-    if (clockBtn) clockBtn.onclick = () => openBigClock(prefs.drop, 'Сброс веса');
     if (recBtn) recBtn.onclick = () => openDropSheet();
     return;
   }
@@ -1303,6 +1318,15 @@ function recordSimpleSet() {
 function commitRecordedSet(partialSet) {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
 
+  const nowMs = Date.now();
+  const startedAtMs = activeSession.lastRestEndMs || nowMs;
+
+  // V2.2: считаем чистый отдых для терминала
+  if (activeSession.lastRestEndMs > 0) {
+    const restSec = Math.max(0, Math.round((startedAtMs - activeSession.lastRestEndMs) / 1000));
+    // Ничего не логируем здесь — общий отдых считается между сетами.
+  }
+
   const recordedSet = {
     setNum: partialSet.setNum,
     weight: partialSet.weight,
@@ -1318,8 +1342,9 @@ function commitRecordedSet(partialSet) {
     e1rm: partialSet.e1rm,
     equipment: currentEx.equipment || '',
     positioning: currentEx.technique || '',
-    recordedAt: new Date().toTimeString().slice(0, 8),
-    timestampMs: Date.now()
+    startedAtMs: startedAtMs,
+    recordedAtMs: nowMs,
+    recordedAt: new Date(nowMs).toTimeString().slice(0, 8)
   };
 
   currentEx.completedSets.push(recordedSet);
@@ -1340,6 +1365,7 @@ function commitRecordedSet(partialSet) {
   triggerHaptic([80]);
 
   activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
+  activeSession.lastRestEndMs = 0;
 
   const prefs = getTimerPrefs();
   let restSeconds = prefs.compound;
@@ -1352,7 +1378,7 @@ function commitRecordedSet(partialSet) {
 }
 
 /* =========================================================
- * CLUSTER SHEET
+ * CLUSTER SHEET (компакт V2.2)
  * ========================================================= */
 
 function openClusterSheet() {
@@ -1378,8 +1404,8 @@ function openClusterSheet() {
 }
 
 function renderClusterSheet() {
-  const state = activeClusterSheetState;
-  if (!state) return;
+  const sheetState = activeClusterSheetState;
+  if (!sheetState) return;
 
   const titleEl = document.getElementById('liveClusterSheetTitle');
   const subtitleEl = document.getElementById('liveClusterSheetSubtitle');
@@ -1387,17 +1413,16 @@ function renderClusterSheet() {
   const summaryEl = document.getElementById('liveClusterSummary');
   if (!container) return;
 
-  if (titleEl) titleEl.innerText = `Запись кластера ${state.schemeText}`;
-  if (subtitleEl) subtitleEl.innerText = `Вес ${state.weight} кг · рабочий подход`;
+  if (titleEl) titleEl.innerText = `Запись кластера ${sheetState.schemeText}`;
+  if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.weight} кг · рабочий подход`;
 
-  container.innerHTML = state.segments.map((seg, idx) => `
+  container.innerHTML = sheetState.segments.map((seg, idx) => `
     <div class="live-sheet-row">
       <span class="live-sheet-row-label">Сег ${idx + 1}</span>
       <div class="live-sheet-row-main">
         <button class="live-sheet-mini-btn" data-cluster-reps="${idx}" data-delta="-1" type="button">−</button>
         <span class="live-sheet-value">${seg.reps}</span>
         <button class="live-sheet-mini-btn" data-cluster-reps="${idx}" data-delta="+1" type="button">+</button>
-        <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.7rem; margin-left:4px;">повт</span>
       </div>
       <div class="live-sheet-rir">
         ${['0','1','2','3+'].map(v => `
@@ -1407,10 +1432,10 @@ function renderClusterSheet() {
     </div>
   `).join('');
 
-  const totalReps = state.segments.reduce((a, s) => a + s.reps, 0);
-  const tonnage = parseFloat((state.weight * totalReps).toFixed(1));
-  const firstSeg = state.segments[0] ? state.segments[0].reps : totalReps;
-  const e1rm = computeE1RM(state.weight, firstSeg);
+  const totalReps = sheetState.segments.reduce((a, s) => a + s.reps, 0);
+  const tonnage = parseFloat((sheetState.weight * totalReps).toFixed(1));
+  const firstSeg = sheetState.segments[0] ? sheetState.segments[0].reps : totalReps;
+  const e1rm = computeE1RM(sheetState.weight, firstSeg);
 
   if (summaryEl) {
     summaryEl.innerHTML = `Итого: <b>${totalReps} повт.</b> · тоннаж <b>${tonnage} кг</b> · e1RM по 1-му сегменту: <b>~${e1rm} кг</b>`;
@@ -1420,7 +1445,7 @@ function renderClusterSheet() {
     btn.onclick = () => {
       const idx = parseInt(btn.getAttribute('data-cluster-reps'), 10);
       const delta = parseInt(btn.getAttribute('data-delta'), 10);
-      state.segments[idx].reps = Math.max(1, state.segments[idx].reps + delta);
+      sheetState.segments[idx].reps = Math.max(1, sheetState.segments[idx].reps + delta);
       triggerHaptic([15]);
       renderClusterSheet();
     };
@@ -1429,7 +1454,7 @@ function renderClusterSheet() {
     btn.onclick = () => {
       const idx = parseInt(btn.getAttribute('data-cluster-rir'), 10);
       const val = btn.getAttribute('data-rir-val');
-      state.segments[idx].rir = val;
+      sheetState.segments[idx].rir = val;
       triggerHaptic([15]);
       renderClusterSheet();
     };
@@ -1437,20 +1462,20 @@ function renderClusterSheet() {
 }
 
 function saveClusterSet() {
-  const state = activeClusterSheetState;
-  if (!state || !activeSession) return;
+  const sheetState = activeClusterSheetState;
+  if (!sheetState || !activeSession) return;
 
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  const segments = state.segments;
+  const segments = sheetState.segments;
   const totalReps = segments.reduce((a, s) => a + s.reps, 0);
   const firstSegmentReps = segments[0] ? segments[0].reps : totalReps;
   const lastRir = segments[segments.length - 1] ? segments[segments.length - 1].rir : '1';
   const rirChain = segments.map(s => s.rir).join('/');
-  const weight = state.weight;
+  const weight = sheetState.weight;
   const tonnage = parseFloat((weight * totalReps).toFixed(1));
   const e1rm = computeE1RM(weight, firstSegmentReps);
 
-  const method = `Кластер ${state.schemeText} (RIR ${rirChain})`;
+  const method = `Кластер ${sheetState.schemeText} (RIR ${rirChain})`;
   const setNum = currentEx.completedSets.length + 1;
 
   commitRecordedSet({
@@ -1468,14 +1493,14 @@ function saveClusterSet() {
     e1rm: e1rm
   });
 
-  logToTerminal('LIVE_SET', `${currentEx.name} • Кластер #${setNum}: ${weight} кг [${state.schemeText}] = ${totalReps} повт (RIR ${rirChain})`, 'success');
+  logToTerminal('LIVE_SET', `${currentEx.name} • Кластер #${setNum}: ${weight} кг [${sheetState.schemeText}] = ${totalReps} повт (RIR ${rirChain})`, 'success');
 
   activeClusterSheetState = null;
   closeModal('liveClusterSheet');
 }
 
 /* =========================================================
- * DROP SHEET
+ * DROP SHEET (компакт V2.2)
  * ========================================================= */
 
 function openDropSheet() {
@@ -1503,8 +1528,8 @@ function openDropSheet() {
 }
 
 function renderDropSheet() {
-  const state = activeDropSheetState;
-  if (!state) return;
+  const sheetState = activeDropSheetState;
+  if (!sheetState) return;
 
   const subtitleEl = document.getElementById('liveDropSheetSubtitle');
   const mainWeightEl = document.getElementById('liveDropMainWeight');
@@ -1514,24 +1539,24 @@ function renderDropSheet() {
   const summaryEl = document.getElementById('liveDropSummary');
   if (!dropsContainer) return;
 
-  if (subtitleEl) subtitleEl.innerText = `Вес ${state.mainWeight} кг · основной + ${state.drops.length} дроп${state.drops.length > 1 ? 'а' : ''}`;
-  if (mainWeightEl) mainWeightEl.innerText = state.mainWeight;
-  if (mainRepsEl) mainRepsEl.innerText = state.mainReps;
+  if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.mainWeight} кг · основной + ${sheetState.drops.length} дроп${sheetState.drops.length > 1 ? 'а' : ''}`;
+  if (mainWeightEl) mainWeightEl.innerText = sheetState.mainWeight;
+  if (mainRepsEl) mainRepsEl.innerText = sheetState.mainReps;
 
   if (mainRirEl) {
     mainRirEl.innerHTML = ['0','1','2','3+'].map(v => `
-      <button class="live-sheet-rir-chip ${state.mainRir === v ? 'active' : ''}" data-drop-main-rir="${v}" type="button">${v}</button>
+      <button class="live-sheet-rir-chip ${sheetState.mainRir === v ? 'active' : ''}" data-drop-main-rir="${v}" type="button">${v}</button>
     `).join('');
   }
 
-  dropsContainer.innerHTML = state.drops.map((drop, idx) => `
+  dropsContainer.innerHTML = sheetState.drops.map((drop, idx) => `
     <div class="live-sheet-row">
       <span class="live-sheet-row-label">Дроп ${idx + 1}</span>
       <div class="live-sheet-row-main">
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="-2.5" type="button">−</button>
         <span class="live-sheet-value">${drop.weight}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="+2.5" type="button">+</button>
-        <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.7rem; margin-left:2px;">кг ×</span>
+        <span style="color:var(--md-sys-color-on-surface-variant); font-size:0.65rem; margin:0 2px;">кг ×</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="-1" type="button">−</button>
         <span class="live-sheet-value">${drop.reps}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="+1" type="button">+</button>
@@ -1544,9 +1569,9 @@ function renderDropSheet() {
     </div>
   `).join('');
 
-  const totalTonnage = state.mainWeight * state.mainReps
-    + state.drops.reduce((a, d) => a + d.weight * d.reps, 0);
-  const e1rm = computeE1RM(state.mainWeight, state.mainReps);
+  const totalTonnage = sheetState.mainWeight * sheetState.mainReps
+    + sheetState.drops.reduce((a, d) => a + d.weight * d.reps, 0);
+  const e1rm = computeE1RM(sheetState.mainWeight, sheetState.mainReps);
 
   if (summaryEl) {
     summaryEl.innerHTML = `Тоннаж: <b>${totalTonnage.toFixed(1)} кг</b> · e1RM по основному: <b>~${e1rm} кг</b>`;
@@ -1558,9 +1583,9 @@ function renderDropSheet() {
       const idx = parseInt(btn.getAttribute('data-drop-idx'), 10);
       const delta = parseFloat(btn.getAttribute('data-delta'));
       if (field === 'weight') {
-        state.drops[idx].weight = Math.max(0, parseFloat((state.drops[idx].weight + delta).toFixed(2)));
+        sheetState.drops[idx].weight = Math.max(0, parseFloat((sheetState.drops[idx].weight + delta).toFixed(2)));
       } else {
-        state.drops[idx].reps = Math.max(1, state.drops[idx].reps + Math.round(delta));
+        sheetState.drops[idx].reps = Math.max(1, sheetState.drops[idx].reps + Math.round(delta));
       }
       triggerHaptic([15]);
       renderDropSheet();
@@ -1570,7 +1595,7 @@ function renderDropSheet() {
     btn.onclick = () => {
       const idx = parseInt(btn.getAttribute('data-drop-rir'), 10);
       const val = btn.getAttribute('data-rir-val');
-      state.drops[idx].rir = val;
+      sheetState.drops[idx].rir = val;
       triggerHaptic([15]);
       renderDropSheet();
     };
@@ -1583,9 +1608,9 @@ function renderDropSheet() {
         const field = btn.getAttribute('data-drop-adjust');
         const delta = parseFloat(btn.getAttribute('data-delta'));
         if (field === 'main-weight') {
-          state.mainWeight = Math.max(0, parseFloat((state.mainWeight + delta).toFixed(2)));
+          sheetState.mainWeight = Math.max(0, parseFloat((sheetState.mainWeight + delta).toFixed(2)));
         } else if (field === 'main-reps') {
-          state.mainReps = Math.max(1, state.mainReps + Math.round(delta));
+          sheetState.mainReps = Math.max(1, sheetState.mainReps + Math.round(delta));
         }
         triggerHaptic([15]);
         renderDropSheet();
@@ -1595,7 +1620,7 @@ function renderDropSheet() {
   if (mainRirEl) {
     mainRirEl.querySelectorAll('[data-drop-main-rir]').forEach(btn => {
       btn.onclick = () => {
-        state.mainRir = btn.getAttribute('data-drop-main-rir');
+        sheetState.mainRir = btn.getAttribute('data-drop-main-rir');
         triggerHaptic([15]);
         renderDropSheet();
       };
@@ -1604,24 +1629,24 @@ function renderDropSheet() {
 }
 
 function addDropStep() {
-  const state = activeDropSheetState;
-  if (!state || !state.drops.length) return;
-  const lastDrop = state.drops[state.drops.length - 1];
+  const sheetState = activeDropSheetState;
+  if (!sheetState || !sheetState.drops.length) return;
+  const lastDrop = sheetState.drops[sheetState.drops.length - 1];
   const newWeight = roundToGymStep(lastDrop.weight * 0.75);
-  state.drops.push({ weight: newWeight, reps: 5, rir: '0' });
+  sheetState.drops.push({ weight: newWeight, reps: 5, rir: '0' });
   triggerHaptic([25]);
   renderDropSheet();
 }
 
 function saveDropSet() {
-  const state = activeDropSheetState;
-  if (!state || !activeSession) return;
+  const sheetState = activeDropSheetState;
+  if (!sheetState || !activeSession) return;
 
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  const mainWeight = state.mainWeight;
-  const mainReps = state.mainReps;
-  const mainRir = state.mainRir;
-  const drops = state.drops;
+  const mainWeight = sheetState.mainWeight;
+  const mainReps = sheetState.mainReps;
+  const mainRir = sheetState.mainRir;
+  const drops = sheetState.drops;
 
   const firstDrop = drops[0] || { weight: 0, reps: 0 };
   const totalTonnage = mainWeight * mainReps + drops.reduce((a, d) => a + d.weight * d.reps, 0);
@@ -1726,6 +1751,8 @@ function stopRestTimer() {
   if (!activeSession) return;
   activeSession.restState.isActive = false;
   activeSession.restState.endsAtMs = 0;
+  // V2.2: фиксируем время окончания отдыха
+  activeSession.lastRestEndMs = Date.now();
   if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
   persistActiveSession();
   renderPAB();
@@ -1805,11 +1832,27 @@ function calculateWorkoutSummaryMetrics() {
   let workTonnageKg = 0;
   let rirSum = 0;
   let rirCount = 0;
-  const allTimestamps = [];
+
+  // V2.2: честный отдых по startedAtMs/recordedAtMs
+  const workRestDiffs = [];
 
   activeSession.exercises.forEach(ex => {
-    ex.completedSets.forEach(s => {
-      if (s.timestampMs) allTimestamps.push(s.timestampMs);
+    // Собираем рабочие сеты по времени
+    const workSets = ex.completedSets.filter(s => s.category === 'Рабочий');
+    const allSets = ex.completedSets;
+
+    // отдых между сетами внутри упражнения
+    const ordered = [...allSets].sort((a, b) => (a.recordedAtMs || 0) - (b.recordedAtMs || 0));
+    for (let i = 1; i < ordered.length; i++) {
+      const prev = ordered[i - 1];
+      const cur = ordered[i];
+      if (cur.startedAtMs && prev.recordedAtMs) {
+        const restSec = Math.round((cur.startedAtMs - prev.recordedAtMs) / 1000);
+        if (restSec >= 15 && restSec <= 900) workRestDiffs.push(restSec);
+      }
+    }
+
+    allSets.forEach(s => {
       if (s.category === 'Рабочий') {
         totalWorkSets++;
         workTonnageKg += (s.tonnage || 0);
@@ -1821,25 +1864,17 @@ function calculateWorkoutSummaryMetrics() {
     });
   });
 
-  allTimestamps.sort((a, b) => a - b);
-
-  const endTimestampMs = allTimestamps.length > 0
-    ? allTimestamps[allTimestamps.length - 1] + 120000
-    : Date.now();
-  const startReferenceMs = Math.min(activeSession.startedAtMs, allTimestamps[0] || activeSession.startedAtMs);
-
+  const endTimestampMs = Date.now();
+  const startReferenceMs = activeSession.startedAtMs;
   const durationMin = Math.max(1, Math.round((endTimestampMs - startReferenceMs) / 60000));
   const workTonnage = parseFloat(workTonnageKg.toFixed(1));
   const density = parseFloat((workTonnage / durationMin).toFixed(1));
   const avgRir = rirCount > 0 ? parseFloat((rirSum / rirCount).toFixed(1)) : 2.0;
 
-  let restDiffsSum = 0;
-  let restDiffsCount = 0;
-  for (let i = 1; i < allTimestamps.length; i++) {
-    const diffSec = Math.round((allTimestamps[i] - allTimestamps[i - 1]) / 1000);
-    if (diffSec >= 15 && diffSec <= 600) { restDiffsSum += diffSec; restDiffsCount++; }
-  }
-  const avgRestSec = restDiffsCount > 0 ? Math.round(restDiffsSum / restDiffsCount) : 0;
+  const avgRestSec = workRestDiffs.length > 0
+    ? Math.round(workRestDiffs.reduce((a, b) => a + b, 0) / workRestDiffs.length)
+    : 0;
+
   const sRPE = parseFloat(activeSession.sRPE) || 8;
   const trainingLoad = Math.round(durationMin * sRPE);
 
@@ -2017,6 +2052,10 @@ function bindLiveWorkoutDomEvents() {
 
   const finishOpenBtn = document.getElementById('liveOpenFinishModalBtn');
   if (finishOpenBtn) finishOpenBtn.onclick = () => openCloseoutModal();
+
+  // V2.2: тап по пилюле времени → открыть Big Clock
+  const timerPillBtn = document.getElementById('liveHeaderTimer');
+  if (timerPillBtn) timerPillBtn.onclick = () => openBigClockOverlay();
 
   const prevBtn = document.getElementById('livePrevExBtn');
   const nextBtn = document.getElementById('liveNextExBtn');
@@ -2201,10 +2240,7 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
-  // Big clock controls
-  const bigClockDigits = document.getElementById('liveBigClockDigits');
-  if (bigClockDigits) bigClockDigits.onclick = () => restartBigClock();
-
+  // Big Clock close
   const bigClockClose = document.getElementById('liveBigClockClose');
   if (bigClockClose) bigClockClose.onclick = () => closeModal('liveBigClockOverlay');
 
