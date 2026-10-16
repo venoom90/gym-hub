@@ -1,22 +1,20 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.0 THUMB-ZONE)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.0 COMPACT & FLOATING)
  * =========================================================================
- * V2.0 (16.10.2026) — UX-редизайн «Thumb-Zone»:
- *  - PAB (Persistent Action Bar) — основное действие всегда в thumb zone.
- *  - Rest timer → круговой ring в топбаре (28px) + счётчик + 3 кнопки в PAB.
- *  - Auto-collapse header упражнения после первого рабочего сета.
- *  - Мини-карта: horizontal scroll + auto-center на текущем.
- *  - Журнал подходов: последние 2 + модальное окно «Все N →».
- *  - RIR «Оптимум» — усиленный визуал (2px border + ✓).
- *  - «Пауза 20с» показывается только при активном кластере.
- *  - «X из Y» → «Y/Y (+Z бонус)» при бонусных сетах.
- *
- * V1.5.2 (сохранено):
- *  - textarea вместо input для оборудования (Chrome Password Manager bug).
- *  - Enter в «Оборудование» → фокус на «Технику».
- *  - Без auto-resize.
- * =========================================================================
+ * V2.0 «Compact & Thumb»:
+ * - Компактный топбар 48px: ‹ | таймер | ⚙ | Финиш
+ * - Progress Strip 44px: chevrons + сегменты + счётчик (вместо мини-карты)
+ * - Сворачиваемый header упражнения (автосвёртка после первого сета)
+ * - PAB (Persistent Action Bar) — fixed bottom, blur, меняется по контексту:
+ *     • запись сета → зелёная кнопка «ЗАПИСАТЬ»
+ *     • отдых → 3 кнопки −30/+30/Пропустить + обратный отсчёт
+ *     • упражнение выполнено → primary «ЗАВЕРШИТЬ → УПР. #N»
+ * - Rest-timer живёт в PAB, красный при <15 сек
+ * - Точечные апдейты DOM для RIR/степперов (без полного re-render)
+ * - Журнал: группы Разминка (свёрнута) / Рабочие (развёрнуты)
+ * - Floating-кнопка «Пауза 20с» над PAB при активном кластере
+ * - V1.5.2: Enter в «Оборудование» → фокус на «Технику» (bottom sheet)
  */
 
 import {
@@ -29,8 +27,6 @@ import { logToTerminal } from './sync.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
-
-const REST_RING_CIRCUMFERENCE = 2 * Math.PI * 16; // r=16 → ≈100.53
 
 let activeSession = null;
 let workoutDurationInterval = null;
@@ -76,8 +72,8 @@ function registerLiveModals() {
         document.body.style.overflow = 'hidden';
         requestScreenWakeLock();
         startDurationTicker();
-        syncRestTimerWithWallClock();
         renderLiveWorkoutScreen();
+        syncRestTimerWithWallClock();
       },
       onClose: () => {
         document.body.style.overflow = '';
@@ -116,19 +112,6 @@ function registerLiveModals() {
       displayStyle: 'flex'
     });
     notesSheet.onclick = (e) => { if (e.target === notesSheet) closeModal('liveNotesSheet'); };
-  }
-
-  // V2.0: полный журнал подходов упражнения
-  const fullHistoryModal = document.getElementById('liveFullHistoryModal');
-  if (fullHistoryModal) {
-    registerModal('liveFullHistoryModal', {
-      el: fullHistoryModal,
-      displayStyle: 'flex',
-      onOpen: () => renderFullHistoryModal()
-    });
-    const closeFullHistBtn = document.getElementById('closeLiveFullHistoryBtn');
-    if (closeFullHistBtn) closeFullHistBtn.onclick = () => closeModal('liveFullHistoryModal');
-    fullHistoryModal.onclick = (e) => { if (e.target === fullHistoryModal) closeModal('liveFullHistoryModal'); };
   }
 }
 
@@ -322,8 +305,7 @@ export function startNewLiveWorkout(recipePayload) {
       technique: historicalTechnique || '',
       completedSets: [],
       isCompleted: false,
-      allowBonusSet: false,
-      headerCollapsed: false
+      allowBonusSet: false
     };
   });
 
@@ -352,7 +334,11 @@ export function startNewLiveWorkout(recipePayload) {
     },
     readinessPre: '🟢 Оптимум',
     sRPE: 8,
-    isFinished: false
+    isFinished: false,
+    // V2.0 UI state
+    headerCollapsed: false,
+    headerManuallyToggled: false,
+    historyUiState: { warmupCollapsed: false, workCollapsed: false }
   };
 
   persistActiveSession();
@@ -386,10 +372,12 @@ function checkCrashRecoverySession() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && !parsed.isFinished && Array.isArray(parsed.exercises)) {
-      // Миграция полей для сессий V1.x
-      parsed.exercises.forEach(ex => {
-        if (typeof ex.headerCollapsed !== 'boolean') ex.headerCollapsed = false;
-      });
+      // V2.0: миграция старых сессий
+      if (typeof parsed.headerCollapsed !== 'boolean') parsed.headerCollapsed = false;
+      if (typeof parsed.headerManuallyToggled !== 'boolean') parsed.headerManuallyToggled = false;
+      if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') {
+        parsed.historyUiState = { warmupCollapsed: false, workCollapsed: false };
+      }
       activeSession = parsed;
       const totalWorkDone = activeSession.exercises.reduce(
         (acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length,
@@ -520,45 +508,128 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * RENDER — MINIMAP (V2.0: horizontal scroll + auto-center)
+ * MAIN RENDER (V2.0 — точечный, разбит на подмодули)
  * ========================================================= */
 
-function renderExerciseMiniMap() {
-  const mapBox = document.getElementById('liveExMiniMap');
-  if (!mapBox || !activeSession) return;
-  mapBox.innerHTML = '';
+function renderLiveWorkoutScreen() {
+  if (!activeSession) return;
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  // Ensure UI state defaults exist (migration safety)
+  if (typeof activeSession.headerCollapsed !== 'boolean') activeSession.headerCollapsed = false;
+  if (typeof activeSession.headerManuallyToggled !== 'boolean') activeSession.headerManuallyToggled = false;
+  if (!activeSession.historyUiState) {
+    activeSession.historyUiState = { warmupCollapsed: false, workCollapsed: false };
+  }
+
+  renderProgressStrip();
+  renderExerciseHeader();
+  renderExerciseNoteChips();
+  renderCurrentSetLabel();
+  renderCategoryToggle();
+  renderMethodToggle();
+  renderStepperValues();
+  renderRirChips();
+  renderIntensifierBanner();
+  renderControlsVisibility();
+  renderCompletedCard();
+  renderHistoryGroups();
+  renderPAB();
+  renderClusterFloatBtn();
+}
+
+/* -------- Progress Strip -------- */
+
+function renderProgressStrip() {
+  const container = document.getElementById('liveProgressSegments');
+  const counter = document.getElementById('liveExProgressBadge');
+  const prevBtn = document.getElementById('livePrevExBtn');
+  const nextBtn = document.getElementById('liveNextExBtn');
+  if (!container || !activeSession) return;
+
+  const current = activeSession.currentExerciseIndex;
+  const total = activeSession.exercises.length;
+
+  container.innerHTML = '';
 
   activeSession.exercises.forEach((ex, idx) => {
+    const seg = document.createElement('div');
+    seg.className = 'live-progress-segment';
+    const width = Math.max(1, parseInt(ex.targetSets, 10) || 3);
+    seg.style.flexGrow = String(width);
+    seg.style.flexBasis = '0';
+
     const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-    const isCompleted = ex.isCompleted || (workDone >= ex.targetSets);
-    const isCurrent = (idx === activeSession.currentExerciseIndex);
+    const isDone = ex.isCompleted || workDone >= ex.targetSets;
+    const isCurrent = idx === current;
 
-    const pill = document.createElement('button');
-    pill.className = `live-minimap-pill ${isCurrent ? 'current' : ''} ${isCompleted ? 'done' : ''}`;
-    pill.innerHTML = isCompleted ? `✓ ${idx + 1}` : `${idx + 1}`;
-    pill.title = ex.name;
-    pill.dataset.exIdx = String(idx);
-
-    pill.onclick = () => switchActiveExercise(idx);
-
-    mapBox.appendChild(pill);
+    if (isDone) seg.classList.add('is-done');
+    else if (isCurrent) seg.classList.add('is-current');
+    seg.setAttribute('title', ex.name);
+    container.appendChild(seg);
   });
 
-  // Auto-center на текущем pill (V2.0)
-  const currentPill = mapBox.querySelector('.live-minimap-pill.current');
-  if (currentPill && typeof currentPill.scrollIntoView === 'function') {
-    try {
-      currentPill.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-    } catch (e) {
-      // Fallback для старых браузеров
-      currentPill.scrollIntoView(false);
+  if (counter) counter.innerText = `${current + 1}/${total}`;
+  if (prevBtn) prevBtn.disabled = current <= 0;
+  if (nextBtn) nextBtn.disabled = current >= total - 1;
+}
+
+/* -------- Exercise Header (collapsible) -------- */
+
+function renderExerciseHeader() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const card = document.getElementById('liveExHeaderCard');
+  const compactEl = document.getElementById('liveExHeaderCompact');
+  const fullEl = document.getElementById('liveExHeaderFull');
+  if (!card) return;
+
+  const isCollapsed = activeSession.headerCollapsed === true;
+
+  if (isCollapsed) {
+    if (compactEl) compactEl.style.display = 'flex';
+    if (fullEl) fullEl.style.display = 'none';
+    card.classList.add('is-collapsed');
+
+    const nameEl = document.getElementById('liveExNameCompact');
+    const subEl = document.getElementById('liveExSubCompact');
+    if (nameEl) nameEl.innerText = currentEx.name;
+
+    const lastWorkSet = [...currentEx.completedSets].reverse().find(s => s.category === 'Рабочий');
+    const planPart = `план ${currentEx.targetWeight}×${currentEx.targetRepsStr}`;
+    let lastPart = '';
+    if (lastWorkSet) {
+      const rirTxt = lastWorkSet.reserve ? ` (RIR ${lastWorkSet.reserve.replace('+','')})` : '';
+      lastPart = ` · посл. ${lastWorkSet.weight}×${lastWorkSet.reps}${rirTxt}`;
+    }
+    if (subEl) subEl.innerText = `${planPart}${lastPart}`;
+  } else {
+    if (compactEl) compactEl.style.display = 'none';
+    if (fullEl) fullEl.style.display = 'flex';
+    card.classList.remove('is-collapsed');
+
+    const nameEl = document.getElementById('liveExName');
+    const subEl = document.getElementById('liveExTargetSubtitle');
+    if (nameEl) nameEl.innerText = currentEx.name;
+    if (subEl) {
+      const specText = (currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт')
+        ? ` • Финал: <b>${escapeHtml(currentEx.plannedMethod)}</b>`
+        : '';
+      subEl.innerHTML = `План: <b>${currentEx.targetWeight} кг × ${escapeHtml(currentEx.targetRepsStr)}</b> (${currentEx.targetSets} раб. сета, RIR ${escapeHtml(currentEx.targetRir)})${specText}`;
+    }
+
+    const warmupHintEl = document.getElementById('liveExWarmupHint');
+    if (warmupHintEl) {
+      warmupHintEl.innerHTML = currentEx.warmupText
+        ? `<span class="material-symbols-outlined" style="font-size:15px;">restart_alt</span> Разминка по плану: <b>${escapeHtml(currentEx.warmupText)}</b>`
+        : '';
     }
   }
 }
 
-/* =========================================================
- * NOTE CHIPS (equipment/technique)
- * ========================================================= */
+/* -------- Note chips -------- */
 
 function renderExerciseNoteChips() {
   if (!activeSession) return;
@@ -591,6 +662,423 @@ function renderExerciseNoteChips() {
   }
 }
 
+/* -------- Current set label -------- */
+
+function renderCurrentSetLabel() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
+  const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+  const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const totalWarmupSteps = Math.max(1, (currentEx.warmupSteps || []).length);
+  const el = document.getElementById('liveCurrentSetLabel');
+  if (!el) return;
+
+  if (isWarmupMode) {
+    const step = Math.min(warmupSetsDone + 1, totalWarmupSteps);
+    el.innerText = `РАЗМИНКА: ШАГ ${step} ИЗ ${totalWarmupSteps}`;
+    el.style.color = 'var(--app-color-success)';
+  } else {
+    const setNum = workSetsDone + 1;
+    const isFinal = (setNum === currentEx.targetSets);
+    el.innerText = `РАБОЧИЙ ПОДХОД #${setNum} ИЗ ${currentEx.targetSets}${isFinal ? ' (ФИНАЛЬНЫЙ)' : ''}`;
+    el.style.color = 'var(--md-sys-color-primary)';
+  }
+}
+
+/* -------- Category toggle -------- */
+
+function renderCategoryToggle() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
+  const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+  const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const totalWarmupSteps = Math.max(1, (currentEx.warmupSteps || []).length);
+
+  const wBtn = document.getElementById('liveCatWarmupBtn');
+  const kBtn = document.getElementById('liveCatWorkBtn');
+  if (!wBtn || !kBtn) return;
+
+  wBtn.classList.toggle('active', isWarmupMode);
+  kBtn.classList.toggle('active', !isWarmupMode);
+
+  if (isWarmupMode) {
+    const step = Math.min(warmupSetsDone + 1, totalWarmupSteps);
+    wBtn.innerText = `Разминка (Шаг ${step}/${totalWarmupSteps})`;
+    kBtn.innerText = `Рабочие (0/${currentEx.targetSets})`;
+  } else {
+    const warmupDoneMark = warmupSetsDone >= totalWarmupSteps
+      ? `✓ ${warmupSetsDone}/${totalWarmupSteps}`
+      : `${warmupSetsDone}/${totalWarmupSteps}`;
+    wBtn.innerText = `Разминка (${warmupDoneMark})`;
+    kBtn.innerText = `Рабочий (Сет ${workSetsDone + 1}/${currentEx.targetSets})`;
+  }
+}
+
+/* -------- Method toggle -------- */
+
+function renderMethodToggle() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+  const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
+
+  const row = document.getElementById('liveMethodToggleRow');
+  const btn = document.getElementById('liveToggleSpecialMethodBtn');
+  if (!row || !btn) return;
+
+  if (!isWarmupMode && currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт') {
+    row.style.display = 'flex';
+    if (isSpecialActive) {
+      btn.classList.add('active');
+      btn.innerText = `⚡ Активен метод: ${currentEx.plannedMethod} (нажмите для обычного)`;
+    } else {
+      btn.classList.remove('active');
+      btn.innerText = `Обычный рабочий сет (включить ${currentEx.plannedMethod})`;
+    }
+  } else {
+    row.style.display = 'none';
+  }
+}
+
+/* -------- Stepper values -------- */
+
+function renderStepperValues() {
+  const wEl = document.getElementById('liveWeightValue');
+  const rEl = document.getElementById('liveRepsValue');
+  if (wEl) wEl.innerText = activeSession.draftSet.weight;
+  if (rEl) rEl.innerText = activeSession.draftSet.reps;
+}
+
+/* -------- RIR chips -------- */
+
+function renderRirChips() {
+  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+  const rirBlock = document.getElementById('liveRirBlock');
+  if (rirBlock) rirBlock.style.display = isWarmupMode ? 'none' : 'flex';
+
+  document.querySelectorAll('.live-rir-chip').forEach(chip => {
+    const v = chip.getAttribute('data-rir');
+    const isActive = v === String(activeSession.draftSet.rir);
+    chip.classList.toggle('active', isActive);
+    chip.setAttribute('aria-checked', isActive ? 'true' : 'false');
+  });
+}
+
+/* -------- Intensifier banner -------- */
+
+function renderIntensifierBanner() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+  const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
+  const el = document.getElementById('liveIntensifierBanner');
+  if (!el) return;
+
+  if (isSpecialActive && currentEx.isDrop) {
+    const dropLoad = roundToGymStep(activeSession.draftSet.weight * 0.75);
+    el.style.display = 'flex';
+    el.innerHTML = `
+      <span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">bolt</span>
+      <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха (учтётся в тоннаже автоматически).</div>
+    `;
+  } else if (isSpecialActive && currentEx.isCluster) {
+    const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
+    el.style.display = 'flex';
+    el.innerHTML = `
+      <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span>
+      <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> кнопка «Пауза» — плавающая справа внизу. В зачёт идёт сумма повторений (${clusterInfo.totalReps}).</div>
+    `;
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+/* -------- Controls visibility -------- */
+
+function renderControlsVisibility() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+
+  const controls = document.getElementById('liveActiveSetControlsCard');
+  if (controls) controls.style.display = isTargetReached ? 'none' : 'flex';
+}
+
+/* -------- Completed card -------- */
+
+function renderCompletedCard() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+
+  const card = document.getElementById('liveExCompletedCard');
+  const title = document.getElementById('liveExCompletedTitle');
+  if (!card) return;
+
+  if (isTargetReached) {
+    card.style.display = 'flex';
+    if (title) {
+      const bonusTag = workDone > currentEx.targetSets
+        ? ` (+${workDone - currentEx.targetSets} бонус)`
+        : '';
+      title.innerText = `✅ Упражнение выполнено (${Math.min(workDone, currentEx.targetSets)} из ${currentEx.targetSets}${bonusTag})`;
+    }
+  } else {
+    card.style.display = 'none';
+  }
+}
+
+/* -------- History groups -------- */
+
+function renderHistoryGroups() {
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const warmupSets = currentEx.completedSets.filter(s => s.category === 'Разминка');
+  const workSets = currentEx.completedSets.filter(s => s.category === 'Рабочий');
+
+  const warmupGroup = document.getElementById('liveWarmupGroup');
+  const workGroup = document.getElementById('liveWorkGroup');
+  const warmupBody = document.getElementById('liveWarmupGroupBody');
+  const workBody = document.getElementById('liveWorkGroupBody');
+  const warmupMeta = document.getElementById('liveWarmupGroupMeta');
+  const workMeta = document.getElementById('liveWorkGroupMeta');
+
+  // --- Warmup group ---
+  if (warmupSets.length > 0 && warmupGroup && warmupBody) {
+    warmupGroup.style.display = 'block';
+    const last = warmupSets[warmupSets.length - 1];
+    if (warmupMeta) {
+      warmupMeta.innerText = `${warmupSets.length} • посл. ${last.weight} кг × ${last.reps}`;
+    }
+    const isCollapsed = activeSession.historyUiState.warmupCollapsed === true;
+    warmupGroup.classList.toggle('is-collapsed', isCollapsed);
+    const chevron = document.getElementById('liveWarmupChevron');
+    if (chevron) chevron.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+    const header = document.getElementById('liveWarmupGroupHeader');
+    if (header) header.setAttribute('aria-expanded', String(!isCollapsed));
+
+    warmupBody.innerHTML = warmupSets.map((s, idx) => renderHistoryRow(s, idx + 1, 'warmup')).join('');
+    attachHistoryRowHandlers(warmupBody, warmupSets, currentEx);
+  } else if (warmupGroup) {
+    warmupGroup.style.display = 'none';
+  }
+
+  // --- Work group ---
+  if (workSets.length > 0 && workGroup && workBody) {
+    workGroup.style.display = 'block';
+    const last = workSets[workSets.length - 1];
+    const rirTxt = last.reserve ? ` · RIR ${last.reserve.replace('+','')}` : '';
+    if (workMeta) {
+      workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weight}×${last.reps}${rirTxt}`;
+    }
+    const isCollapsed = activeSession.historyUiState.workCollapsed === true;
+    workGroup.classList.toggle('is-collapsed', isCollapsed);
+    const chevron = document.getElementById('liveWorkChevron');
+    if (chevron) chevron.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+    const header = document.getElementById('liveWorkGroupHeader');
+    if (header) header.setAttribute('aria-expanded', String(!isCollapsed));
+
+    workBody.innerHTML = workSets.map((s, idx) => renderHistoryRow(s, idx + 1, 'work')).join('');
+    attachHistoryRowHandlers(workBody, workSets, currentEx);
+  } else if (workGroup) {
+    workGroup.style.display = 'none';
+  }
+}
+
+function renderHistoryRow(set, displayNum, kind) {
+  const label = kind === 'warmup' ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
+  const color = kind === 'warmup'
+    ? 'var(--md-sys-color-on-surface-variant)'
+    : 'var(--app-color-success)';
+
+  const rirChip = (kind === 'work' && set.reserve)
+    ? `<span class="coach-card-chip">RIR ${escapeHtml(set.reserve.replace('+',''))}</span>` : '';
+  const methodChip = (kind === 'work' && set.method)
+    ? `<span class="coach-method-badge">${escapeHtml(set.method)}</span>` : '';
+
+  return `
+    <div class="live-history-row">
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; min-width:0;">
+        <span style="font-weight:700; color:${color}; min-width:66px; flex-shrink:0;">${label}</span>
+        <span><b>${set.weight} кг × ${set.reps}</b></span>
+        ${rirChip}
+        ${methodChip}
+      </div>
+      <button class="live-delete-set-btn" data-set-idx="${displayNum - 1}" data-kind="${kind}" title="Удалить подход">
+        <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
+      </button>
+    </div>
+  `;
+}
+
+function attachHistoryRowHandlers(container, sets, currentEx) {
+  container.querySelectorAll('.live-delete-set-btn').forEach(btn => {
+    const idx = parseInt(btn.getAttribute('data-set-idx'), 10);
+    btn.onclick = () => {
+      const targetSet = sets[idx];
+      if (!targetSet) return;
+      const globalIdx = currentEx.completedSets.indexOf(targetSet);
+      if (globalIdx === -1) return;
+      currentEx.completedSets.splice(globalIdx, 1);
+      currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
+      currentEx.isCompleted = false;
+      currentEx.allowBonusSet = false;
+      activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
+      persistActiveSession();
+      renderLiveWorkoutScreen();
+    };
+  });
+}
+
+/* -------- Cluster floating button -------- */
+
+function renderClusterFloatBtn() {
+  const btn = document.getElementById('liveClusterPauseBtn');
+  if (!btn || !activeSession) return;
+
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+  const isClusterActive = !isWarmupMode && activeSession.draftSet.useSpecialMethod && currentEx.isCluster;
+  const restActive = activeSession.restState && activeSession.restState.isActive;
+
+  if (isClusterActive && !restActive) {
+    const prefs = getTimerPrefs();
+    const labelEl = document.getElementById('liveClusterFloatLabel');
+    if (labelEl) labelEl.innerText = `${prefs.cluster}с`;
+    btn.style.display = 'flex';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+/* =========================================================
+ * PAB (Persistent Action Bar)
+ * ========================================================= */
+
+function renderPAB() {
+  const pab = document.getElementById('liveBottomActionBar');
+  if (!pab || !activeSession) return;
+
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  pab.classList.remove('is-warning');
+
+  // ----- State 1: Rest active -----
+  if (activeSession.restState && activeSession.restState.isActive) {
+    const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
+    const isWarning = remainingSec <= 15 && remainingSec > 0;
+    if (isWarning) pab.classList.add('is-warning');
+
+    const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+    const s = String(remainingSec % 60).padStart(2, '0');
+
+    pab.innerHTML = `
+      <div class="live-pab-content">
+        <div class="live-pab-rest-info">
+          <span class="live-pab-rest-label">⏱ Отдых · ATP-CrP</span>
+          <span class="live-pab-rest-countdown" id="livePabRestCountdown">${m}:${s}</span>
+        </div>
+        <div class="live-pab-rest">
+          <button class="live-pab-rest-btn" id="livePabRestMinus30" type="button">− 30 сек</button>
+          <button class="live-pab-rest-btn" id="livePabRestPlus30" type="button">+ 30 сек</button>
+          <button class="live-pab-rest-btn is-primary" id="livePabRestSkip" type="button">Пропустить &gt;&gt;</button>
+        </div>
+      </div>
+    `;
+    const minus = document.getElementById('livePabRestMinus30');
+    const plus = document.getElementById('livePabRestPlus30');
+    const skip = document.getElementById('livePabRestSkip');
+    if (minus) minus.onclick = () => adjustRestTimer(-30);
+    if (plus) plus.onclick = () => adjustRestTimer(30);
+    if (skip) skip.onclick = () => stopRestTimer();
+    return;
+  }
+
+  // ----- State 2: Exercise completed -----
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+
+  if (isTargetReached) {
+    const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
+    let primaryLabel = 'ЗАВЕРШИТЬ УПРАЖНЕНИЕ';
+    let secondaryLabel = 'Все упражнения → финиш тренировки';
+    if (nextExIdx !== -1) {
+      const nextName = activeSession.exercises[nextExIdx].name;
+      primaryLabel = `ЗАВЕРШИТЬ → УПР. #${nextExIdx + 1}`;
+      secondaryLabel = nextName.length > 30 ? (nextName.slice(0, 28) + '…') : nextName;
+    }
+    pab.innerHTML = `
+      <div class="live-pab-content">
+        <button class="live-pab-completed-btn" id="livePabCompleteNext" type="button">
+          <span class="live-pab-primary-label">${escapeHtml(primaryLabel)}</span>
+          <span class="live-pab-secondary-label">${escapeHtml(secondaryLabel)}</span>
+        </button>
+      </div>
+    `;
+    const nextBtn = document.getElementById('livePabCompleteNext');
+    if (nextBtn) nextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
+    return;
+  }
+
+  // ----- State 3: Recording -----
+  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
+  const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, Math.max(1, (currentEx.warmupSteps || []).length));
+
+  let primaryLabel = '';
+  let secondaryLabel = '';
+
+  if (isWarmupMode) {
+    primaryLabel = `ЗАПИСАТЬ РАЗМИНКУ #${currentWarmupStepNum}`;
+    secondaryLabel = `${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps}`;
+  } else {
+    const currentWorkSetNum = workDone + 1;
+    const isSpecial = activeSession.draftSet.useSpecialMethod && currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт';
+    const specialTag = isSpecial ? ' • ' + currentEx.plannedMethod.split(' ')[0].toUpperCase() : '';
+    primaryLabel = `ЗАПИСАТЬ СЕТ #${currentWorkSetNum}${specialTag}`;
+    secondaryLabel = `${activeSession.draftSet.weight} кг × ${activeSession.draftSet.reps}`;
+  }
+
+  pab.innerHTML = `
+    <div class="live-pab-content">
+      <button class="live-pab-record-btn" id="livePabRecord" type="button">
+        <span class="live-pab-primary-label">${escapeHtml(primaryLabel)}</span>
+        <span class="live-pab-secondary-label">${escapeHtml(secondaryLabel)}</span>
+      </button>
+    </div>
+  `;
+  const recBtn = document.getElementById('livePabRecord');
+  if (recBtn) recBtn.onclick = () => handleRecordCurrentSet();
+}
+
+/* =========================================================
+ * POINT-WISE UPDATES (без полного re-render)
+ * ========================================================= */
+
+function patchDraftSetDisplay() {
+  if (!activeSession) return;
+
+  const wEl = document.getElementById('liveWeightValue');
+  const rEl = document.getElementById('liveRepsValue');
+  if (wEl) wEl.innerText = activeSession.draftSet.weight;
+  if (rEl) rEl.innerText = activeSession.draftSet.reps;
+
+  document.querySelectorAll('.live-rir-chip').forEach(chip => {
+    const v = chip.getAttribute('data-rir');
+    const isActive = v === String(activeSession.draftSet.rir);
+    chip.classList.toggle('active', isActive);
+    chip.setAttribute('aria-checked', isActive ? 'true' : 'false');
+  });
+
+  renderPAB();
+}
+
+/* =========================================================
+ * NOTE CHIPS (equipment/technique)
+ * ========================================================= */
+
 function openNotesSheet() {
   if (!activeSession) return;
   const ex = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -621,532 +1109,8 @@ function saveNotesSheet() {
 
   persistActiveSession();
   renderExerciseNoteChips();
-  renderExerciseHeaderState();
   closeModal('liveNotesSheet');
   triggerHaptic([30]);
-}
-
-/* =========================================================
- * V2.0: HEADER COLLAPSE STATE
- * ========================================================= */
-
-function renderExerciseHeaderState() {
-  if (!activeSession) return;
-  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
-  if (!ex) return;
-
-  const card = document.getElementById('liveExHeaderCard');
-  if (!card) return;
-
-  const isCollapsed = Boolean(ex.headerCollapsed);
-  card.classList.toggle('collapsed', isCollapsed);
-
-  if (isCollapsed) {
-    const nameEl = document.getElementById('liveExCollapsedName');
-    const planEl = document.getElementById('liveExCollapsedPlan');
-    const lastEl = document.getElementById('liveExCollapsedLast');
-
-    if (nameEl) nameEl.innerText = ex.name || '—';
-    if (planEl) planEl.innerText = `план ${ex.targetWeight}×${ex.targetRepsStr}`;
-
-    const lastWorkSet = [...(ex.completedSets || [])].reverse().find(s => s.category === 'Рабочий');
-    if (lastEl) {
-      if (lastWorkSet) {
-        const rirTxt = lastWorkSet.reserve
-          ? ` (RIR ${String(lastWorkSet.reserve).replace('+', '')})`
-          : '';
-        lastEl.innerText = `посл. ${lastWorkSet.weight}×${lastWorkSet.reps}${rirTxt}`;
-      } else {
-        lastEl.innerText = 'нет рабочих сетов';
-      }
-    }
-  }
-}
-
-function toggleExerciseHeader() {
-  if (!activeSession) return;
-  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
-  if (!ex) return;
-
-  ex.headerCollapsed = !ex.headerCollapsed;
-  persistActiveSession();
-  renderExerciseHeaderState();
-  triggerHaptic([20]);
-}
-
-/* =========================================================
- * V2.0: PERSISTENT ACTION BAR (PAB)
- * ========================================================= */
-
-function findNextIncompleteExerciseIndex(fromIndex) {
-  if (!activeSession) return -1;
-  const total = activeSession.exercises.length;
-  for (let i = fromIndex + 1; i < total; i++) {
-    const ex = activeSession.exercises[i];
-    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-    if (!ex.isCompleted && workDone < ex.targetSets) return i;
-  }
-  for (let i = 0; i < fromIndex; i++) {
-    const ex = activeSession.exercises[i];
-    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-    if (!ex.isCompleted && workDone < ex.targetSets) return i;
-  }
-  return -1;
-}
-
-function updateBottomActionBar() {
-  if (!activeSession) return;
-  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
-  if (!ex) return;
-
-  const recordBtn = document.getElementById('livePabRecordBtn');
-  const recordLabel = document.getElementById('livePabRecordLabel');
-  const restBlock = document.getElementById('livePabRestBlock');
-  const nextExBtn = document.getElementById('livePabNextExBtn');
-  const nextExLabel = document.getElementById('livePabNextExLabel');
-
-  if (!recordBtn || !restBlock || !nextExBtn) return;
-
-  const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-  const isTargetReached = (workDone >= ex.targetSets) && !ex.allowBonusSet;
-  const isResting = activeSession.restState && activeSession.restState.isActive;
-
-  // Скрываем все состояния по умолчанию
-  recordBtn.hidden = true;
-  restBlock.hidden = true;
-  nextExBtn.hidden = true;
-
-  // Состояние 1: Идёт отдых
-  if (isResting) {
-    restBlock.hidden = false;
-    return;
-  }
-
-  // Состояние 2: Цель достигнута → следующее упражнение / финиш
-  if (isTargetReached) {
-    nextExBtn.hidden = false;
-    const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
-    if (nextExIdx === -1) {
-      if (nextExLabel) nextExLabel.innerText = 'ЗАВЕРШИТЬ ТРЕНИРОВКУ';
-    } else {
-      const nextName = String(activeSession.exercises[nextExIdx].name || '').slice(0, 22);
-      if (nextExLabel) nextExLabel.innerText = `ЗАВЕРШИТЬ → УПР. #${nextExIdx + 1} (${nextName})`;
-    }
-    return;
-  }
-
-  // Состояние 3: Записать сет
-  recordBtn.hidden = false;
-
-  const isWarmup = (activeSession.draftSet.category === 'Разминка');
-  const warmupSetsDone = ex.completedSets.filter(s => s.category === 'Разминка').length;
-  const totalWarmupSteps = Math.max(1, Array.isArray(ex.warmupSteps) ? ex.warmupSteps.length : 1);
-  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, totalWarmupSteps);
-  const currentWorkSetNum = workDone + 1;
-
-  const w = activeSession.draftSet.weight;
-  const r = activeSession.draftSet.reps;
-
-  if (recordLabel) {
-    if (isWarmup) {
-      recordLabel.innerText = `ЗАПИСАТЬ РАЗМИНКУ #${currentWarmupStepNum} (${w} кг × ${r})`;
-    } else {
-      const specLabel = activeSession.draftSet.useSpecialMethod
-        ? ` • ${String(ex.plannedMethod).split(' ')[0].toUpperCase()}`
-        : '';
-      recordLabel.innerText = `ЗАПИСАТЬ СЕТ #${currentWorkSetNum}${specLabel} (${w} кг × ${r})`;
-    }
-  }
-}
-
-/* =========================================================
- * V2.0: REST RING + PAB COUNTDOWN
- * ========================================================= */
-
-function updateRestRing() {
-  const wrap = document.getElementById('liveRestRingWrap');
-  const progress = document.getElementById('liveRestRingProgress');
-  if (!wrap || !progress) return;
-
-  if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) {
-    wrap.hidden = true;
-    return;
-  }
-
-  wrap.hidden = false;
-
-  const total = activeSession.restState.totalSeconds || 1;
-  const remainingMs = Math.max(0, activeSession.restState.endsAtMs - Date.now());
-  const remainingSec = Math.ceil(remainingMs / 1000);
-  const ratio = Math.max(0, Math.min(1, remainingSec / total));
-
-  // По мере убывания — кольцо уменьшается
-  progress.style.strokeDashoffset = String(REST_RING_CIRCUMFERENCE * (1 - ratio));
-}
-
-function updatePabRestCountdown() {
-  const el = document.getElementById('livePabRestCountdown');
-  if (!el) return;
-  if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) {
-    el.innerText = '00:00';
-    return;
-  }
-  const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
-  const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
-  const s = String(remainingSec % 60).padStart(2, '0');
-  el.innerText = `${m}:${s}`;
-}
-
-/* =========================================================
- * RENDER — MAIN SCREEN
- * ========================================================= */
-
-function renderLiveWorkoutScreen() {
-  if (!activeSession) return;
-
-  const exIdx = activeSession.currentExerciseIndex;
-  const currentEx = activeSession.exercises[exIdx];
-  if (!currentEx) return;
-
-  renderExerciseMiniMap();
-  renderExerciseNoteChips();
-  renderExerciseHeaderState();
-
-  const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
-  const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  const totalWarmupSteps = Math.max(1, Array.isArray(currentEx.warmupSteps) ? currentEx.warmupSteps.length : 1);
-
-  const titleEl = document.getElementById('liveWorkoutTitle');
-  const progressBadgeEl = document.getElementById('liveExProgressBadge');
-  const exNameEl = document.getElementById('liveExName');
-  const exTargetSubEl = document.getElementById('liveExTargetSubtitle');
-  const warmupHintEl = document.getElementById('liveExWarmupHint');
-  const intensifierBannerEl = document.getElementById('liveIntensifierBanner');
-
-  if (titleEl) titleEl.innerText = activeSession.title;
-
-  if (progressBadgeEl) {
-    const doneTag = (currentEx.isCompleted || workSetsDone >= currentEx.targetSets) ? ' • ✅' : '';
-    progressBadgeEl.innerText = `Упражнение ${exIdx + 1} из ${activeSession.exercises.length}${doneTag}`;
-  }
-
-  if (exNameEl) exNameEl.innerText = currentEx.name;
-
-  if (exTargetSubEl) {
-    const specText = (currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт')
-      ? ` • Финал: <b>${escapeHtml(currentEx.plannedMethod)}</b>`
-      : '';
-    exTargetSubEl.innerHTML = `План: <b>${currentEx.targetWeight} кг × ${escapeHtml(currentEx.targetRepsStr)}</b> (${currentEx.targetSets} раб. сета, RIR ${escapeHtml(currentEx.targetRir)})${specText}`;
-  }
-
-  if (warmupHintEl) {
-    warmupHintEl.innerHTML = currentEx.warmupText
-      ? `<span class="material-symbols-outlined" style="font-size:15px;">restart_alt</span> Разминка по плану: <b>${escapeHtml(currentEx.warmupText)}</b>`
-      : '';
-  }
-
-  const prevBtn = document.getElementById('livePrevExBtn');
-  const nextBtn = document.getElementById('liveNextExBtn');
-  if (prevBtn) prevBtn.disabled = (exIdx <= 0);
-  if (nextBtn) nextBtn.disabled = (exIdx >= activeSession.exercises.length - 1);
-
-  const isTargetReached = (workSetsDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
-  const controlsCard = document.getElementById('liveActiveSetControlsCard');
-  const completedCard = document.getElementById('liveExCompletedCard');
-
-  if (isTargetReached) {
-    if (controlsCard) controlsCard.style.display = 'none';
-    if (intensifierBannerEl) intensifierBannerEl.style.display = 'none';
-    if (completedCard) {
-      completedCard.style.display = 'flex';
-      const titleDone = document.getElementById('liveExCompletedTitle');
-      if (titleDone) {
-        const bonusCount = Math.max(0, workSetsDone - currentEx.targetSets);
-        const bonusTxt = bonusCount > 0 ? ` (+${bonusCount} бонус)` : '';
-        titleDone.innerText = `✅ Упражнение выполнено (${currentEx.targetSets}/${currentEx.targetSets}${bonusTxt})!`;
-      }
-    }
-    renderCompletedSetsHistory(currentEx);
-    updateBottomActionBar();
-    updateRestRing();
-    updatePabRestCountdown();
-    return;
-  }
-
-  if (controlsCard) controlsCard.style.display = 'flex';
-  if (completedCard) completedCard.style.display = 'none';
-
-  const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
-  const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
-
-  if (intensifierBannerEl) {
-    if (isSpecialActive && currentEx.isDrop) {
-      const dropLoad = roundToGymStep(activeSession.draftSet.weight * 0.75);
-      intensifierBannerEl.style.display = 'flex';
-      intensifierBannerEl.innerHTML = `
-        <span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">bolt</span>
-        <div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropLoad} кг (-25%)</b> и дожмите <b>5 повт.</b> без отдыха (учтется в тоннаже автоматически).</div>
-      `;
-    } else if (isSpecialActive && currentEx.isCluster) {
-      const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
-      intensifierBannerEl.style.display = 'flex';
-      intensifierBannerEl.innerHTML = `
-        <span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span>
-        <div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> используйте кнопку <b>«Пауза 20с»</b> между сегментами. В зачет идет сумма повторений (${clusterInfo.totalReps}).</div>
-      `;
-    } else {
-      intensifierBannerEl.style.display = 'none';
-    }
-  }
-
-  const currentWarmupStepNum = Math.min(warmupSetsDone + 1, totalWarmupSteps);
-  const currentWorkSetNum = workSetsDone + 1;
-
-  const setBadgeEl = document.getElementById('liveCurrentSetLabel');
-  if (setBadgeEl) {
-    if (isWarmupMode) {
-      setBadgeEl.innerText = `РАЗМИНКА: ШАГ ${currentWarmupStepNum} ИЗ ${totalWarmupSteps}`;
-      setBadgeEl.style.color = 'var(--app-color-success)';
-    } else {
-      const finalBadge = (currentWorkSetNum === currentEx.targetSets) ? ' (ФИНАЛЬНЫЙ)' : '';
-      setBadgeEl.innerText = `РАБОЧИЙ ПОДХОД #${currentWorkSetNum} ИЗ ${currentEx.targetSets}${finalBadge}`;
-      setBadgeEl.style.color = 'var(--md-sys-color-primary)';
-    }
-  }
-
-  // V2.0: «Пауза 20с» — только при активном кластере (не в warmup)
-  const clusterPauseBtn = document.getElementById('liveClusterPauseBtn');
-  if (clusterPauseBtn) {
-    const showClusterPause = !isWarmupMode && currentEx.isCluster && isSpecialActive;
-    clusterPauseBtn.style.display = showClusterPause ? 'inline-flex' : 'none';
-    if (showClusterPause) {
-      const prefs = getTimerPrefs();
-      clusterPauseBtn.innerHTML = `<span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">bolt</span><span>Пауза ${prefs.cluster}с</span>`;
-    }
-  }
-
-  const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
-  const catWorkBtn = document.getElementById('liveCatWorkBtn');
-  if (catWarmupBtn && catWorkBtn) {
-    catWarmupBtn.classList.toggle('active', isWarmupMode);
-    catWorkBtn.classList.toggle('active', !isWarmupMode);
-
-    if (isWarmupMode) {
-      catWarmupBtn.innerText = `Разминка (Шаг ${currentWarmupStepNum}/${totalWarmupSteps})`;
-      catWorkBtn.innerText = `Рабочие (0/${currentEx.targetSets})`;
-    } else {
-      const warmupDoneMark = warmupSetsDone >= totalWarmupSteps
-        ? `✓ ${warmupSetsDone}/${totalWarmupSteps}`
-        : `${warmupSetsDone}/${totalWarmupSteps}`;
-      catWarmupBtn.innerText = `Разминка (${warmupDoneMark})`;
-      catWorkBtn.innerText = `Рабочий (Сет ${currentWorkSetNum}/${currentEx.targetSets})`;
-    }
-  }
-
-  const methodToggleRow = document.getElementById('liveMethodToggleRow');
-  const methodToggleBtn = document.getElementById('liveToggleSpecialMethodBtn');
-  if (methodToggleRow && methodToggleBtn) {
-    if (!isWarmupMode && currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт') {
-      methodToggleRow.style.display = 'flex';
-      if (isSpecialActive) {
-        methodToggleBtn.classList.add('active');
-        methodToggleBtn.innerText = `⚡ Активен метод: ${currentEx.plannedMethod} (нажмите для обычного)`;
-      } else {
-        methodToggleBtn.classList.remove('active');
-        methodToggleBtn.innerText = `Обычный рабочий сет (включить ${currentEx.plannedMethod})`;
-      }
-    } else {
-      methodToggleRow.style.display = 'none';
-    }
-  }
-
-  const weightValEl = document.getElementById('liveWeightValue');
-  const repsValEl = document.getElementById('liveRepsValue');
-  if (weightValEl) weightValEl.innerText = activeSession.draftSet.weight;
-  if (repsValEl) repsValEl.innerText = activeSession.draftSet.reps;
-
-  const rirBlockEl = document.getElementById('liveRirBlock');
-  if (rirBlockEl) {
-    rirBlockEl.style.display = isWarmupMode ? 'none' : 'flex';
-  }
-
-  document.querySelectorAll('.live-rir-chip').forEach(chip => {
-    const val = chip.getAttribute('data-rir');
-    chip.classList.toggle('active', val === String(activeSession.draftSet.rir));
-    chip.setAttribute('aria-checked', val === String(activeSession.draftSet.rir) ? 'true' : 'false');
-  });
-
-  renderCompletedSetsHistory(currentEx);
-  updateBottomActionBar();
-  updateRestRing();
-  updatePabRestCountdown();
-}
-
-function renderCompletedSetsHistory(currentEx) {
-  const listEl = document.getElementById('liveCompletedSetsList');
-  const showAllBtn = document.getElementById('liveShowAllSetsBtn');
-  if (!listEl) return;
-
-  if (!currentEx.completedSets || currentEx.completedSets.length === 0) {
-    listEl.innerHTML = `<div style="font-size: 0.8rem; color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Пока нет записанных подходов в этом упражнении</div>`;
-    if (showAllBtn) showAllBtn.hidden = true;
-    return;
-  }
-
-  const total = currentEx.completedSets.length;
-  const showAll = total <= 2;
-  const setsToRender = showAll ? currentEx.completedSets : currentEx.completedSets.slice(-2);
-
-  listEl.innerHTML = '';
-  let warmupCounter = 0;
-  let workCounter = 0;
-
-  // Счётчики для корректных номеров (нужно пробежать весь список)
-  currentEx.completedSets.forEach(s => {
-    if (s.category === 'Разминка') warmupCounter++;
-    else workCounter++;
-  });
-
-  // Определим с каких индексов рендерить, чтобы номера совпадали
-  const startIdx = showAll ? 0 : (total - 2);
-
-  for (let idx = startIdx; idx < total; idx++) {
-    const s = currentEx.completedSets[idx];
-    const row = document.createElement('div');
-    row.className = 'live-history-row';
-
-    const isWarmup = (s.category === 'Разминка');
-
-    // Считаем сквозной номер для каждого сета
-    let displayNum = 0;
-    if (isWarmup) {
-      let localWarmup = 0;
-      for (let k = 0; k <= idx; k++) {
-        if (currentEx.completedSets[k].category === 'Разминка') localWarmup++;
-      }
-      displayNum = localWarmup;
-    } else {
-      let localWork = 0;
-      for (let k = 0; k <= idx; k++) {
-        if (currentEx.completedSets[k].category === 'Рабочий') localWork++;
-      }
-      displayNum = localWork;
-    }
-
-    const labelText = isWarmup ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
-    const badgeColor = isWarmup
-      ? 'var(--md-sys-color-on-surface-variant)'
-      : 'var(--app-color-success)';
-
-    row.innerHTML = `
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <span style="font-weight:700; color:${badgeColor}; min-width:68px;">${escapeHtml(labelText)}</span>
-        <span><b>${s.weight} кг × ${s.reps}</b></span>
-        ${!isWarmup && s.reserve ? `<span class="coach-card-chip">RIR ${escapeHtml(s.reserve.replace('+', ''))}</span>` : ''}
-        ${!isWarmup && s.method ? `<span class="coach-method-badge">${escapeHtml(s.method)}</span>` : ''}
-      </div>
-      <button class="live-delete-set-btn" data-set-idx="${idx}" title="Удалить подход">
-        <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
-      </button>
-    `;
-
-    const delBtn = row.querySelector('.live-delete-set-btn');
-    if (delBtn) {
-      delBtn.onclick = () => {
-        currentEx.completedSets.splice(idx, 1);
-        currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
-        currentEx.isCompleted = false;
-        currentEx.allowBonusSet = false;
-        if (currentEx.completedSets.filter(x => x.category === 'Рабочий').length === 0) {
-          currentEx.headerCollapsed = false;
-        }
-        activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
-        persistActiveSession();
-        renderLiveWorkoutScreen();
-      };
-    }
-
-    listEl.appendChild(row);
-  }
-
-  if (showAllBtn) {
-    if (total > 2) {
-      showAllBtn.hidden = false;
-      showAllBtn.innerText = `Показать все ${total} подходов →`;
-      showAllBtn.onclick = () => {
-        registerLiveModals();
-        openModal('liveFullHistoryModal');
-      };
-    } else {
-      showAllBtn.hidden = true;
-    }
-  }
-}
-
-function renderFullHistoryModal() {
-  const listEl = document.getElementById('liveFullHistoryList');
-  const titleEl = document.getElementById('liveFullHistoryTitle');
-  if (!listEl || !activeSession) return;
-
-  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  if (!currentEx) return;
-
-  if (titleEl) titleEl.innerText = `Подходы: ${currentEx.name}`;
-  listEl.innerHTML = '';
-
-  let warmupCounter = 0;
-  let workCounter = 0;
-
-  currentEx.completedSets.forEach((s, idx) => {
-    const isWarmup = (s.category === 'Разминка');
-    let displayNum;
-    if (isWarmup) {
-      warmupCounter++;
-      displayNum = warmupCounter;
-    } else {
-      workCounter++;
-      displayNum = workCounter;
-    }
-
-    const row = document.createElement('div');
-    row.className = 'live-history-row';
-    const badgeColor = isWarmup
-      ? 'var(--md-sys-color-on-surface-variant)'
-      : 'var(--app-color-success)';
-    const labelText = isWarmup ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
-
-    row.innerHTML = `
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <span style="font-weight:700; color:${badgeColor}; min-width:68px;">${escapeHtml(labelText)}</span>
-        <span><b>${s.weight} кг × ${s.reps}</b></span>
-        ${!isWarmup && s.reserve ? `<span class="coach-card-chip">RIR ${escapeHtml(String(s.reserve).replace('+', ''))}</span>` : ''}
-        ${!isWarmup && s.method ? `<span class="coach-method-badge">${escapeHtml(s.method)}</span>` : ''}
-      </div>
-      <button class="live-delete-set-btn" data-set-idx="${idx}" title="Удалить подход">
-        <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
-      </button>
-    `;
-
-    const delBtn = row.querySelector('.live-delete-set-btn');
-    if (delBtn) {
-      delBtn.onclick = () => {
-        currentEx.completedSets.splice(idx, 1);
-        currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
-        currentEx.isCompleted = false;
-        currentEx.allowBonusSet = false;
-        if (currentEx.completedSets.filter(x => x.category === 'Рабочий').length === 0) {
-          currentEx.headerCollapsed = false;
-        }
-        activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
-        persistActiveSession();
-        renderFullHistoryModal();
-        renderLiveWorkoutScreen();
-        if (currentEx.completedSets.length === 0) closeModal('liveFullHistoryModal');
-      };
-    }
-
-    listEl.appendChild(row);
-  });
 }
 
 /* =========================================================
@@ -1233,9 +1197,17 @@ function handleRecordCurrentSet() {
     currentEx.isCompleted = true;
   }
 
-  // V2.0: auto-collapse header после первого рабочего сета
-  if (!isWarmup && !currentEx.headerCollapsed) {
-    currentEx.headerCollapsed = true;
+  // V2.0: авто-свёртка header после ПЕРВОГО сета (если пользователь не разворачивал вручную)
+  if (!activeSession.headerManuallyToggled && currentEx.completedSets.length === 1) {
+    activeSession.headerCollapsed = true;
+  }
+
+  // V2.0: авто-свёртка группы разминки при первом рабочем сете
+  if (recordedSet.category === 'Рабочий' && !activeSession.historyUiState.warmupCollapsed) {
+    const warmupCount = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+    if (warmupCount > 0) {
+      activeSession.historyUiState.warmupCollapsed = true;
+    }
   }
 
   triggerHaptic([80]);
@@ -1262,6 +1234,22 @@ function handleRecordCurrentSet() {
 /* =========================================================
  * NAVIGATION BETWEEN EXERCISES
  * ========================================================= */
+
+function findNextIncompleteExerciseIndex(fromIndex) {
+  if (!activeSession) return -1;
+  const total = activeSession.exercises.length;
+  for (let i = fromIndex + 1; i < total; i++) {
+    const ex = activeSession.exercises[i];
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (!ex.isCompleted && workDone < ex.targetSets) return i;
+  }
+  for (let i = 0; i < fromIndex; i++) {
+    const ex = activeSession.exercises[i];
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (!ex.isCompleted && workDone < ex.targetSets) return i;
+  }
+  return -1;
+}
 
 function handleCompleteCurrentAndMoveNext() {
   if (!activeSession) return;
@@ -1297,6 +1285,7 @@ function startRestTimer(seconds) {
   };
 
   persistActiveSession();
+  renderPAB();
   syncRestTimerWithWallClock();
 }
 
@@ -1306,7 +1295,6 @@ function adjustRestTimer(deltaSeconds) {
   activeSession.restState.totalSeconds = Math.max(10, activeSession.restState.totalSeconds + deltaSeconds);
   persistActiveSession();
   syncRestTimerWithWallClock();
-  updateBottomActionBar();
 }
 
 function stopRestTimer() {
@@ -1318,20 +1306,24 @@ function stopRestTimer() {
     restTimerInterval = null;
   }
   persistActiveSession();
-
-  // V2.0: перерисовать ring + PAB
-  updateRestRing();
-  updateBottomActionBar();
-  updatePabRestCountdown();
+  renderPAB();
+  renderClusterFloatBtn();
 }
 
 function syncRestTimerWithWallClock() {
   if (!activeSession) return;
 
+  // Ensure PAB shows rest state
   if (!activeSession.restState || !activeSession.restState.isActive) {
-    updateRestRing();
-    updatePabRestCountdown();
+    if (restTimerInterval) {
+      clearInterval(restTimerInterval);
+      restTimerInterval = null;
+    }
     return;
+  }
+
+  if (!document.getElementById('livePabRestCountdown')) {
+    renderPAB();
   }
 
   if (restTimerInterval) clearInterval(restTimerInterval);
@@ -1351,12 +1343,18 @@ function syncRestTimerWithWallClock() {
       return;
     }
 
-    updateRestRing();
-    updatePabRestCountdown();
-  };
+    const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+    const s = String(remainingSec % 60).padStart(2, '0');
+    const countdownEl = document.getElementById('livePabRestCountdown');
+    const pab = document.getElementById('liveBottomActionBar');
 
-  // Первый тик — переключить PAB в режим отдыха
-  updateBottomActionBar();
+    if (countdownEl) countdownEl.innerText = `${m}:${s}`;
+
+    if (pab) {
+      const isWarning = remainingSec <= 15 && remainingSec > 0;
+      pab.classList.toggle('is-warning', isWarning);
+    }
+  };
 
   tick();
   restTimerInterval = setInterval(tick, 250);
@@ -1369,6 +1367,11 @@ function switchActiveExercise(newIndex) {
   activeSession.currentExerciseIndex = newIndex;
   const ex = activeSession.exercises[newIndex];
   activeSession.draftSet = computeSmartDraftSetForExercise(ex);
+
+  // V2.0: сброс UI-состояния на новом упражнении
+  activeSession.headerCollapsed = (ex.completedSets.length > 0);
+  activeSession.headerManuallyToggled = false;
+  activeSession.historyUiState = { warmupCollapsed: false, workCollapsed: false };
 
   persistActiveSession();
   renderLiveWorkoutScreen();
@@ -1611,39 +1614,64 @@ function bindLiveWorkoutDomEvents() {
 
   const prevBtn = document.getElementById('livePrevExBtn');
   const nextBtn = document.getElementById('liveNextExBtn');
-  if (prevBtn) prevBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex - 1);
-  if (nextBtn) nextBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex + 1);
+  if (prevBtn) prevBtn.onclick = () => {
+    if (activeSession) switchActiveExercise(activeSession.currentExerciseIndex - 1);
+  };
+  if (nextBtn) nextBtn.onclick = () => {
+    if (activeSession) switchActiveExercise(activeSession.currentExerciseIndex + 1);
+  };
 
+  // Collapsible header
+  const headerCompact = document.getElementById('liveExHeaderCompact');
+  if (headerCompact) {
+    headerCompact.onclick = () => toggleHeaderCollapse(false);
+    headerCompact.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleHeaderCollapse(false);
+      }
+    });
+  }
+  const headerCollapseBtn = document.getElementById('liveExHeaderCollapseBtn');
+  if (headerCollapseBtn) {
+    headerCollapseBtn.onclick = (e) => {
+      e.stopPropagation();
+      toggleHeaderCollapse(true);
+    };
+  }
+
+  // History group headers
+  const warmupGroupHeader = document.getElementById('liveWarmupGroupHeader');
+  if (warmupGroupHeader) {
+    warmupGroupHeader.onclick = () => {
+      if (!activeSession) return;
+      activeSession.historyUiState.warmupCollapsed = !activeSession.historyUiState.warmupCollapsed;
+      persistActiveSession();
+      renderHistoryGroups();
+    };
+  }
+  const workGroupHeader = document.getElementById('liveWorkGroupHeader');
+  if (workGroupHeader) {
+    workGroupHeader.onclick = () => {
+      if (!activeSession) return;
+      activeSession.historyUiState.workCollapsed = !activeSession.historyUiState.workCollapsed;
+      persistActiveSession();
+      renderHistoryGroups();
+    };
+  }
+
+  // Note chips
   const equipChip = document.getElementById('liveEquipmentChip');
   const techChip = document.getElementById('liveTechniqueChip');
   if (equipChip) equipChip.onclick = () => openNotesSheet();
   if (techChip) techChip.onclick = () => openNotesSheet();
-
-  // V2.0: тап по header card — toggle collapse
-  const headerCard = document.getElementById('liveExHeaderCard');
-  if (headerCard) {
-    headerCard.addEventListener('click', (e) => {
-      // Не реагируем на клики внутри чипов/кнопок
-      if (e.target.closest('.live-note-chip')) return;
-      if (!activeSession) return;
-      const ex = activeSession.exercises[activeSession.currentExerciseIndex];
-      if (!ex) return;
-      if (ex.headerCollapsed) {
-        toggleExerciseHeader();
-      } else {
-        // Развёрнутый → сворачиваем по тапу (только если уже есть хотя бы 1 рабочий сет)
-        const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
-        if (workDone > 0) toggleExerciseHeader();
-      }
-    });
-  }
 
   const notesSaveBtn = document.getElementById('liveNotesSaveBtn');
   const notesCancelBtn = document.getElementById('liveNotesCancelBtn');
   if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
   if (notesCancelBtn) notesCancelBtn.onclick = () => closeModal('liveNotesSheet');
 
-  // Enter в «Оборудование» → фокус на «Технику»
+  // Enter в «Оборудование» → фокус на «Технику» (без newline).
   const equipInput = document.getElementById('liveNotesEquipmentInput');
   if (equipInput) {
     equipInput.addEventListener('keydown', (e) => {
@@ -1655,23 +1683,7 @@ function bindLiveWorkoutDomEvents() {
     });
   }
 
-  // === PAB: кнопка «Записать сет» ===
-  const pabRecordBtn = document.getElementById('livePabRecordBtn');
-  if (pabRecordBtn) pabRecordBtn.onclick = () => handleRecordCurrentSet();
-
-  // === PAB: три кнопки таймера отдыха ===
-  const pabMinus30 = document.getElementById('livePabMinus30Btn');
-  const pabPlus30 = document.getElementById('livePabPlus30Btn');
-  const pabSkipRest = document.getElementById('livePabSkipRestBtn');
-  if (pabMinus30) pabMinus30.onclick = () => adjustRestTimer(-30);
-  if (pabPlus30) pabPlus30.onclick = () => adjustRestTimer(30);
-  if (pabSkipRest) pabSkipRest.onclick = () => stopRestTimer();
-
-  // === PAB: кнопка «Завершить → УПР. #N+1» ===
-  const pabNextExBtn = document.getElementById('livePabNextExBtn');
-  if (pabNextExBtn) pabNextExBtn.onclick = () => handleCompleteCurrentAndMoveNext();
-
-  // === Категория (Разминка / Рабочий) ===
+  // Category toggles
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
   if (catWarmupBtn) {
@@ -1713,6 +1725,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
+  // Method toggle
   const toggleSpecialBtn = document.getElementById('liveToggleSpecialMethodBtn');
   if (toggleSpecialBtn) {
     toggleSpecialBtn.onclick = () => {
@@ -1732,6 +1745,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
+  // Bonus set button
   const addBonusSetBtn = document.getElementById('liveAddBonusSetBtn');
   if (addBonusSetBtn) {
     addBonusSetBtn.onclick = () => {
@@ -1751,7 +1765,7 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // === Степперы ===
+  // Weight steppers — ТОЧЕЧНЫЕ апдейты
   const wMinus = document.getElementById('liveWeightMinusBtn');
   const wPlus = document.getElementById('liveWeightPlusBtn');
   if (wMinus) {
@@ -1760,7 +1774,7 @@ function bindLiveWorkoutDomEvents() {
       activeSession.draftSet.weight = Math.max(0, activeSession.draftSet.weight - 2.5);
       triggerHaptic(20);
       persistActiveSession();
-      renderLiveWorkoutScreen();
+      patchDraftSetDisplay();
     };
   }
   if (wPlus) {
@@ -1769,10 +1783,11 @@ function bindLiveWorkoutDomEvents() {
       activeSession.draftSet.weight = activeSession.draftSet.weight + 2.5;
       triggerHaptic(20);
       persistActiveSession();
-      renderLiveWorkoutScreen();
+      patchDraftSetDisplay();
     };
   }
 
+  // Reps steppers — ТОЧЕЧНЫЕ апдейты
   const rMinus = document.getElementById('liveRepsMinusBtn');
   const rPlus = document.getElementById('liveRepsPlusBtn');
   if (rMinus) {
@@ -1781,7 +1796,7 @@ function bindLiveWorkoutDomEvents() {
       activeSession.draftSet.reps = Math.max(1, activeSession.draftSet.reps - 1);
       triggerHaptic(20);
       persistActiveSession();
-      renderLiveWorkoutScreen();
+      patchDraftSetDisplay();
     };
   }
   if (rPlus) {
@@ -1790,21 +1805,22 @@ function bindLiveWorkoutDomEvents() {
       activeSession.draftSet.reps = activeSession.draftSet.reps + 1;
       triggerHaptic(20);
       persistActiveSession();
-      renderLiveWorkoutScreen();
+      patchDraftSetDisplay();
     };
   }
 
+  // RIR chips — ТОЧЕЧНЫЕ апдейты (без скролл-прыжка)
   document.querySelectorAll('.live-rir-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;
       activeSession.draftSet.rir = chip.getAttribute('data-rir') || '2';
       triggerHaptic(20);
       persistActiveSession();
-      renderLiveWorkoutScreen();
+      patchDraftSetDisplay();
     };
   });
 
-  // === Кластерная пауза ===
+  // Cluster pause floating button
   const clusterBtn = document.getElementById('liveClusterPauseBtn');
   if (clusterBtn) {
     clusterBtn.onclick = () => {
@@ -1814,16 +1830,19 @@ function bindLiveWorkoutDomEvents() {
     };
   }
 
-  // === Настройки таймингов ===
+  // Timer settings
   const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
   const saveTimerPrefsBtn = document.getElementById('saveLiveTimerSettingsBtn');
 
   if (openTimerPrefsBtn) {
     openTimerPrefsBtn.onclick = () => {
       const prefs = getTimerPrefs();
-      document.getElementById('prefTimerCompound').value = prefs.compound;
-      document.getElementById('prefTimerIsolation').value = prefs.isolation;
-      document.getElementById('prefTimerCluster').value = prefs.cluster;
+      const cEl = document.getElementById('prefTimerCompound');
+      const iEl = document.getElementById('prefTimerIsolation');
+      const clEl = document.getElementById('prefTimerCluster');
+      if (cEl) cEl.value = prefs.compound;
+      if (iEl) iEl.value = prefs.isolation;
+      if (clEl) clEl.value = prefs.cluster;
       registerLiveModals();
       openModal('liveTimerSettingsModal');
     };
@@ -1831,22 +1850,22 @@ function bindLiveWorkoutDomEvents() {
 
   if (saveTimerPrefsBtn) {
     saveTimerPrefsBtn.onclick = () => {
+      const cEl = document.getElementById('prefTimerCompound');
+      const iEl = document.getElementById('prefTimerIsolation');
+      const clEl = document.getElementById('prefTimerCluster');
       const newPrefs = {
-        compound: Math.max(10, parseInt(document.getElementById('prefTimerCompound').value, 10) || 150),
-        isolation: Math.max(10, parseInt(document.getElementById('prefTimerIsolation').value, 10) || 90),
-        cluster: Math.max(5, parseInt(document.getElementById('prefTimerCluster').value, 10) || 20),
+        compound: Math.max(10, parseInt(cEl ? cEl.value : '150', 10) || 150),
+        isolation: Math.max(10, parseInt(iEl ? iEl.value : '90', 10) || 90),
+        cluster: Math.max(5, parseInt(clEl ? clEl.value : '20', 10) || 20),
         warmup: 60
       };
       saveTimerPrefs(newPrefs);
       closeModal('liveTimerSettingsModal');
-      renderLiveWorkoutScreen();
+      renderClusterFloatBtn();
     };
   }
 
-  // === Closeout ===
-  const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
-  const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
-
+  // Closeout modal chips
   document.querySelectorAll('.live-readiness-chip').forEach(chip => {
     chip.onclick = () => {
       if (!activeSession) return;
@@ -1868,6 +1887,24 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
+  const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
+  const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
   if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
   if (discardSessionBtn) discardSessionBtn.onclick = () => discardLiveWorkoutSession();
+}
+
+/* =========================================================
+ * HEADER COLLAPSE
+ * ========================================================= */
+
+function toggleHeaderCollapse(forceCollapsed) {
+  if (!activeSession) return;
+  if (typeof forceCollapsed === 'boolean') {
+    activeSession.headerCollapsed = forceCollapsed;
+  } else {
+    activeSession.headerCollapsed = !activeSession.headerCollapsed;
+  }
+  activeSession.headerManuallyToggled = true;
+  persistActiveSession();
+  renderExerciseHeader();
 }
