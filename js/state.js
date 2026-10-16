@@ -60,21 +60,17 @@ export function setDbData(data) {
     exercises: Array.isArray(safeData.exercises) ? safeData.exercises : [],
     workouts: Array.isArray(safeData.workouts) ? safeData.workouts : [],
     aiPlan: safeData.aiPlan || null,
-    // V5.2.2: currentCycleId может прийти null с сервера (нет активного цикла) —
-    // делаем fallback на suggestedNextCycleId, чтобы UI не сломался.
     currentCycleId: safeData.currentCycleId || safeData.suggestedNextCycleId || 'C-1',
     suggestedNextCycleId: safeData.suggestedNextCycleId || null
   };
 
   try {
-    // Защита от тихой перезаписи локального плана (P0 Fix)
     if (safeData.aiPlan && safeData.aiPlan.splits) {
       let shouldOverwriteLocal = true;
       try {
         const localRaw = localStorage.getItem('gym_ai_coach_plan');
         if (localRaw) {
           const localPlan = JSON.parse(localRaw);
-          // Если у локального плана есть флаг неотправленности или он сгенерирован позже
           if (localPlan._pendingCloudSync) {
             shouldOverwriteLocal = false;
           } else if (localPlan.generatedAt && safeData.aiPlan.generatedAt && localPlan.generatedAt > safeData.aiPlan.generatedAt) {
@@ -88,7 +84,6 @@ export function setDbData(data) {
       }
     }
 
-    // Кэш сохраняется ВСЕГДА (даже если база стала пустой после удаления)
     localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
   } catch (e) {
     console.warn('[State] Не удалось сохранить кэш БД в localStorage:', e);
@@ -125,23 +120,6 @@ export function parseRuFloat(val) {
   return isNaN(num) ? 0.0 : num;
 }
 
-/**
- * V5.1.3: Единый расчёт расчетного 1ПМ (e1RM) по формуле Эпли.
- *
- * КОНТРАКТ (синхронизирован с бэкендом GAS computeE1RM — при изменении
- * формулы обновлять ОБА места):
- *   - reps <= 0 или weight <= 0 → 0.0
- *   - reps === 1                → weight (фактический 1ПМ)
- *   - 2 ≤ reps ≤ 8              → weight × (1 + reps / 30)
- *   - reps > 8                  → 0.0 (Эпли даёт >10% погрешность)
- *
- * Возвращает округлённое до 1 знака после запятой число.
- *
- * Порог 8 повторений выбран сознательно: для силовых диапазонов (1-6) Эпли
- * работает приемлемо, на 8 — пограничная валидность, свыше 8 — формула
- * начинает систематически завышать результат на 10-15%. Честнее вернуть 0,
- * чем показывать атлету недостоверный PR.
- */
 export function computeE1RM(weight, reps) {
   const w = (typeof weight === 'number') ? weight : parseRuFloat(weight);
   const r = (typeof reps === 'number') ? reps : (parseInt(reps, 10) || 0);
@@ -206,15 +184,7 @@ export function formatDateDisplay(dateVal) {
 }
 
 /* =========================================================================
- * MUSCLE LOAD ANALYZER (Шаг 2.2-new, V5.2.0)
- * -------------------------------------------------------------------------
- * Единая система порогов MEV/MAV/MRV по Mike Israetel (Scientific Principles
- * of Hypertrophy Training, 2023). Пороги заданы как средненедельные
- * RIR-взвешенные сеты на мышечную группу.
- *
- * isMaintenance: true → мышца тренируется в режиме поддержки (квадрицепс,
- * бицепс бедра, ягодичные при фуллбади с приоритетом верха). Целевой
- * диапазон: 2-5 сетов/нед. Пороги MEV/MAV/MRV для таких мышц не применяются.
+ * MUSCLE LOAD ANALYZER
  * ========================================================================= */
 
 export const MUSCLE_THRESHOLDS = {
@@ -235,18 +205,6 @@ export const MUSCLE_THRESHOLDS = {
 export const MAINTENANCE_LOWER_BOUND = 2;
 export const MAINTENANCE_UPPER_BOUND = 5;
 
-/**
- * RIR-взвешивание подходов. Дифференцированная модель:
- *   - Компаунды (жим/тяга/присед): RIR 3 → 0.5, RIR 4+ → 0.25
- *   - Изоляция (разведения/сгибания/махи): RIR 3 → 0.6, RIR 4+ → 0.3
- *
- * Обоснование: на изоляции даже недоборные подходы дают заметный
- * локальный метаболический стимул (Refalo et al., 2023).
- *
- * @param {string} reserve — поле RIR из сета (например, "+2", "+3")
- * @param {boolean} isIsolation — true для изоляционных упражнений
- * @returns {number} коэффициент 0..1
- */
 export function rirWeight(reserve, isIsolation) {
   const clean = String(reserve || '').trim().replace(/^\+/, '');
   const r = parseFloat(clean);
@@ -257,11 +215,6 @@ export function rirWeight(reserve, isIsolation) {
   return isIsolation ? 0.3 : 0.25;
 }
 
-/**
- * Классификация упражнения как изоляция/компаунд по эвристике имени.
- * Компаунды: жим, тяга, присед, становая, подтягивания, отжимания, брусья.
- * Изоляция: разведения, махи, сгибания, разгибания, французский, пуловер и т.д.
- */
 export function isIsolationExercise(exerciseName) {
   const n = String(exerciseName || '').toLowerCase();
   const compoundPatterns = ['жим', 'тяга', 'присед', 'становая', 'подтягиван', 'отжиман', 'брусь'];
@@ -278,20 +231,12 @@ export function isIsolationExercise(exerciseName) {
   return false;
 }
 
-/**
- * Проверка: относится ли сет к делоад-фазе.
- * Учитывает cycleWeek >= 5 и cycleMode 'Делоад' / 'Разгрузка'.
- */
 export function isDeloadSet(cycleWeek, cycleMode) {
   const w = parseInt(cycleWeek, 10) || 1;
   const m = String(cycleMode || '').trim();
   return w >= 5 || m === 'Делоад' || m === 'Разгрузка' || m === 'Делоад/Разгрузка';
 }
 
-/**
- * Возвращает ID предыдущего мезоцикла (C-N → C-(N-1)).
- * Возвращает null, если цикл C-1 или формат некорректен.
- */
 export function getPreviousCycleId(cycleId) {
   const m = String(cycleId || '').match(/[CcСсЦц]-(\d+)/);
   if (!m) return null;
@@ -299,14 +244,6 @@ export function getPreviousCycleId(cycleId) {
   return n > 1 ? ('C-' + (n - 1)) : null;
 }
 
-/**
- * Классификация состояния мышцы по её недельному RIR-взвешенному объёму.
- * Возвращает объект { status, label }:
- *   - lagging (ниже MEV)
- *   - optimal (в диапазоне MEV..MRV)
- *   - overload (выше MRV)
- *   - maintenance-low / maintenance-ok / maintenance-high
- */
 export function classifyMuscleState(weeklyVolume, thresholds) {
   if (!thresholds) return { status: 'unknown', label: 'Не размечено' };
   if (thresholds.isMaintenance) {
@@ -319,10 +256,6 @@ export function classifyMuscleState(weeklyVolume, thresholds) {
   return { status: 'overload', label: 'MRV (Перегруз)' };
 }
 
-/**
- * Рекомендации по конкретному упражнению для добавления объёма
- * отстающей мышечной группы.
- */
 export const MUSCLE_ADVICE = {
   'Грудь':           'жим в тренажере или сведение рук',
   'Широчайшие':      'тяга верхнего блока или подтягивания',
@@ -339,42 +272,19 @@ export const MUSCLE_ADVICE = {
 };
 
 /* =========================================================================
- * RIR-ПАРСИНГ (Шаг 2.3, V5.2.1)
- * -------------------------------------------------------------------------
- * Проблема: isMaintenanceExercise ранее использовал rir.includes('3'),
- * что давало ложные срабатывания на диапазонах ("1-3"), составных ("+13")
- * и т.д. Ниже — чистый парсер RIR-строк в диапазон {min, max, mid}.
+ * RIR-ПАРСИНГ
  * ========================================================================= */
 
-/**
- * Парсит RIR-строку в диапазон.
- *
- * Поддерживаемые форматы:
- *   "1-2"        → { min: 1, max: 2, mid: 1.5 }
- *   "+2..+3"     → { min: 2, max: 3, mid: 2.5 }
- *   "2..3"       → { min: 2, max: 3, mid: 2.5 }
- *   "3"          → { min: 3, max: 3, mid: 3 }
- *   "+3"         → { min: 3, max: 3, mid: 3 }
- *   "3+"         → { min: 3, max: 99, mid: 51 }
- *   "RIR 3"      → { min: 3, max: 3, mid: 3 }
- *   "4–5"        → { min: 4, max: 5, mid: 4.5 } (en-dash)
- *
- * @param {string} rirStr
- * @returns {{min: number, max: number, mid: number} | null}
- */
 export function parseRirRange(rirStr) {
   if (rirStr === null || rirStr === undefined) return null;
 
   let s = String(rirStr).trim();
   if (!s) return null;
 
-  // Убираем префикс "RIR " (в любом регистре) и ведущий "+"
   s = s.replace(/^rir\s*/i, '').trim();
   s = s.replace(/^\+/, '').trim();
   if (!s) return null;
 
-  // Первая цифра + опционально разделитель (".." / "..." / "-" / "–" / "—") + вторая цифра
-  // + опционально trailing "+" (для "3+" = открытый диапазон)
   const m = s.match(/^(\d+)(?:\s*(?:\.{2,}|[-–—])\s*\+?(\d+))?(\+)?/);
   if (!m) return null;
 
@@ -394,27 +304,36 @@ export function parseRirRange(rirStr) {
   return { min, max, mid: (min + max) / 2 };
 }
 
-/**
- * Является ли RIR-диапазон "поддерживающим" (maintenance).
- *
- * Критерий: нижняя граница диапазона >= 2.
- * Т.е. вся зона RIR лежит в 2+ (не близко к отказу).
- *
- * Тест-кейсы:
- *   "1-2"     → false (есть подходы на RIR 1)
- *   "+2..+3"  → true  (нижняя 2)
- *   "2-3"     → true
- *   "1-3"     → false (исправлен старый баг!)
- *   "+3..+4"  → true
- *   "3+"      → true
- *   "4-5"     → true
- *   "мусор"   → false (не парсится → не maintenance)
- *
- * @param {string} rirStr
- * @returns {boolean}
- */
 export function isMaintenanceRir(rirStr) {
   const parsed = parseRirRange(rirStr);
   if (!parsed) return false;
   return parsed.min >= 2;
+}
+
+/* =========================================================================
+ * V5.4.0: Lookup последнего значения поля для упражнения
+ * -------------------------------------------------------------------------
+ * Используется для автоподстановки equipment / positioning из истории.
+ * Возвращает последнее НЕПУСТОЕ значение поля для данного упражнения.
+ * Сортировка — по дате (свежие сверху).
+ * ========================================================================= */
+
+export function getLastSetFieldForExercise(exerciseName, field) {
+  const name = String(exerciseName || '').trim();
+  if (!name) return '';
+
+  const sets = state.dbData.sets || [];
+  const filtered = sets.filter(s =>
+    (s.exercise || '').trim() === name &&
+    s[field] && String(s[field]).trim() !== ''
+  );
+  if (filtered.length === 0) return '';
+
+  const sorted = [...filtered].sort((a, b) => {
+    const da = normalizeDate(a.date);
+    const db = normalizeDate(b.date);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+  });
+
+  return String(sorted[0][field]).trim();
 }

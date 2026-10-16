@@ -4,6 +4,7 @@ import {
   isDeloadSet, getPreviousCycleId, MAINTENANCE_LOWER_BOUND, MAINTENANCE_UPPER_BOUND
 } from './state.js';
 import { extractPeriodization } from './parser.js';
+import { registerModal, openModal, closeModal } from './modal_manager.js';
 
 let tonnageChartInstance = null;
 let exerciseChartInstance = null;
@@ -28,15 +29,15 @@ const METRIC_HELP_DICTIONARY = {
   },
   'help-volume': {
     title: 'Нагрузка на мышцы (Muscle Load Analyzer)',
-    text: 'Недельный RIR-взвешенный объём по каждой мышце в сравнении с научными порогами Israetel:\n\n• MEV — минимальный эффективный объём для роста.\n• MAV — оптимальный объём гипертрофии.\n• MRV — максимальный переносимый объём (риск перетренированности).\n\nВес каждого подхода зависит от запаса сил (RIR): RIR 0-1 → 1.0, RIR 2 → 0.85, RIR 3 → 0.5-0.6, RIR 4+ → 0.25-0.3.\n\nДелоад-недели исключаются из подсчёта.'
+    text: 'Недельный RIR-взвешенный объём по каждой мышце в сравнении с научными порогами Israetel:\n\n• MEV — минимальный эффективный объём для роста.\n• MAV — оптимальный объём гипертрофии.\n• MRV — максимальный переносимый объём.\n\nВес каждого подхода зависит от RIR: 0-1 → 1.0, 2 → 0.85, 3 → 0.5-0.6, 4+ → 0.25-0.3.\n\nДелоад-недели исключаются из подсчёта.'
   },
   'help-tonnage': {
     title: 'Динамика рабочего тоннажа',
-    text: 'Суммарный поднятый вес в рабочих подходах за тренировку (в тоннах).\n\nСиним цветом выделены силовые тренировки (4–6 повт.), зеленым — объемные (12–16 повт.), серым — разгрузочные (Делоад).'
+    text: 'Суммарный поднятый вес в рабочих подходах за тренировку (в тоннах).\n\nСиним цветом — силовые тренировки (4–6 повт.), зеленым — объемные (12–16 повт.), серым — разгрузочные (Делоад).'
   },
   'help-1rm': {
     title: 'Прогресс в движении (Расчетный 1ПМ)',
-    text: 'Оценка вашего разового максимума по формуле Эпли: Вес × (1 + Повторы / 30).\n\nРассчитывается строго на подходах до 8 повторений включительно. Свыше 8 повторов формула Эпли даёт >10% погрешности, поэтому такие сеты исключаются из расчёта 1ПМ (для кластеров и дроп-сетов берётся первый сегмент).'
+    text: 'Оценка вашего разового максимума по формуле Эпли: Вес × (1 + Повторы / 30).\n\nРассчитывается строго на подходах до 8 повторений включительно. Свыше 8 — формула даёт >10% погрешности, такие сеты исключаются (для кластеров и дроп-сетов берётся первый сегмент).'
   }
 };
 
@@ -58,22 +59,28 @@ function initHelpModals() {
   const titleEl = document.getElementById('helpModalTitle');
   const contentEl = document.getElementById('helpModalContent');
 
-  if (closeBtn && modal) {
-    closeBtn.onclick = () => { modal.style.display = 'none'; };
-    modal.onclick = (e) => {
-      if (e.target === modal) modal.style.display = 'none';
-    };
-  }
+  if (!modal) return;
+
+  // V5.4.0: ModalManager
+  registerModal('metricHelpModal', {
+    el: modal,
+    displayStyle: 'flex'
+  });
+
+  if (closeBtn) closeBtn.onclick = () => closeModal('metricHelpModal');
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal('metricHelpModal');
+  };
 
   document.querySelectorAll('.help-trigger-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const helpId = btn.getAttribute('data-help-id');
       const item = METRIC_HELP_DICTIONARY[helpId];
-      if (item && modal && titleEl && contentEl) {
+      if (item && titleEl && contentEl) {
         titleEl.innerText = item.title;
         contentEl.innerText = item.text;
-        modal.style.display = 'flex';
+        openModal('metricHelpModal');
       }
     });
   });
@@ -277,21 +284,6 @@ function renderPushPullBalance(sets) {
   }
 }
 
-/* =========================================================================
- * MUSCLE LOAD ANALYZER (Шаг 2.2-new, V5.2.0)
- * -------------------------------------------------------------------------
- * Заменяет устаревшую логику с одинаковыми порогами 12-18.
- *
- * Ключевые улучшения:
- *   1. RIR-взвешивание каждого подхода (rirWeight).
- *   2. Пороги MEV/MAV/MRV по Israetel (MUSCLE_THRESHOLDS).
- *   3. Исключение делоад-недель из подсчёта.
- *   4. Окно: активные недели текущего цикла (при selectedCycleId != 'ALL')
- *      или скользящее 14-дневное окно (при 'ALL').
- *   5. Группировка по 4 бакетам: lagging / optimal / maintenance / overload.
- *   6. Дельта к предыдущему мезоциклу.
- * ========================================================================= */
-
 function resolveDetailedMuscleRegion(rawMuscle, exerciseName) {
   const m = String(rawMuscle || '').trim();
   const ex = String(exerciseName || '').toLowerCase();
@@ -385,7 +377,6 @@ function renderMuscleVolumeLandmarks(sets) {
     warningEl.style.display = hasUnmapped ? 'inline-block' : 'none';
   }
 
-  // Рабочие не-делоад сеты
   const workSets = sets.filter(s =>
     s.category === 'Рабочий' &&
     s.effort !== 'Размин.' &&
@@ -400,7 +391,6 @@ function renderMuscleVolumeLandmarks(sets) {
     return;
   }
 
-  // Определяем окно усреднения
   let analyzerSets = workSets;
   let activeWeeks = 1;
   let windowLabel = '';
@@ -426,10 +416,8 @@ function renderMuscleVolumeLandmarks(sets) {
     windowLabel = `Мезоцикл ${state.selectedCycleId} • активных недель: ${activeWeeks}`;
   }
 
-  // RIR-взвешенный подсчёт
   const weekly = calcWeeklyVolumeByMuscle(analyzerSets, activeWeeks);
 
-  // Дельта к предыдущему мезоциклу
   let prevWeekly = null;
   if (state.selectedCycleId !== 'ALL') {
     const prevCycleId = getPreviousCycleId(state.selectedCycleId);
@@ -447,7 +435,6 @@ function renderMuscleVolumeLandmarks(sets) {
     }
   }
 
-  // Классификация по бакетам
   const lagging = [];
   const optimal = [];
   const maintenance = [];
@@ -485,7 +472,6 @@ function renderMuscleVolumeLandmarks(sets) {
   optimal.sort((a, b) => b.volume - a.volume);
   maintenance.sort((a, b) => b.volume - a.volume);
 
-  // Обновляем подзаголовок
   if (subtitleEl) {
     subtitleEl.style.display = 'block';
     subtitleEl.innerText = `${windowLabel} • RIR-взвешивание: ON`;
@@ -493,7 +479,6 @@ function renderMuscleVolumeLandmarks(sets) {
 
   container.innerHTML = '';
 
-  // Секция ЛАГАЮТ
   if (lagging.length > 0) {
     const section = document.createElement('div');
     section.className = 'volume-section';
@@ -533,7 +518,6 @@ function renderMuscleVolumeLandmarks(sets) {
     container.appendChild(section);
   }
 
-  // Секция ОПТИМАЛЬНО
   if (optimal.length > 0) {
     const section = document.createElement('div');
     section.className = 'volume-section';
@@ -558,7 +542,6 @@ function renderMuscleVolumeLandmarks(sets) {
     container.appendChild(section);
   }
 
-  // Секция MAINTENANCE
   if (maintenance.length > 0) {
     const section = document.createElement('div');
     section.className = 'volume-section';
@@ -589,7 +572,6 @@ function renderMuscleVolumeLandmarks(sets) {
     container.appendChild(section);
   }
 
-  // Секция ПЕРЕГРУЗ (MRV)
   if (overload.length > 0) {
     const section = document.createElement('div');
     section.className = 'volume-section';
@@ -670,9 +652,7 @@ function renderTonnageChart(sets) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
+      plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#c4c6d0', font: { size: 10 } }, grid: { display: false } },
         y: { ticks: { color: '#c4c6d0' }, grid: { color: 'rgba(255,255,255,0.06)' } }
@@ -718,13 +698,6 @@ function populateExerciseSelector(sets) {
   renderExercise1RMChart(sets, select.value || exList[0]);
 }
 
-/**
- * V5.1.3: график прогресса 1ПМ.
- *
- * Доверяем серверному e1rm (он рассчитан по единому контракту computeE1RM,
- * порог 8 повторов). Fallback через computeE1RM — на случай отсутствия поля
- * (например, старые строки до полного пересчёта таблицы).
- */
 function renderExercise1RMChart(sets, exerciseName) {
   const canvas = document.getElementById('exerciseChart');
   const prBadge = document.getElementById('exercisePrBadge');
@@ -799,9 +772,7 @@ function renderExercise1RMChart(sets, exerciseName) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
+      plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#c4c6d0', font: { size: 10 } }, grid: { display: false } },
         y: { ticks: { color: '#c4c6d0' }, grid: { color: 'rgba(255,255,255,0.06)' } }

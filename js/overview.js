@@ -1,6 +1,10 @@
-import { state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, isMaintenanceRir } from './state.js';
+import {
+  state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, isMaintenanceRir,
+  getLastSetFieldForExercise
+} from './state.js';
 import { extractPeriodization } from './parser.js';
 import { startNewLiveWorkout } from './live_workout.js';
+import { registerModal, openModal, closeModal } from './modal_manager.js';
 
 let isOverviewInitialized = false;
 let latestPreparedWorkoutPayload = null;
@@ -8,8 +12,8 @@ let cachedBothSplitsPayloads = { A: null, B: null };
 let activeModalSplitKey = 'A';
 
 // V5.3.0: Навигация по календарю
-let calendarBaseDate = null; // выбранная дата (стартовая = сегодня)
-let calMonthViewDate = new Date(); // месяц, отображаемый в модале
+let calendarBaseDate = null;
+let calMonthViewDate = new Date();
 
 function getCalendarBaseDate() {
   if (!calendarBaseDate) {
@@ -29,35 +33,37 @@ export function renderOverviewModule() {
 function initOverviewModalListeners() {
   if (isOverviewInitialized) return;
 
+  // === V5.4.0: регистрация модалов через ModalManager ===
   const dayModal = document.getElementById('daySummaryModal');
-  const closeDayBtn = document.getElementById('closeDaySummaryModalBtn');
-  if (closeDayBtn && dayModal) {
-    closeDayBtn.onclick = () => { dayModal.style.display = 'none'; };
-    dayModal.onclick = (e) => {
-      if (e.target === dayModal) dayModal.style.display = 'none';
-    };
+  if (dayModal) {
+    registerModal('daySummaryModal', { el: dayModal, displayStyle: 'flex' });
+    const closeDayBtn = document.getElementById('closeDaySummaryModalBtn');
+    if (closeDayBtn) closeDayBtn.onclick = () => closeModal('daySummaryModal');
+    dayModal.onclick = (e) => { if (e.target === dayModal) closeModal('daySummaryModal'); };
   }
 
   const planModal = document.getElementById('workoutPlanDetailsModal');
-  const closePlanBtn = document.getElementById('closeWorkoutPlanModalBtn');
+  if (planModal) {
+    registerModal('workoutPlanDetailsModal', { el: planModal, displayStyle: 'flex' });
+    const closePlanBtn = document.getElementById('closeWorkoutPlanModalBtn');
+    if (closePlanBtn) closePlanBtn.onclick = () => closeModal('workoutPlanDetailsModal');
+    planModal.onclick = (e) => { if (e.target === planModal) closeModal('workoutPlanDetailsModal'); };
+  }
+
+  const calModal = document.getElementById('calendarMonthModal');
+  if (calModal) {
+    registerModal('calendarMonthModal', { el: calModal, displayStyle: 'flex' });
+    const closeCalBtn = document.getElementById('closeCalendarMonthBtn');
+    if (closeCalBtn) closeCalBtn.onclick = () => closeModal('calendarMonthModal');
+    calModal.onclick = (e) => { if (e.target === calModal) closeModal('calendarMonthModal'); };
+  }
+
+  // === Кнопки/связки ===
   const previewCard = document.getElementById('overviewPlanPreviewCard');
+  if (previewCard) previewCard.onclick = () => openWorkoutPlanDetailsModal();
+
   const modalTabA = document.getElementById('modalPlanTabA');
   const modalTabB = document.getElementById('modalPlanTabB');
-  const modalStartBtn = document.getElementById('modalStartLiveWorkoutBtn');
-
-  if (previewCard && planModal) {
-    previewCard.onclick = () => {
-      openWorkoutPlanDetailsModal();
-    };
-  }
-
-  if (closePlanBtn && planModal) {
-    closePlanBtn.onclick = () => { planModal.style.display = 'none'; };
-    planModal.onclick = (e) => {
-      if (e.target === planModal) planModal.style.display = 'none';
-    };
-  }
-
   if (modalTabA && modalTabB) {
     modalTabA.onclick = () => {
       activeModalSplitKey = 'A';
@@ -73,50 +79,36 @@ function initOverviewModalListeners() {
     };
   }
 
-  if (modalStartBtn && planModal) {
+  const modalStartBtn = document.getElementById('modalStartLiveWorkoutBtn');
+  if (modalStartBtn) {
     modalStartBtn.onclick = () => {
-      planModal.style.display = 'none';
+      closeModal('workoutPlanDetailsModal');
       const chosenPayload = cachedBothSplitsPayloads[activeModalSplitKey] || latestPreparedWorkoutPayload;
       startNewLiveWorkout(chosenPayload);
     };
   }
 
   const startLiveBtn = document.getElementById('startLiveWorkoutBtn');
-  if (startLiveBtn) {
-    startLiveBtn.onclick = () => {
-      startNewLiveWorkout(latestPreparedWorkoutPayload);
-    };
-  }
+  if (startLiveBtn) startLiveBtn.onclick = () => startNewLiveWorkout(latestPreparedWorkoutPayload);
 
-  // === V5.3.0: КАЛЕНДАРЬ МЕСЯЦА ===
+  // === Календарь месяца ===
   initCalendarMonthModalListeners();
 
   isOverviewInitialized = true;
 }
 
 /* =========================================================================
- * V5.3.0: КАЛЕНДАРЬ МЕСЯЦА
+ * КАЛЕНДАРЬ МЕСЯЦА
  * ========================================================================= */
 
 function initCalendarMonthModalListeners() {
-  const calModal = document.getElementById('calendarMonthModal');
   const openCalBtn = document.getElementById('openCalendarMonthBtn');
-  const closeCalBtn = document.getElementById('closeCalendarMonthBtn');
   const prevBtn = document.getElementById('calMonthPrevBtn');
   const nextBtn = document.getElementById('calMonthNextBtn');
   const todayBtn = document.getElementById('calMonthTodayBtn');
 
-  if (openCalBtn) {
-    openCalBtn.onclick = () => openCalendarMonthModal();
-  }
-  if (closeCalBtn && calModal) {
-    closeCalBtn.onclick = () => { calModal.style.display = 'none'; };
-  }
-  if (calModal) {
-    calModal.onclick = (e) => {
-      if (e.target === calModal) calModal.style.display = 'none';
-    };
-  }
+  if (openCalBtn) openCalBtn.onclick = () => openCalendarMonthModal();
+
   if (prevBtn) {
     prevBtn.onclick = () => {
       calMonthViewDate = new Date(calMonthViewDate.getFullYear(), calMonthViewDate.getMonth() - 1, 1);
@@ -133,20 +125,17 @@ function initCalendarMonthModalListeners() {
     todayBtn.onclick = () => {
       calendarBaseDate = new Date();
       calendarBaseDate.setHours(12, 0, 0, 0);
-      const m = document.getElementById('calendarMonthModal');
-      if (m) m.style.display = 'none';
+      closeModal('calendarMonthModal');
       renderCalendarStrip();
     };
   }
 }
 
 function openCalendarMonthModal() {
-  const modal = document.getElementById('calendarMonthModal');
-  if (!modal) return;
   const base = getCalendarBaseDate();
   calMonthViewDate = new Date(base.getFullYear(), base.getMonth(), 1);
   renderCalendarMonthModal();
-  modal.style.display = 'flex';
+  openModal('calendarMonthModal');
 }
 
 function getCycleInfoForDate(dateKey) {
@@ -178,14 +167,13 @@ function renderCalendarMonthModal() {
 
   const firstDay = new Date(y, m, 1);
   const lastDay = new Date(y, m + 1, 0);
-  const startWeekday = (firstDay.getDay() + 6) % 7; // 0 = понедельник
+  const startWeekday = (firstDay.getDay() + 6) % 7;
 
   const todayKey = getDateKey(new Date());
   const baseKey = getDateKey(getCalendarBaseDate());
 
   gridEl.innerHTML = '';
 
-  // Пустые ячейки до первого дня
   for (let i = 0; i < startWeekday; i++) {
     const blank = document.createElement('div');
     blank.className = 'cal-day-blank';
@@ -217,8 +205,7 @@ function renderCalendarMonthModal() {
 
     cell.onclick = () => {
       calendarBaseDate = new Date(dayDate);
-      const modal = document.getElementById('calendarMonthModal');
-      if (modal) modal.style.display = 'none';
+      closeModal('calendarMonthModal');
       renderCalendarStrip();
     };
 
@@ -287,7 +274,7 @@ function calculateWarmupRamp(order, targetWeight, cycleMode = 'Сила') {
 }
 
 /* =========================================================================
- * КАЛЕНДАРЬ 7 ДНЕЙ (использует calendarBaseDate)
+ * КАЛЕНДАРЬ 7 ДНЕЙ
  * ========================================================================= */
 
 function renderCalendarStrip() {
@@ -381,10 +368,9 @@ function renderCalendarStrip() {
 }
 
 function openDaySummaryModal(date, session) {
-  const modal = document.getElementById('daySummaryModal');
   const title = document.getElementById('modalDayDate');
   const content = document.getElementById('modalDayContent');
-  if (!modal || !title || !content) return;
+  if (!title || !content) return;
 
   title.innerText = `${formatDateDisplay(date)} (${date.toLocaleDateString('ru-RU', { weekday: 'long' })})`;
 
@@ -413,7 +399,7 @@ function openDaySummaryModal(date, session) {
     content.innerHTML = `<div style="color: var(--md-sys-color-on-surface-variant);">В этот день тренировок не зафиксировано (день отдыха и суперкомпенсации).</div>`;
   }
 
-  modal.style.display = 'flex';
+  openModal('daySummaryModal');
 }
 
 /* =========================================================================
@@ -527,7 +513,7 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
 }
 
 /* =========================================================================
- * ПЛАН ТРЕНИРОВКИ (карточка)
+ * ПЛАН ТРЕНИРОВКИ
  * ========================================================================= */
 
 function renderAiRecipeCard() {
@@ -777,16 +763,14 @@ function updatePlanPreviewCardUI(payload) {
  * ========================================================================= */
 
 function openWorkoutPlanDetailsModal() {
-  const modal = document.getElementById('workoutPlanDetailsModal');
-  const switcher = document.getElementById('modalPlanSplitSwitcher');
-  const tabA = document.getElementById('modalPlanTabA');
-  const tabB = document.getElementById('modalPlanTabB');
-  if (!modal) return;
-
   if (!latestPreparedWorkoutPayload || !latestPreparedWorkoutPayload.exercises) {
     alert('План тренировки еще не загружен.');
     return;
   }
+
+  const switcher = document.getElementById('modalPlanSplitSwitcher');
+  const tabA = document.getElementById('modalPlanTabA');
+  const tabB = document.getElementById('modalPlanTabB');
 
   if (switcher && tabA && tabB) {
     if (cachedBothSplitsPayloads.A && cachedBothSplitsPayloads.B) {
@@ -800,7 +784,7 @@ function openWorkoutPlanDetailsModal() {
 
   const currentPayload = cachedBothSplitsPayloads[activeModalSplitKey] || latestPreparedWorkoutPayload;
   renderModalSplitExercises(currentPayload);
-  modal.style.display = 'flex';
+  openModal('workoutPlanDetailsModal');
 }
 
 function renderModalSplitExercises(payload) {
@@ -831,6 +815,21 @@ function renderModalSplitExercises(payload) {
       ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Финал: ${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
       : '';
 
+    // V5.4.0: read-only чипы из истории (equipment / positioning)
+    const histEquip = getLastSetFieldForExercise(ex.name, 'equipment');
+    const histTech = getLastSetFieldForExercise(ex.name, 'positioning');
+
+    let notesRowHtml = '';
+    if (histEquip || histTech) {
+      const equipChip = histEquip
+        ? `<div class="recipe-note-chip"><span class="material-symbols-outlined">settings</span><span>${escapeHtml(histEquip)}</span></div>`
+        : '';
+      const techChip = histTech
+        ? `<div class="recipe-note-chip"><span class="material-symbols-outlined">notes</span><span>${escapeHtml(histTech)}</span></div>`
+        : '';
+      notesRowHtml = `<div class="recipe-notes-row">${equipChip}${techChip}</div>`;
+    }
+
     step.innerHTML = `
       <div class="recipe-step-header">#${ex.order} • ${escapeHtml(ex.name)}</div>
       <div class="recipe-metrics-row">
@@ -844,6 +843,7 @@ function renderModalSplitExercises(payload) {
         <span class="material-symbols-outlined">restart_alt</span>
         <span>Разминка: <b>${escapeHtml(ex.warmupText)}</b></span>
       </div>
+      ${notesRowHtml}
       ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
     `;
 
@@ -852,7 +852,7 @@ function renderModalSplitExercises(payload) {
 }
 
 /* =========================================================================
- * МАНЕКЕН 2.0 (без изменений)
+ * МАНЕКЕН 2.0
  * ========================================================================= */
 
 function interpolateHexColor(hex1, hex2, factor) {

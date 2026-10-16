@@ -1,15 +1,21 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (ZERO-FRICTION UX V1.4.2)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V1.5.0 MODAL MANAGER + NOTES)
  * =========================================================================
- * - Единая синхронная индикация текущего подхода
- * - Хронометраж durationMin по последнему выполненному подходу
- * - Передача явных dropWeight и dropReps на сервер
- * - V1.4.2: расчёт e1rm через единый computeE1RM (порог 8 повторов)
+ * V1.5.0:
+ * - Все модалы/overlay через ModalManager (hardware back работает корректно).
+ * - Overlay = минимизация по back (не закрытие).
+ * - Чипы оборудования/техники в exercise header.
+ * - Bottom sheet для редактирования заметок.
+ * - Копирование equipment/positioning в каждый recordedSet.
  */
 
-import { state, setInitialData, formatDateDisplay, escapeHtml, computeE1RM } from './state.js';
+import {
+  state, setInitialData, formatDateDisplay, escapeHtml, computeE1RM,
+  getLastSetFieldForExercise
+} from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
+import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
@@ -19,6 +25,7 @@ let workoutDurationInterval = null;
 let restTimerInterval = null;
 let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
+let isLiveWorkoutInitialized = false;
 
 const DEFAULT_TIMERS = {
   compound: 150,
@@ -40,6 +47,71 @@ export function initLiveWorkoutModule(onComplete) {
   });
 }
 
+/* =========================================================
+ * MODAL MANAGER registration
+ * ========================================================= */
+
+function registerLiveModals() {
+  if (isLiveWorkoutInitialized) return;
+  isLiveWorkoutInitialized = true;
+
+  // Overlay — особый случай: onClose = minimize
+  const overlay = document.getElementById('liveWorkoutOverlay');
+  if (overlay) {
+    registerModal('liveWorkoutOverlay', {
+      el: overlay,
+      displayStyle: 'flex',
+      onOpen: () => {
+        document.body.style.overflow = 'hidden';
+        requestScreenWakeLock();
+        startDurationTicker();
+        syncRestTimerWithWallClock();
+        renderLiveWorkoutScreen();
+      },
+      onClose: () => {
+        document.body.style.overflow = '';
+        showRecoveryBanner();
+      }
+    });
+  }
+
+  const closeoutModal = document.getElementById('liveCloseoutModal');
+  if (closeoutModal) {
+    registerModal('liveCloseoutModal', {
+      el: closeoutModal,
+      displayStyle: 'flex',
+      onOpen: () => renderCloseoutSummaryBox()
+    });
+    const closeCloseoutBtn = document.getElementById('closeLiveCloseoutModalBtn');
+    if (closeCloseoutBtn) closeCloseoutBtn.onclick = () => closeModal('liveCloseoutModal');
+    closeoutModal.onclick = (e) => { if (e.target === closeoutModal) closeModal('liveCloseoutModal'); };
+  }
+
+  const timerSettingsModal = document.getElementById('liveTimerSettingsModal');
+  if (timerSettingsModal) {
+    registerModal('liveTimerSettingsModal', {
+      el: timerSettingsModal,
+      displayStyle: 'flex'
+    });
+    const closeBtn = document.getElementById('closeLiveTimerSettingsBtn');
+    if (closeBtn) closeBtn.onclick = () => closeModal('liveTimerSettingsModal');
+    timerSettingsModal.onclick = (e) => { if (e.target === timerSettingsModal) closeModal('liveTimerSettingsModal'); };
+  }
+
+  const notesSheet = document.getElementById('liveNotesSheet');
+  if (notesSheet) {
+    registerModal('liveNotesSheet', {
+      el: notesSheet,
+      displayStyle: 'flex'
+    });
+    notesSheet.onclick = (e) => { if (e.target === notesSheet) closeModal('liveNotesSheet'); };
+  }
+}
+
+/* =========================================================
+ * TIMER PREFS
+ * ========================================================= */
+
 function getTimerPrefs() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_TIMER_PREFS);
@@ -57,6 +129,10 @@ function saveTimerPrefs(prefs) {
     console.warn('[LiveWorkout] Не удалось сохранить настройки таймера:', e);
   }
 }
+
+/* =========================================================
+ * HELPERS
+ * ========================================================= */
 
 function roundToGymStep(val) {
   if (!val || val <= 0) return 0;
@@ -164,6 +240,10 @@ function computeSmartDraftSetForExercise(ex) {
   };
 }
 
+/* =========================================================
+ * START WORKOUT
+ * ========================================================= */
+
 export function startNewLiveWorkout(recipePayload) {
   if (!recipePayload || !Array.isArray(recipePayload.exercises) || recipePayload.exercises.length === 0) {
     alert('План тренировки пуст. Сначала загрузите данные или сформируйте план у Тренера.');
@@ -173,7 +253,8 @@ export function startNewLiveWorkout(recipePayload) {
   if (activeSession && !activeSession.isFinished) {
     const confirmOverwrite = confirm('У вас уже есть незавершенная тренировка. Начать новую (текущий прогресс будет сброшен)?');
     if (!confirmOverwrite) {
-      openLiveWorkoutOverlay();
+      registerLiveModals();
+      openModal('liveWorkoutOverlay');
       return;
     }
   }
@@ -194,6 +275,10 @@ export function startNewLiveWorkout(recipePayload) {
       ? ex.warmupSteps
       : buildFallbackWarmupSteps(orderNum, targetWeight, cycleMode);
 
+    // V1.5.0: подтягиваем последние equipment/positioning из истории
+    const historicalEquipment = getLastSetFieldForExercise(ex.name, 'equipment');
+    const historicalTechnique = getLastSetFieldForExercise(ex.name, 'positioning');
+
     return {
       order: orderNum,
       name: ex.name || `Упражнение #${orderNum}`,
@@ -210,6 +295,8 @@ export function startNewLiveWorkout(recipePayload) {
       warmupText: ex.warmupText || '',
       warmupSteps: warmupSteps,
       notes: ex.notes || '',
+      equipment: historicalEquipment || '',
+      technique: historicalTechnique || '',
       completedSets: [],
       isCompleted: false,
       allowBonusSet: false
@@ -246,8 +333,14 @@ export function startNewLiveWorkout(recipePayload) {
 
   persistActiveSession();
   hideRecoveryBanner();
-  openLiveWorkoutOverlay();
+
+  registerLiveModals();
+  openModal('liveWorkoutOverlay');
 }
+
+/* =========================================================
+ * PERSISTENCE / RECOVERY
+ * ========================================================= */
 
 function persistActiveSession() {
   try {
@@ -295,6 +388,10 @@ function hideRecoveryBanner() {
   if (banner) banner.style.display = 'none';
 }
 
+/* =========================================================
+ * WAKE LOCK / HAPTIC
+ * ========================================================= */
+
 async function requestScreenWakeLock() {
   if ('wakeLock' in navigator) {
     try {
@@ -322,24 +419,26 @@ function triggerHaptic(pattern) {
   }
 }
 
+/* =========================================================
+ * OVERLAY OPEN/MINIMIZE (через ModalManager)
+ * ========================================================= */
+
 function openLiveWorkoutOverlay() {
-  const overlay = document.getElementById('liveWorkoutOverlay');
-  if (!overlay || !activeSession) return;
-
-  overlay.style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-
-  requestScreenWakeLock();
-  startDurationTicker();
-  syncRestTimerWithWallClock();
-  renderLiveWorkoutScreen();
+  if (!activeSession) return;
+  registerLiveModals();
+  openModal('liveWorkoutOverlay');
 }
 
 function minimizeLiveWorkoutOverlay() {
-  const overlay = document.getElementById('liveWorkoutOverlay');
-  if (overlay) overlay.style.display = 'none';
-  document.body.style.overflow = '';
-  showRecoveryBanner();
+  if (isModalOpen('liveWorkoutOverlay')) {
+    closeModal('liveWorkoutOverlay');
+  } else {
+    // Fallback — если по какой-то причине overlay не в стеке
+    const overlay = document.getElementById('liveWorkoutOverlay');
+    if (overlay) overlay.style.display = 'none';
+    document.body.style.overflow = '';
+    showRecoveryBanner();
+  }
 }
 
 function discardLiveWorkoutSession() {
@@ -352,10 +451,8 @@ function discardLiveWorkoutSession() {
   persistActiveSession();
   hideRecoveryBanner();
 
-  const overlay = document.getElementById('liveWorkoutOverlay');
-  const closeoutModal = document.getElementById('liveCloseoutModal');
-  if (overlay) overlay.style.display = 'none';
-  if (closeoutModal) closeoutModal.style.display = 'none';
+  // Сбрасываем все модалы (closeout + overlay)
+  resetAllModals();
   document.body.style.overflow = '';
 }
 
@@ -385,6 +482,10 @@ function startDurationTicker() {
   workoutDurationInterval = setInterval(updateClock, 1000);
 }
 
+/* =========================================================
+ * RENDER — MINIMAP
+ * ========================================================= */
+
 function renderExerciseMiniMap() {
   const mapBox = document.getElementById('liveExMiniMap');
   if (!mapBox || !activeSession) return;
@@ -400,13 +501,84 @@ function renderExerciseMiniMap() {
     pill.innerHTML = isCompleted ? `✓ ${idx + 1}` : `${idx + 1}`;
     pill.title = ex.name;
 
-    pill.onclick = () => {
-      switchActiveExercise(idx);
-    };
+    pill.onclick = () => switchActiveExercise(idx);
 
     mapBox.appendChild(pill);
   });
 }
+
+/* =========================================================
+ * V1.5.0: NOTE CHIPS (equipment/technique)
+ * ========================================================= */
+
+function renderExerciseNoteChips() {
+  if (!activeSession) return;
+  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!ex) return;
+
+  const equipChip = document.getElementById('liveEquipmentChip');
+  const equipVal = document.getElementById('liveEquipmentValue');
+  const techChip = document.getElementById('liveTechniqueChip');
+  const techVal = document.getElementById('liveTechniqueValue');
+
+  if (equipChip && equipVal) {
+    if (ex.equipment && String(ex.equipment).trim()) {
+      equipChip.classList.remove('is-empty');
+      equipVal.innerText = String(ex.equipment).trim();
+    } else {
+      equipChip.classList.add('is-empty');
+      equipVal.innerText = '';
+    }
+  }
+
+  if (techChip && techVal) {
+    if (ex.technique && String(ex.technique).trim()) {
+      techChip.classList.remove('is-empty');
+      techVal.innerText = String(ex.technique).trim();
+    } else {
+      techChip.classList.add('is-empty');
+      techVal.innerText = '';
+    }
+  }
+}
+
+function openNotesSheet() {
+  if (!activeSession) return;
+  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!ex) return;
+
+  const equipInput = document.getElementById('liveNotesEquipmentInput');
+  const techInput = document.getElementById('liveNotesTechniqueInput');
+  const subtitleEl = document.getElementById('liveNotesSheetSubtitle');
+
+  if (equipInput) equipInput.value = ex.equipment || '';
+  if (techInput) techInput.value = ex.technique || '';
+  if (subtitleEl) subtitleEl.innerText = ex.name;
+
+  registerLiveModals();
+  openModal('liveNotesSheet');
+}
+
+function saveNotesSheet() {
+  if (!activeSession) return;
+  const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!ex) return;
+
+  const equipInput = document.getElementById('liveNotesEquipmentInput');
+  const techInput = document.getElementById('liveNotesTechniqueInput');
+
+  ex.equipment = equipInput ? equipInput.value.trim() : '';
+  ex.technique = techInput ? techInput.value.trim() : '';
+
+  persistActiveSession();
+  renderExerciseNoteChips();
+  closeModal('liveNotesSheet');
+  triggerHaptic([30]);
+}
+
+/* =========================================================
+ * RENDER — MAIN SCREEN
+ * ========================================================= */
 
 function renderLiveWorkoutScreen() {
   if (!activeSession) return;
@@ -416,6 +588,7 @@ function renderLiveWorkoutScreen() {
   if (!currentEx) return;
 
   renderExerciseMiniMap();
+  renderExerciseNoteChips();
 
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
@@ -660,6 +833,10 @@ function renderCompletedSetsHistory(currentEx) {
   });
 }
 
+/* =========================================================
+ * RECORD SET
+ * ========================================================= */
+
 function handleRecordCurrentSet() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -711,9 +888,9 @@ function handleRecordCurrentSet() {
   const setNum = currentEx.completedSets.length + 1;
   const tonnage = parseFloat(totalTonnage.toFixed(1));
 
-  // V1.4.2: единый контракт — computeE1RM() из state.js. Порог 8 повторов.
   const e1rm = isWarmup ? 0.0 : computeE1RM(weight, firstSegmentReps);
 
+  // V1.5.0: копируем equipment/technique упражнения в каждый записанный сет
   const recordedSet = {
     setNum: setNum,
     weight: weight,
@@ -727,6 +904,8 @@ function handleRecordCurrentSet() {
     category: isWarmup ? 'Разминка' : 'Рабочий',
     tonnage: tonnage,
     e1rm: e1rm,
+    equipment: currentEx.equipment || '',
+    positioning: currentEx.technique || '',
     recordedAt: new Date().toTimeString().slice(0, 8),
     timestampMs: Date.now()
   };
@@ -755,6 +934,10 @@ function handleRecordCurrentSet() {
   persistActiveSession();
   renderLiveWorkoutScreen();
 }
+
+/* =========================================================
+ * NAVIGATION BETWEEN EXERCISES
+ * ========================================================= */
 
 function findNextIncompleteExerciseIndex(fromIndex) {
   if (!activeSession) return -1;
@@ -790,6 +973,10 @@ function handleCompleteCurrentAndMoveNext() {
     openCloseoutModal();
   }
 }
+
+/* =========================================================
+ * REST TIMER
+ * ========================================================= */
 
 function startRestTimer(seconds) {
   if (!activeSession) return;
@@ -876,6 +1063,10 @@ function switchActiveExercise(newIndex) {
   renderLiveWorkoutScreen();
 }
 
+/* =========================================================
+ * SUMMARY METRICS
+ * ========================================================= */
+
 function calculateWorkoutSummaryMetrics() {
   let totalWorkSets = 0;
   let totalWarmupSets = 0;
@@ -947,6 +1138,10 @@ function calculateWorkoutSummaryMetrics() {
   };
 }
 
+/* =========================================================
+ * CLOSEOUT MODAL
+ * ========================================================= */
+
 function openCloseoutModal() {
   if (!activeSession) return;
 
@@ -956,10 +1151,8 @@ function openCloseoutModal() {
     return;
   }
 
-  renderCloseoutSummaryBox();
-
-  const modal = document.getElementById('liveCloseoutModal');
-  if (modal) modal.style.display = 'flex';
+  registerLiveModals();
+  openModal('liveCloseoutModal');
 }
 
 function renderCloseoutSummaryBox() {
@@ -975,6 +1168,10 @@ function renderCloseoutSummaryBox() {
     <div>• Средний отдых: <b>${m.avgRestSec > 0 ? m.avgRestSec + ' сек' : 'н/д'}</b> • Нагрузка (Фостер): <b>${m.trainingLoad} ед.</b></div>
   `;
 }
+
+/* =========================================================
+ * FINALIZE SYNC
+ * ========================================================= */
 
 async function finalizeAndSyncLiveWorkout() {
   if (!activeSession) return;
@@ -1009,8 +1206,9 @@ async function finalizeAndSyncLiveWorkout() {
         effort: s.effort,
         reserve: s.reserve,
         method: s.method,
-        equipment: `sRPE ${workoutSummary.sRPE}`,
-        positioning: '',
+        // V1.5.0: реальные equipment/positioning из пользовательского ввода
+        equipment: s.equipment || '',
+        positioning: s.positioning || '',
         splitDay: activeSession.splitDay,
         cycleMode: activeSession.cycleMode,
         waveIndex: activeSession.waveIndex,
@@ -1053,17 +1251,20 @@ async function finalizeAndSyncLiveWorkout() {
     persistActiveSession();
     hideRecoveryBanner();
 
-    const closeoutModal = document.getElementById('liveCloseoutModal');
-    const overlay = document.getElementById('liveWorkoutOverlay');
-    if (closeoutModal) closeoutModal.style.display = 'none';
-    if (overlay) overlay.style.display = 'none';
-    document.body.style.overflow = '';
+    // Закрываем модалы: closeout → overlay (с задержкой для popstate)
+    if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
+    setTimeout(() => {
+      if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay');
+      document.body.style.overflow = '';
+    }, 280);
 
     if (typeof onWorkoutCompletedCallback === 'function') {
       await onWorkoutCompletedCallback();
     }
 
-    alert('Тренировка и сводка Workouts успешно сохранены в Google Таблицы!');
+    setTimeout(() => {
+      alert('Тренировка и сводка Workouts успешно сохранены в Google Таблицы!');
+    }, 320);
   } catch (err) {
     if (statusEl) {
       statusEl.style.color = 'var(--md-sys-color-error)';
@@ -1073,6 +1274,10 @@ async function finalizeAndSyncLiveWorkout() {
     if (saveBtn) saveBtn.disabled = false;
   }
 }
+
+/* =========================================================
+ * DOM EVENTS
+ * ========================================================= */
 
 function bindLiveWorkoutDomEvents() {
   const resumeBtn = document.getElementById('liveResumeBannerBtn');
@@ -1088,6 +1293,17 @@ function bindLiveWorkoutDomEvents() {
   const nextBtn = document.getElementById('liveNextExBtn');
   if (prevBtn) prevBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex - 1);
   if (nextBtn) nextBtn.onclick = () => switchActiveExercise(activeSession.currentExerciseIndex + 1);
+
+  // V1.5.0: NOTE CHIPS
+  const equipChip = document.getElementById('liveEquipmentChip');
+  const techChip = document.getElementById('liveTechniqueChip');
+  if (equipChip) equipChip.onclick = () => openNotesSheet();
+  if (techChip) techChip.onclick = () => openNotesSheet();
+
+  const notesSaveBtn = document.getElementById('liveNotesSaveBtn');
+  const notesCancelBtn = document.getElementById('liveNotesCancelBtn');
+  if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
+  if (notesCancelBtn) notesCancelBtn.onclick = () => closeModal('liveNotesSheet');
 
   const catWarmupBtn = document.getElementById('liveCatWarmupBtn');
   const catWorkBtn = document.getElementById('liveCatWorkBtn');
@@ -1151,9 +1367,7 @@ function bindLiveWorkoutDomEvents() {
 
   const completeNextBtn = document.getElementById('liveCompleteAndNextExBtn');
   const addBonusSetBtn = document.getElementById('liveAddBonusSetBtn');
-  if (completeNextBtn) {
-    completeNextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
-  }
+  if (completeNextBtn) completeNextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
   if (addBonusSetBtn) {
     addBonusSetBtn.onclick = () => {
       if (!activeSession) return;
@@ -1234,9 +1448,7 @@ function bindLiveWorkoutDomEvents() {
   }
 
   const recordBtn = document.getElementById('liveRecordSetBtn');
-  if (recordBtn) {
-    recordBtn.onclick = () => handleRecordCurrentSet();
-  }
+  if (recordBtn) recordBtn.onclick = () => handleRecordCurrentSet();
 
   const restMinusBtn = document.getElementById('liveRestMinus30Btn');
   const restPlusBtn = document.getElementById('liveRestPlus30Btn');
@@ -1246,23 +1458,20 @@ function bindLiveWorkoutDomEvents() {
   if (restSkipBtn) restSkipBtn.onclick = () => stopRestTimer();
 
   const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
-  const timerPrefsModal = document.getElementById('liveTimerSettingsModal');
-  const closeTimerPrefsBtn = document.getElementById('closeLiveTimerSettingsBtn');
   const saveTimerPrefsBtn = document.getElementById('saveLiveTimerSettingsBtn');
 
-  if (openTimerPrefsBtn && timerPrefsModal) {
+  if (openTimerPrefsBtn) {
     openTimerPrefsBtn.onclick = () => {
       const prefs = getTimerPrefs();
       document.getElementById('prefTimerCompound').value = prefs.compound;
       document.getElementById('prefTimerIsolation').value = prefs.isolation;
       document.getElementById('prefTimerCluster').value = prefs.cluster;
-      timerPrefsModal.style.display = 'flex';
+      registerLiveModals();
+      openModal('liveTimerSettingsModal');
     };
   }
-  if (closeTimerPrefsBtn && timerPrefsModal) {
-    closeTimerPrefsBtn.onclick = () => { timerPrefsModal.style.display = 'none'; };
-  }
-  if (saveTimerPrefsBtn && timerPrefsModal) {
+
+  if (saveTimerPrefsBtn) {
     saveTimerPrefsBtn.onclick = () => {
       const newPrefs = {
         compound: Math.max(10, parseInt(document.getElementById('prefTimerCompound').value, 10) || 150),
@@ -1271,20 +1480,13 @@ function bindLiveWorkoutDomEvents() {
         warmup: 60
       };
       saveTimerPrefs(newPrefs);
-      timerPrefsModal.style.display = 'none';
+      closeModal('liveTimerSettingsModal');
       renderLiveWorkoutScreen();
     };
   }
 
-  const closeCloseoutBtn = document.getElementById('closeLiveCloseoutModalBtn');
   const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
   const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
-
-  if (closeCloseoutBtn) {
-    closeCloseoutBtn.onclick = () => {
-      document.getElementById('liveCloseoutModal').style.display = 'none';
-    };
-  }
 
   document.querySelectorAll('.live-readiness-chip').forEach(chip => {
     chip.onclick = () => {
@@ -1307,11 +1509,6 @@ function bindLiveWorkoutDomEvents() {
     };
   });
 
-  if (confirmFinishBtn) {
-    confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
-  }
-
-  if (discardSessionBtn) {
-    discardSessionBtn.onclick = () => discardLiveWorkoutSession();
-  }
+  if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
+  if (discardSessionBtn) discardSessionBtn.onclick = () => discardLiveWorkoutSession();
 }

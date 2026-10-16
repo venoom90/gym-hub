@@ -5,6 +5,7 @@ import { renderAnalyticsModule } from './analytics.js';
 import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
 import { initLiveWorkoutModule } from './live_workout.js';
+import { registerModal, openModal, closeModal } from './modal_manager.js';
 
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const LAST_SYNC_KEY = 'gym_last_sync_ts';
@@ -25,15 +26,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     await refreshApplicationData();
   });
 
-  // 1. Проверка входящего отчета из Web Share Target ДО сетевых запросов
   const hasSharedData = await checkSharedReportCache();
 
-  // 2. Отрисовка вкладки
   if (!hasSharedData) {
     handleRouteHash();
   }
 
-  // 3. Фоновое обновление базы с сервера Google Таблиц
   await refreshApplicationData();
 });
 
@@ -176,10 +174,6 @@ function initNetworkStatus() {
   update();
 }
 
-/* =========================================================
- * V5.3.0: ИНДИКАТОР СВЕЖЕСТИ ДАННЫХ
- * ========================================================= */
-
 function getLastSyncLabel() {
   const ts = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0', 10);
   if (!ts) return 'Нет данных';
@@ -202,7 +196,6 @@ function renderLastSyncLabel() {
 
 function initLastSyncLabel() {
   renderLastSyncLabel();
-  // Обновление раз в минуту, чтобы «5 мин назад» становилось «6 мин назад» без перезагрузки
   setInterval(renderLastSyncLabel, 60000);
 }
 
@@ -215,19 +208,26 @@ function initSettingsModal() {
 
   if (!modal || !openBtn || !closeBtn) return;
 
-  openBtn.onclick = () => {
-    if (tokenInput) tokenInput.value = localStorage.getItem('gym_api_token') || '';
-    modal.style.display = 'flex';
-  };
+  // V5.4.0: регистрация через ModalManager (hardware back корректно закрывает)
+  registerModal('settingsModal', {
+    el: modal,
+    displayStyle: 'flex',
+    onOpen: () => {
+      if (tokenInput) tokenInput.value = localStorage.getItem('gym_api_token') || '';
+    }
+  });
 
-  closeBtn.onclick = () => { modal.style.display = 'none'; };
-  modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+  openBtn.onclick = () => openModal('settingsModal');
+  closeBtn.onclick = () => closeModal('settingsModal');
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal('settingsModal');
+  };
 
   if (saveBtn && tokenInput) {
     saveBtn.onclick = () => {
       const val = tokenInput.value.trim();
       localStorage.setItem('gym_api_token', val);
-      modal.style.display = 'none';
+      closeModal('settingsModal');
       alert('Токен авторизации сохранен!');
     };
   }
