@@ -11,7 +11,8 @@ function getInitialDbData() {
     exercises: [],
     workouts: [],
     aiPlan: null,
-    currentCycleId: 'C-1'
+    currentCycleId: 'C-1',
+    suggestedNextCycleId: null
   };
 
   try {
@@ -25,7 +26,8 @@ function getInitialDbData() {
       exercises: Array.isArray(parsed.exercises) ? parsed.exercises : [],
       workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
       aiPlan: parsed.aiPlan || null,
-      currentCycleId: parsed.currentCycleId || 'C-1'
+      currentCycleId: parsed.currentCycleId || parsed.suggestedNextCycleId || 'C-1',
+      suggestedNextCycleId: parsed.suggestedNextCycleId || null
     };
   } catch (e) {
     console.warn('[State] Ошибка гидратации кэша БД:', e);
@@ -58,7 +60,10 @@ export function setDbData(data) {
     exercises: Array.isArray(safeData.exercises) ? safeData.exercises : [],
     workouts: Array.isArray(safeData.workouts) ? safeData.workouts : [],
     aiPlan: safeData.aiPlan || null,
-    currentCycleId: safeData.currentCycleId || 'C-1'
+    // V5.2.2: currentCycleId может прийти null с сервера (нет активного цикла) —
+    // делаем fallback на suggestedNextCycleId, чтобы UI не сломался.
+    currentCycleId: safeData.currentCycleId || safeData.suggestedNextCycleId || 'C-1',
+    suggestedNextCycleId: safeData.suggestedNextCycleId || null
   };
 
   try {
