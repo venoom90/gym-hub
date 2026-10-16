@@ -593,9 +593,7 @@
       border: 1px solid var(--md-sys-color-primary);
     }
 
-    /* =========================================================
-       LIVE WORKOUT OVERLAY (V2.0 THUMB-ZONE)
-       ========================================================= */
+    /* LIVE WORKOUT OVERLAY (V2.0 COMPACT) */
     .live-workout-overlay {
       display: none;
       position: fixed;
@@ -604,215 +602,243 @@
       z-index: 500;
       flex-direction: column;
       overflow-y: auto;
-      padding-bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      -webkit-overflow-scrolling: touch;
     }
 
+    /* Compact top bar (48px) */
     .live-top-bar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      padding: 10px 12px;
+      gap: 6px;
+      padding: 4px 10px;
+      min-height: 48px;
       background: var(--md-sys-color-surface-container);
       border-bottom: 1px solid var(--md-sys-color-outline-variant);
       position: sticky;
       top: 0;
       z-index: 10;
-      gap: 8px;
     }
 
-    .live-top-center {
-      display: flex;
+    .live-top-bar-spacer { flex: 1; }
+
+    .live-icon-btn {
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      flex: 1;
       justify-content: center;
-      min-width: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--md-sys-shape-corner-full);
+      border: none;
+      background: transparent;
+      color: var(--md-sys-color-on-surface);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
     }
+    .live-icon-btn:hover { background: rgba(255,255,255,0.08); }
+    .live-icon-btn:active { background: rgba(255,255,255,0.14); }
+    .live-icon-btn .material-symbols-outlined { font-size: 22px; }
 
     .live-timer-pill {
-      font-family: 'Roboto Mono', monospace;
-      font-size: 0.95rem;
+      font-family: 'Roboto Mono', ui-monospace, monospace;
+      font-size: 0.92rem;
       font-weight: 700;
       color: var(--app-color-success);
       background: var(--app-color-success-container);
-      padding: 6px 10px;
+      padding: 4px 10px;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid rgba(120, 220, 156, 0.3);
-      white-space: nowrap;
-    }
-
-    /* Rest ring в топбаре */
-    .live-rest-ring-wrap {
-      position: relative;
-      width: 30px;
-      height: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      min-width: 62px;
+      text-align: center;
+      letter-spacing: 0.5px;
       flex-shrink: 0;
     }
-    .live-rest-ring-wrap[hidden] { display: none; }
-    .live-rest-ring {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      transform: rotate(-90deg);
+
+    .live-finish-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 40px;
+      padding: 0 14px;
+      border-radius: var(--md-sys-shape-corner-medium);
+      border: 1px solid var(--md-sys-color-primary);
+      background: var(--md-sys-color-primary-container);
+      color: var(--md-sys-color-on-primary-container);
+      font: 700 0.85rem/1 'Roboto';
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: opacity var(--md-sys-motion-duration-short3);
     }
-    .ring-track {
-      fill: none;
-      stroke: rgba(168, 200, 255, 0.18);
-      stroke-width: 3;
-    }
-    .ring-progress {
-      fill: none;
-      stroke: var(--md-sys-color-primary);
-      stroke-width: 3;
-      stroke-linecap: round;
-      transition: stroke-dashoffset 0.3s linear;
-    }
+    .live-finish-btn:active { opacity: 0.85; }
 
     .live-body-container {
       max-width: 600px;
       width: 100%;
       margin: 0 auto;
-      padding: 12px 16px 160px 16px;
+      padding: 10px 14px 108px 14px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       flex: 1;
     }
 
-    .live-minimap-row {
+    /* Progress Strip */
+    .live-progress-strip {
       display: flex;
-      flex-wrap: nowrap;
-      gap: 8px;
-      justify-content: flex-start;
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding: 4px 4px 8px;
-      scroll-snap-type: x mandatory;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
+      align-items: center;
+      gap: 6px;
+      height: 44px;
+      padding: 0 2px;
     }
-    .live-minimap-row::-webkit-scrollbar { display: none; }
 
-    .live-minimap-pill {
-      min-width: 48px;
-      height: 48px;
-      padding: 0 12px;
-      border-radius: var(--md-sys-shape-corner-medium);
-      border: 1px solid var(--md-sys-color-outline-variant);
-      background: var(--md-sys-color-surface-container-high);
-      color: var(--md-sys-color-on-surface-variant);
-      font: var(--md-sys-typescale-label-large);
-      font-weight: 700;
-      cursor: pointer;
+    .live-progress-arrow {
       flex-shrink: 0;
-      scroll-snap-align: center;
-      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
-                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-    }
-    .live-minimap-pill.current {
-      border-color: var(--md-sys-color-primary);
-      background: var(--md-sys-color-primary-container);
-      color: var(--md-sys-color-on-primary-container);
-    }
-    .live-minimap-pill.done {
-      border-color: var(--app-color-success);
-      color: var(--app-color-success);
-    }
-
-    .live-ex-nav-row {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .live-nav-btn {
-      min-height: var(--app-touch-comfortable);
-      padding: 0 16px;
-      border-radius: var(--md-sys-shape-corner-medium);
-      border: 1px solid var(--md-sys-color-outline-variant);
-      background: var(--md-sys-color-surface-container-high);
-      color: var(--md-sys-color-on-surface);
-      font: var(--md-sys-typescale-label-large);
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 4px;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      border: none;
+      background: transparent;
+      color: var(--md-sys-color-on-surface-variant);
+      border-radius: var(--md-sys-shape-corner-full);
       cursor: pointer;
-      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+      transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard),
+                  color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
     }
-    .live-nav-btn:hover { background: var(--md-sys-color-surface-container-highest); }
-    .live-nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .live-progress-arrow:hover:not(:disabled) {
+      background: rgba(255,255,255,0.06);
+      color: var(--md-sys-color-primary);
+    }
+    .live-progress-arrow:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+    .live-progress-arrow .material-symbols-outlined { font-size: 24px; }
 
+    .live-progress-segments {
+      flex: 1;
+      display: flex;
+      gap: 3px;
+      align-items: stretch;
+      height: 8px;
+      min-width: 0;
+    }
+
+    .live-progress-segment {
+      border-radius: 4px;
+      background: var(--md-sys-color-surface-container-highest);
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+      min-width: 4px;
+    }
+    .live-progress-segment.is-done {
+      background: var(--app-color-success);
+    }
+    .live-progress-segment.is-current {
+      background: var(--md-sys-color-primary);
+      box-shadow: 0 0 6px rgba(168, 200, 255, 0.55);
+    }
+
+    .live-progress-counter {
+      flex-shrink: 0;
+      font: 700 0.75rem/1 'Roboto Mono', ui-monospace, monospace;
+      color: var(--md-sys-color-on-surface-variant);
+      letter-spacing: 0.4px;
+      min-width: 34px;
+      text-align: center;
+    }
+
+    /* Collapsible exercise header */
     .live-ex-header-card {
       background: var(--md-sys-color-surface-container);
       border-radius: var(--md-sys-shape-corner-large);
-      padding: 14px 16px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
       gap: 6px;
       border: 1px solid rgba(255, 255, 255, 0.05);
-      transition: padding var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized);
+      transition: padding var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-standard);
+    }
+    .live-ex-header-card.is-collapsed {
+      padding: 8px 12px;
     }
 
-    .live-ex-header-card.collapsed {
-      padding: 10px 14px;
-      cursor: pointer;
-    }
-    .live-ex-header-card.collapsed .live-ex-header-expanded { display: none; }
-    .live-ex-header-card:not(.collapsed) .live-ex-header-collapsed { display: none; }
-
-    .live-ex-header-expanded {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .live-ex-header-collapsed {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      width: 100%;
-    }
-    .live-ex-collapsed-row1 {
+    .live-ex-header-compact {
       display: flex;
       align-items: center;
-      justify-content: space-between;
       gap: 8px;
+      cursor: pointer;
+      user-select: none;
+      padding: 2px 0;
+      min-height: 40px;
     }
-    .live-ex-collapsed-name {
-      font: 700 0.95rem/1.3 'Roboto';
-      color: var(--md-sys-color-on-surface);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+
+    .live-ex-header-chevron {
+      color: var(--md-sys-color-primary);
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .live-ex-header-compact-text {
       flex: 1;
       min-width: 0;
     }
-    .live-ex-collapsed-chevron {
-      font-size: 20px;
-      color: var(--md-sys-color-primary);
-      flex-shrink: 0;
+
+    .live-ex-name-compact {
+      font: 700 0.92rem/1.2 'Roboto';
+      color: var(--md-sys-color-on-surface);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .live-ex-collapsed-row2 {
+
+    .live-ex-sub-compact {
+      font: 500 0.72rem/1.15 'Roboto';
+      color: var(--md-sys-color-on-surface-variant);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .live-ex-header-full {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .live-ex-header-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .live-ex-name-full {
+      font: 700 1.1rem/1.25 'Roboto';
+      color: var(--md-sys-color-on-surface);
+      flex: 1;
+      min-width: 0;
+    }
+
+    .live-ex-target-sub {
+      font: var(--md-sys-typescale-body-medium);
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.35;
+    }
+
+    .live-ex-warmup-hint {
+      font: var(--md-sys-typescale-body-small);
+      color: var(--app-color-success);
       display: flex;
       align-items: center;
-      gap: 6px;
-      font: var(--md-sys-typescale-label-medium);
-      color: var(--md-sys-color-on-surface-variant);
-      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 2px;
+      line-height: 1.35;
     }
-    .live-ex-collapsed-last {
-      color: var(--app-color-success);
-      font-weight: 600;
-    }
-    .live-ex-collapsed-sep { color: var(--md-sys-color-outline-variant); }
 
-    /* NOTE CHIPS в Live Workout Exercise Header */
+    /* Note chips в Live Workout */
     .live-ex-notes-row {
       display: flex;
       gap: 8px;
@@ -824,7 +850,7 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      min-height: 44px;
+      min-height: 40px;
       padding: 6px 12px;
       border-radius: var(--md-sys-shape-corner-small);
       border: 1px solid var(--md-sys-color-outline-variant);
@@ -873,11 +899,25 @@
     .live-controls-card {
       background: var(--md-sys-color-surface-container);
       border-radius: var(--md-sys-shape-corner-extra-large);
-      padding: 16px;
+      padding: 14px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
       border: 1px solid rgba(168, 200, 255, 0.12);
+    }
+
+    .live-current-set-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .live-current-set-label {
+      font: 700 0.78rem/1.2 'Roboto';
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--md-sys-color-primary);
+      text-align: center;
     }
 
     .live-cat-toggle-row {
@@ -913,6 +953,7 @@
       font: var(--md-sys-typescale-label-large);
       cursor: pointer;
       padding: 8px 12px;
+      line-height: 1.3;
       transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
                   border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
@@ -932,6 +973,7 @@
       text-transform: uppercase;
       letter-spacing: 0.6px;
       text-align: center;
+      font-size: 0.72rem;
     }
 
     .live-stepper-row {
@@ -971,12 +1013,11 @@
 
     .live-rir-row {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: 0.9fr 0.9fr 1.2fr 0.9fr;
       gap: 8px;
     }
 
     .live-rir-chip {
-      position: relative;
       min-height: var(--app-touch-comfortable);
       border-radius: var(--md-sys-shape-corner-medium);
       border: 1px solid var(--md-sys-color-outline-variant);
@@ -990,154 +1031,102 @@
       align-items: center;
       justify-content: center;
       padding: 4px 0;
-      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+      gap: 1px;
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+    }
+    .live-rir-chip .live-rir-num { font: 700 1rem/1 'Roboto'; }
+    .live-rir-chip .live-rir-label {
+      font: 500 0.68rem/1 'Roboto';
+      opacity: 0.85;
     }
     .live-rir-chip.active {
       background: var(--md-sys-color-secondary-container);
       color: var(--md-sys-color-on-secondary-container);
       border-color: var(--md-sys-color-primary);
       border-width: 2px;
-      padding: 3px -1px;
-    }
-    .live-rir-chip.active::after {
-      content: '✓';
-      position: absolute;
-      top: 3px;
-      right: 5px;
-      font-size: 10px;
-      font-weight: 800;
-      color: var(--md-sys-color-primary);
-      line-height: 1;
+      padding: 3px 0;
     }
 
-    /* Compact-версия «Упражнение выполнено» */
     .live-complete-ex-card {
       display: none;
       background: var(--app-color-success-container);
       border: 1.5px solid var(--app-color-success);
-      border-radius: var(--md-sys-shape-corner-large);
+      border-radius: var(--md-sys-shape-corner-extra-large);
       padding: 14px;
       flex-direction: column;
-      align-items: stretch;
+      align-items: center;
       gap: 10px;
       text-align: center;
     }
+    .live-complete-title {
+      font: 700 0.95rem/1.3 'Roboto';
+      color: var(--app-color-success);
+    }
 
-    /* =========================================================
-       PERSISTENT ACTION BAR (PAB) — V2.0
-       ========================================================= */
-    .live-bottom-action-bar {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 20;
+    /* History groups */
+    .live-history-groups-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .live-history-group {
       background: var(--md-sys-color-surface-container);
-      border-top: 1px solid var(--md-sys-color-outline-variant);
-      padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)) 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.25);
-    }
-
-    .live-pab-record-btn {
-      width: 100%;
-      min-height: 60px;
       border-radius: var(--md-sys-shape-corner-large);
-      border: none;
-      background: var(--app-color-success);
-      color: #062e16;
-      font: 700 0.95rem/1.2 'Roboto';
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      cursor: pointer;
-      transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
-      padding: 8px 12px;
-      text-align: center;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.04);
     }
-    .live-pab-record-btn:active { opacity: 0.85; }
-    .live-pab-record-btn[hidden] { display: none; }
 
-    .live-pab-rest-block {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+    .live-history-group-header {
       width: 100%;
-    }
-    .live-pab-rest-block[hidden] { display: none; }
-
-    .live-pab-rest-timer-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 0 4px;
-    }
-    .live-pab-rest-timer-row .material-symbols-outlined {
-      font-size: 18px;
-      color: var(--md-sys-color-primary);
-    }
-    .live-pab-rest-label {
-      font: var(--md-sys-typescale-label-medium);
-      color: var(--md-sys-color-on-surface-variant);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      flex: 1;
-    }
-    .live-pab-rest-countdown {
-      font-family: 'Roboto Mono', monospace;
-      font-size: 1.6rem;
-      font-weight: 700;
-      color: var(--md-sys-color-primary);
-      letter-spacing: -0.5px;
-      line-height: 1;
-    }
-
-    .live-pab-rest-buttons {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1.5fr;
-      gap: 8px;
-    }
-
-    .live-pab-rest-btn {
-      min-height: 52px;
-      border-radius: var(--md-sys-shape-corner-medium);
-      border: 1px solid rgba(168, 200, 255, 0.35);
-      background: rgba(255, 255, 255, 0.04);
+      padding: 12px 14px;
+      background: transparent;
+      border: none;
       color: var(--md-sys-color-on-surface);
-      font: var(--md-sys-typescale-label-large);
-      font-weight: 600;
       cursor: pointer;
-      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+      text-align: left;
+      transition: background-color var(--md-sys-motion-duration-short3);
     }
-    .live-pab-rest-btn:hover { background: rgba(255, 255, 255, 0.08); }
-    .live-pab-rest-primary {
-      background: var(--md-sys-color-primary-container);
-      color: var(--md-sys-color-on-primary-container);
-      border-color: var(--md-sys-color-primary);
+    .live-history-group-header:hover { background: rgba(255,255,255,0.04); }
+
+    .live-history-chevron {
+      font-size: 20px;
+      color: var(--md-sys-color-primary);
+      flex-shrink: 0;
+      transition: transform var(--md-sys-motion-duration-short4);
     }
 
-    .live-pab-next-btn {
-      width: 100%;
-      min-height: 60px;
-      border-radius: var(--md-sys-shape-corner-large);
-      border: none;
-      background: var(--md-sys-color-primary);
-      color: #00325e;
-      font: 700 0.95rem/1.2 'Roboto';
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      cursor: pointer;
-      padding: 8px 12px;
-      text-align: center;
-      transition: opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+    .live-history-group-title {
+      flex: 1;
+      font: 700 0.78rem/1.2 'Roboto';
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--md-sys-color-on-surface-variant);
     }
-    .live-pab-next-btn[hidden] { display: none; }
-    .live-pab-next-btn:active { opacity: 0.85; }
+
+    .live-history-group-meta {
+      font: 500 0.72rem/1 'Roboto';
+      color: var(--md-sys-color-on-surface-variant);
+      letter-spacing: 0;
+      text-transform: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
+    }
+
+    .live-history-group-body {
+      padding: 0 10px 10px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .live-history-group.is-collapsed .live-history-group-body { display: none; }
+    .live-history-group.is-collapsed .live-history-chevron { transform: rotate(-90deg); }
 
     .live-history-row {
       display: flex;
@@ -1147,11 +1136,12 @@
       border-radius: var(--md-sys-shape-corner-medium);
       background: var(--md-sys-color-surface-container-high);
       font: var(--md-sys-typescale-body-medium);
+      gap: 8px;
     }
 
     .live-delete-set-btn {
-      width: var(--app-touch-min);
-      height: var(--app-touch-min);
+      width: 40px;
+      height: 40px;
       border-radius: var(--md-sys-shape-corner-full);
       border: none;
       background: transparent;
@@ -1160,42 +1150,181 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
       transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
     }
     .live-delete-set-btn:hover { background: rgba(255, 180, 171, 0.12); }
 
-    .live-show-all-btn {
+    /* Persistent Action Bar (PAB) */
+    .live-pab {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)) 12px;
+      background: rgba(17, 19, 24, 0.82);
+      backdrop-filter: blur(16px) saturate(140%);
+      -webkit-backdrop-filter: blur(16px) saturate(140%);
+      border-top: 1px solid rgba(168, 200, 255, 0.14);
+      z-index: 20;
+      box-shadow: 0 -6px 20px rgba(0,0,0,0.35);
+      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
+                  border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+    }
+
+    .live-pab.is-warning {
+      background: rgba(46, 16, 16, 0.86);
+      border-top-color: rgba(255, 107, 107, 0.55);
+    }
+
+    .live-pab-content {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .live-pab-record-btn {
       width: 100%;
-      min-height: 44px;
-      border-radius: var(--md-sys-shape-corner-small);
-      border: 1px dashed var(--md-sys-color-outline-variant);
-      background: transparent;
-      color: var(--md-sys-color-primary);
-      font: var(--md-sys-typescale-label-large);
-      font-weight: 600;
+      min-height: 72px;
+      border-radius: var(--md-sys-shape-corner-large);
+      border: none;
+      background: var(--app-color-success);
+      color: #062e16;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
       cursor: pointer;
-      padding: 8px;
+      padding: 8px 12px;
+      transition: opacity var(--md-sys-motion-duration-short3);
+      box-shadow: 0 2px 8px rgba(120, 220, 156, 0.25);
     }
-    .live-show-all-btn:hover { background: rgba(168, 200, 255, 0.08); }
+    .live-pab-record-btn:active { opacity: 0.88; }
+    .live-pab-primary-label {
+      font: 700 0.95rem/1.15 'Roboto';
+      letter-spacing: 0.4px;
+      text-align: center;
+    }
+    .live-pab-secondary-label {
+      font: 600 0.85rem/1.2 'Roboto';
+      opacity: 0.78;
+      text-align: center;
+    }
 
-    .live-srpe-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-    .live-readiness-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-
-    .live-srpe-chip, .live-readiness-chip {
-      min-height: var(--app-touch-min);
-      border-radius: var(--md-sys-shape-corner-small);
-      border: 1px solid var(--md-sys-color-outline-variant);
-      background: var(--md-sys-color-surface-container-high);
+    .live-pab-rest-info {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
       color: var(--md-sys-color-on-surface);
-      font: var(--md-sys-typescale-label-large);
-      font-weight: 700;
-      cursor: pointer;
-      transition: background-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
     }
-    .live-srpe-chip.active, .live-readiness-chip.active {
+    .live-pab-rest-label {
+      font: 700 0.72rem/1 'Roboto';
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--md-sys-color-on-surface-variant);
+    }
+    .live-pab-rest-countdown {
+      font-family: 'Roboto Mono', ui-monospace, monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--md-sys-color-primary);
+      letter-spacing: 0.5px;
+      transition: color var(--md-sys-motion-duration-short4);
+    }
+    .live-pab.is-warning .live-pab-rest-countdown {
+      color: #ff6b6b;
+      animation: pabWarningPulse 1s ease-in-out infinite;
+    }
+    @keyframes pabWarningPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+
+    .live-pab-rest {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.3fr;
+      gap: 8px;
+    }
+
+    .live-pab-rest-btn {
+      min-height: 48px;
+      border-radius: var(--md-sys-shape-corner-small);
+      border: 1px solid rgba(168, 200, 255, 0.35);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--md-sys-color-on-surface);
+      font: 600 0.85rem/1.15 'Roboto';
+      cursor: pointer;
+      transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    }
+    .live-pab-rest-btn:hover { background: rgba(255, 255, 255, 0.12); }
+    .live-pab-rest-btn.is-primary {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
       border-color: var(--md-sys-color-primary);
+    }
+
+    .live-pab-completed-btn {
+      width: 100%;
+      min-height: 72px;
+      border-radius: var(--md-sys-shape-corner-large);
+      border: none;
+      background: var(--md-sys-color-primary);
+      color: #00325e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      cursor: pointer;
+      padding: 8px 12px;
+      letter-spacing: 0.4px;
+      transition: opacity var(--md-sys-motion-duration-short3);
+      box-shadow: 0 2px 8px rgba(168, 200, 255, 0.25);
+    }
+    .live-pab-completed-btn:active { opacity: 0.88; }
+    .live-pab-completed-btn .live-pab-primary-label {
+      font-size: 0.95rem;
+    }
+    .live-pab-completed-btn .live-pab-secondary-label {
+      font-size: 0.8rem;
+      opacity: 0.82;
+      font-weight: 600;
+    }
+
+    /* Cluster pause floating button */
+    .live-cluster-float-btn {
+      position: fixed;
+      right: 16px;
+      bottom: calc(108px + env(safe-area-inset-bottom, 0px));
+      width: 58px;
+      height: 58px;
+      border-radius: var(--md-sys-shape-corner-full);
+      border: 2px solid var(--app-color-warning);
+      background: rgba(26, 22, 10, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: var(--app-color-warning);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 25;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+      animation: clusterFloatIn var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+    }
+    .live-cluster-float-btn:active { opacity: 0.85; }
+    .live-cluster-float-btn .material-symbols-outlined { font-size: 22px; }
+    .live-cluster-float-label {
+      font: 700 0.62rem/1 'Roboto';
+      margin-top: 1px;
+      letter-spacing: 0.3px;
+    }
+    @keyframes clusterFloatIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.9); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     /* ANATOMICAL HEATMAP */
@@ -1806,6 +1935,9 @@
       gap: 10px;
       margin-top: 4px;
     }
+
+    /* Live modal placeholder styling for rest timer overlay (не используется — оставлено на будущее) */
+    .live-rest-bar-legacy { display: none; }
   </style>
 </head>
 <body>
@@ -2343,57 +2475,56 @@
   </div>
 
   <!-- =========================================================================
-       V2.0 THUMB-ZONE: LIVE WORKOUT OVERLAY
+       ПОЛНОЭКРАННЫЙ КОНТУР ТРЕНИРОВКИ В ЗАЛЕ (LIVE WORKOUT OVERLAY V2.0)
        ========================================================================= -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
+
+    <!-- Compact top bar (48px) -->
     <div class="live-top-bar">
-      <button id="liveMinimizeBtn" class="live-nav-btn" title="Свернуть экран" aria-label="Свернуть тренировку">
-        <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">expand_more</span>
-        <span>Свернуть</span>
+      <button id="liveMinimizeBtn" class="live-icon-btn" aria-label="Свернуть тренировку" title="Свернуть">
+        <span class="material-symbols-outlined" aria-hidden="true">expand_more</span>
       </button>
-      <div class="live-top-center">
-        <span id="liveHeaderTimer" class="live-timer-pill" role="timer" aria-live="off">00:00</span>
-        <div id="liveRestRingWrap" class="live-rest-ring-wrap" hidden aria-label="Прогресс отдыха">
-          <svg class="live-rest-ring" viewBox="0 0 40 40" aria-hidden="true">
-            <circle class="ring-track" cx="20" cy="20" r="16"></circle>
-            <circle id="liveRestRingProgress" class="ring-progress" cx="20" cy="20" r="16"
-                    stroke-dasharray="100.53 100.53" stroke-dashoffset="0"></circle>
-          </svg>
-        </div>
-      </div>
-      <div style="display:flex; align-items:center; gap:6px;">
-        <md-icon-button id="liveOpenTimerSettingsBtn" aria-label="Настроить тайминги отдыха" title="Настроить тайминги отдыха">
-          <span class="material-symbols-outlined" aria-hidden="true">timer</span>
-        </md-icon-button>
-        <button id="liveOpenFinishModalBtn" class="live-nav-btn" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); border-color: var(--md-sys-color-primary);">
-          <span>Финиш</span>
-        </button>
-      </div>
+      <span id="liveHeaderTimer" class="live-timer-pill" role="timer" aria-live="off">00:00</span>
+      <div class="live-top-bar-spacer"></div>
+      <button id="liveOpenTimerSettingsBtn" class="live-icon-btn" aria-label="Настройки таймингов отдыха" title="Тайминги отдыха">
+        <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+      </button>
+      <button id="liveOpenFinishModalBtn" class="live-finish-btn" aria-label="Завершить тренировку">Финиш</button>
     </div>
 
     <div class="live-body-container">
-      <div style="font: var(--md-sys-typescale-label-large); color: var(--md-sys-color-on-surface-variant); text-align:center;" id="liveWorkoutTitle">Тренировка</div>
 
-      <div id="liveExMiniMap" class="live-minimap-row" role="tablist" aria-label="Навигация по упражнениям"></div>
-
-      <div class="live-ex-nav-row">
-        <button id="livePrevExBtn" class="live-nav-btn" aria-label="Предыдущее упражнение">
-          <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">chevron_left</span>
-          <span>Пред.</span>
+      <!-- Progress Strip (44px) -->
+      <div class="live-progress-strip" role="navigation" aria-label="Навигация по упражнениям">
+        <button id="livePrevExBtn" class="live-progress-arrow" aria-label="Предыдущее упражнение">
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_left</span>
         </button>
-        <span id="liveExProgressBadge" style="font: var(--md-sys-typescale-label-large); font-weight:700; color: var(--md-sys-color-primary); text-align:center;">Упражнение 1 из 7</span>
-        <button id="liveNextExBtn" class="live-nav-btn" aria-label="Следующее упражнение">
-          <span>След.</span>
-          <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">chevron_right</span>
+        <div id="liveProgressSegments" class="live-progress-segments" aria-hidden="true"></div>
+        <span id="liveExProgressBadge" class="live-progress-counter">1/1</span>
+        <button id="liveNextExBtn" class="live-progress-arrow" aria-label="Следующее упражнение">
+          <span class="material-symbols-outlined" aria-hidden="true">chevron_right</span>
         </button>
       </div>
 
-      <!-- Header card: two states (expanded / collapsed) -->
+      <!-- Collapsible exercise header -->
       <div id="liveExHeaderCard" class="live-ex-header-card">
-        <div class="live-ex-header-expanded" id="liveExHeaderExpanded">
-          <div id="liveExName" style="font: 700 1.15rem/1.3 'Roboto'; color: var(--md-sys-color-on-surface);">Упражнение</div>
-          <div id="liveExTargetSubtitle" style="font: var(--md-sys-typescale-body-medium); color: var(--md-sys-color-on-surface-variant);">Цель: ...</div>
-
+        <!-- Compact (shown when collapsed) -->
+        <div id="liveExHeaderCompact" class="live-ex-header-compact" style="display:none;" role="button" tabindex="0" aria-label="Развернуть заголовок упражнения">
+          <span class="material-symbols-outlined live-ex-header-chevron" aria-hidden="true">expand_more</span>
+          <div class="live-ex-header-compact-text">
+            <div id="liveExNameCompact" class="live-ex-name-compact">Упражнение</div>
+            <div id="liveExSubCompact" class="live-ex-sub-compact">план · посл.</div>
+          </div>
+        </div>
+        <!-- Full (shown when expanded) -->
+        <div id="liveExHeaderFull" class="live-ex-header-full">
+          <div class="live-ex-header-title-row">
+            <div id="liveExName" class="live-ex-name-full">Упражнение</div>
+            <button id="liveExHeaderCollapseBtn" class="live-icon-btn" aria-label="Свернуть заголовок">
+              <span class="material-symbols-outlined" aria-hidden="true">expand_less</span>
+            </button>
+          </div>
+          <div id="liveExTargetSubtitle" class="live-ex-target-sub">Цель: ...</div>
           <div id="liveExNotesRow" class="live-ex-notes-row">
             <button type="button" id="liveEquipmentChip" class="live-note-chip is-empty" aria-label="Настройки оборудования">
               <span class="material-symbols-outlined" aria-hidden="true">settings</span>
@@ -2404,41 +2535,16 @@
               <span class="live-note-value" id="liveTechniqueValue"></span>
             </button>
           </div>
-
-          <div id="liveExWarmupHint" style="font: var(--md-sys-typescale-body-small); color: var(--app-color-success); display:flex; align-items:center; gap:4px; margin-top:2px;"></div>
-        </div>
-
-        <div class="live-ex-header-collapsed" id="liveExHeaderCollapsed">
-          <div class="live-ex-collapsed-row1">
-            <span class="live-ex-collapsed-name" id="liveExCollapsedName">—</span>
-            <span class="material-symbols-outlined live-ex-collapsed-chevron" aria-hidden="true">expand_more</span>
-          </div>
-          <div class="live-ex-collapsed-row2">
-            <span id="liveExCollapsedPlan">план —</span>
-            <span class="live-ex-collapsed-sep">•</span>
-            <span class="live-ex-collapsed-last" id="liveExCollapsedLast">нет сетов</span>
-          </div>
+          <div id="liveExWarmupHint" class="live-ex-warmup-hint"></div>
         </div>
       </div>
 
       <div id="liveIntensifierBanner" class="live-intensifier-banner" role="status"></div>
 
-      <div id="liveExCompletedCard" class="live-complete-ex-card">
-        <div style="font: 700 1rem/1.3 'Roboto'; color: var(--app-color-success);" id="liveExCompletedTitle">
-          ✅ Упражнение выполнено
-        </div>
-        <button id="liveAddBonusSetBtn" class="live-method-toggle-btn">
-          + Добавить еще 1 подход сверх плана
-        </button>
-      </div>
-
+      <!-- Active controls -->
       <div id="liveActiveSetControlsCard" class="live-controls-card">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-          <span id="liveCurrentSetLabel" style="font: var(--md-sys-typescale-label-large); font-weight:700; color: var(--md-sys-color-primary);">РАЗМИНКА: ШАГ 1</span>
-          <button id="liveClusterPauseBtn" class="live-nav-btn" style="min-height:48px; padding:0 12px; font: var(--md-sys-typescale-label-medium); display: none;" aria-label="Запустить кластерную паузу">
-            <span class="material-symbols-outlined" aria-hidden="true" style="font-size:16px;">bolt</span>
-            <span>Пауза 20с</span>
-          </button>
+        <div class="live-current-set-row">
+          <span id="liveCurrentSetLabel" class="live-current-set-label">РАЗМИНКА: ШАГ 1</span>
         </div>
 
         <div class="live-cat-toggle-row">
@@ -2453,95 +2559,88 @@
         </div>
 
         <div class="live-stepper-block">
-          <span class="live-stepper-label">Вес снаряда (шаг 2.5 кг)</span>
+          <span class="live-stepper-label">ВЕС СНАРЯДА (ШАГ 2.5 КГ)</span>
           <div class="live-stepper-row">
-            <button id="liveWeightMinusBtn" class="live-step-btn" aria-label="Уменьшить вес на 2.5 кг">- 2.5</button>
-            <div id="liveWeightValue" class="live-step-display" aria-live="polite">100</div>
+            <button id="liveWeightMinusBtn" class="live-step-btn" aria-label="Уменьшить вес на 2.5 кг">− 2.5</button>
+            <div id="liveWeightValue" class="live-step-display" aria-live="polite">0</div>
             <button id="liveWeightPlusBtn" class="live-step-btn" aria-label="Увеличить вес на 2.5 кг">+ 2.5</button>
           </div>
         </div>
 
         <div class="live-stepper-block">
-          <span class="live-stepper-label">Выполнено повторений</span>
+          <span class="live-stepper-label">ВЫПОЛНЕНО ПОВТОРЕНИЙ</span>
           <div class="live-stepper-row">
-            <button id="liveRepsMinusBtn" class="live-step-btn" aria-label="Уменьшить повторения на 1">- 1</button>
-            <div id="liveRepsValue" class="live-step-display" aria-live="polite">6</div>
+            <button id="liveRepsMinusBtn" class="live-step-btn" aria-label="Уменьшить повторения на 1">− 1</button>
+            <div id="liveRepsValue" class="live-step-display" aria-live="polite">0</div>
             <button id="liveRepsPlusBtn" class="live-step-btn" aria-label="Увеличить повторения на 1">+ 1</button>
           </div>
         </div>
 
         <div id="liveRirBlock" class="live-stepper-block">
-          <span class="live-stepper-label">Запас сил до отказа (RIR)</span>
+          <span class="live-stepper-label">ЗАПАС СИЛ ДО ОТКАЗА (RIR)</span>
           <div class="live-rir-row" role="radiogroup" aria-label="RIR">
             <button class="live-rir-chip" data-rir="0" role="radio" aria-checked="false">
-              <span>0</span>
-              <span style="font-size:0.7rem; font-weight:400;">Отказ</span>
+              <span class="live-rir-num">0</span>
+              <span class="live-rir-label">Отказ</span>
             </button>
             <button class="live-rir-chip" data-rir="1" role="radio" aria-checked="false">
-              <span>1</span>
-              <span style="font-size:0.7rem; font-weight:400;">Тяжело</span>
+              <span class="live-rir-num">1</span>
+              <span class="live-rir-label">Тяжело</span>
             </button>
             <button class="live-rir-chip active" data-rir="2" role="radio" aria-checked="true">
-              <span>2</span>
-              <span style="font-size:0.7rem; font-weight:400;">Оптимум</span>
+              <span class="live-rir-num">2</span>
+              <span class="live-rir-label">Оптимум</span>
             </button>
             <button class="live-rir-chip" data-rir="3+" role="radio" aria-checked="false">
-              <span>3+</span>
-              <span style="font-size:0.7rem; font-weight:400;">Запас</span>
+              <span class="live-rir-num">3+</span>
+              <span class="live-rir-label">Запас</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div class="m3-card" style="padding:14px;">
-        <div style="font: var(--md-sys-typescale-label-large); font-weight:700; color: var(--md-sys-color-on-surface-variant); text-transform:uppercase;">Записанные подходы сегодня:</div>
-        <div id="liveCompletedSetsList" style="display:flex; flex-direction:column; gap:8px;"></div>
-        <button id="liveShowAllSetsBtn" class="live-show-all-btn" hidden>
-          Показать все подходы →
+      <!-- Exercise completed status (PAB has the action) -->
+      <div id="liveExCompletedCard" class="live-complete-ex-card">
+        <div id="liveExCompletedTitle" class="live-complete-title">✅ Упражнение выполнено!</div>
+        <button id="liveAddBonusSetBtn" class="live-method-toggle-btn" style="margin-top:2px;">
+          + Добавить еще 1 подход сверх плана
         </button>
       </div>
-    </div>
 
-    <!-- ====== PERSISTENT ACTION BAR ====== -->
-    <div id="liveBottomActionBar" class="live-bottom-action-bar" role="toolbar" aria-label="Действия тренировки">
-      <button id="livePabRecordBtn" class="live-pab-record-btn">
-        <span class="material-symbols-outlined" aria-hidden="true">check_circle</span>
-        <span id="livePabRecordLabel">ЗАПИСАТЬ СЕТ</span>
-      </button>
-
-      <div id="livePabRestBlock" class="live-pab-rest-block" hidden>
-        <div class="live-pab-rest-timer-row">
-          <span class="material-symbols-outlined" aria-hidden="true">timer</span>
-          <span class="live-pab-rest-label">Отдых</span>
-          <span id="livePabRestCountdown" class="live-pab-rest-countdown">00:00</span>
+      <!-- Journal with groups -->
+      <div class="live-history-groups-container">
+        <div id="liveWarmupGroup" class="live-history-group" data-group="warmup" style="display:none;">
+          <button type="button" class="live-history-group-header" id="liveWarmupGroupHeader" aria-expanded="false">
+            <span class="material-symbols-outlined live-history-chevron" id="liveWarmupChevron" aria-hidden="true">expand_more</span>
+            <span class="live-history-group-title">РАЗМИНКА</span>
+            <span class="live-history-group-meta" id="liveWarmupGroupMeta"></span>
+          </button>
+          <div id="liveWarmupGroupBody" class="live-history-group-body"></div>
         </div>
-        <div class="live-pab-rest-buttons">
-          <button id="livePabMinus30Btn" class="live-pab-rest-btn">− 30 сек</button>
-          <button id="livePabPlus30Btn" class="live-pab-rest-btn">+ 30 сек</button>
-          <button id="livePabSkipRestBtn" class="live-pab-rest-btn live-pab-rest-primary">Пропустить >></button>
+
+        <div id="liveWorkGroup" class="live-history-group" data-group="work" style="display:none;">
+          <button type="button" class="live-history-group-header" id="liveWorkGroupHeader" aria-expanded="true">
+            <span class="material-symbols-outlined live-history-chevron" id="liveWorkChevron" aria-hidden="true">expand_more</span>
+            <span class="live-history-group-title">РАБОЧИЕ</span>
+            <span class="live-history-group-meta" id="liveWorkGroupMeta"></span>
+          </button>
+          <div id="liveWorkGroupBody" class="live-history-group-body"></div>
         </div>
       </div>
 
-      <button id="livePabNextExBtn" class="live-pab-next-btn" hidden>
-        <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
-        <span id="livePabNextExLabel">ЗАВЕРШИТЬ → УПР. #2</span>
-      </button>
     </div>
-  </div>
 
-  <!-- =========================================================================
-       МОДАЛЬНОЕ ОКНО: ПОЛНЫЙ ЖУРНАЛ ПОДХОДОВ УПРАЖНЕНИЯ (V2.0)
-       ========================================================================= -->
-  <div id="liveFullHistoryModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveFullHistoryTitle">
-    <div class="modal-card">
-      <div class="card-title">
-        <span id="liveFullHistoryTitle" style="color: var(--md-sys-color-primary);">Все подходы упражнения</span>
-        <md-icon-button id="closeLiveFullHistoryBtn" aria-label="Закрыть окно">
-          <span class="material-symbols-outlined" aria-hidden="true">close</span>
-        </md-icon-button>
-      </div>
-      <div id="liveFullHistoryList" style="display:flex; flex-direction:column; gap:8px;"></div>
+    <!-- Persistent Action Bar (PAB) -->
+    <div id="liveBottomActionBar" class="live-pab" role="toolbar" aria-label="Основное действие">
+      <!-- Content injected by JS -->
     </div>
+
+    <!-- Cluster pause floating button -->
+    <button id="liveClusterPauseBtn" class="live-cluster-float-btn" style="display:none;" aria-label="Кластерная микропауза" title="Микропауза для кластера">
+      <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
+      <span class="live-cluster-float-label" id="liveClusterFloatLabel">20с</span>
+    </button>
+
   </div>
 
   <!-- МОДАЛЬНОЕ ОКНО ЗАВЕРШЕНИЯ ТРЕНИРОВКИ -->
@@ -2620,7 +2719,6 @@
 
   <!-- =========================================================================
        BOTTOM SHEET для редактирования заметок упражнения
-       Fix: input «Оборудование» заменён на <textarea rows="1">
        ========================================================================= -->
   <div id="liveNotesSheet" class="bottom-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveNotesSheetTitle">
     <div class="bottom-sheet">
