@@ -1,13 +1,11 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.0 AMBIENT DASHBOARD)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.1 AMBIENT DASHBOARD FIX)
  * =========================================================================
- * V2.8.0:
- * - Добавлен режим "Ambient Dashboard" для Big Clock.
- * - Интеграция таймера отдыха в PAB: клик по таймеру открывает дашборд.
- * - Умный Big Clock: считает вниз (если идет отдых) или вверх (секундомер).
- * - Визуальное оповещение (< 15 сек) с пульсацией и красным свечением.
- * - Вывод аналитики в Big Clock (Упражнение, План, Прогресс).
+ * V2.8.1:
+ * - Фикс заморозки Big Clock при клике из нижней панели (переход на ModalManager).
+ * - Добавлен таймер бездействия (10 сек): если не трогать экран во время отдыха,
+ *   автоматически открывается полноэкранный дашборд.
  */
 
 import {
@@ -30,6 +28,7 @@ let isLiveWorkoutInitialized = false;
 
 let bigClockStartedAtMs = 0;
 let bigClockInterval = null;
+let idleTimer = null; // V2.8.1: Таймер бездействия для автозапуска дашборда
 
 let activeClusterSheetState = null;
 let activeDropSheetState = null;
@@ -46,6 +45,10 @@ export function initLiveWorkoutModule(onComplete) {
   onWorkoutCompletedCallback = onComplete;
   bindLiveWorkoutDomEvents();
   checkCrashRecoverySession();
+
+  // V2.8.1: Сброс таймера бездействия при любом касании экрана
+  document.addEventListener('touchstart', resetIdleTimer, { passive: true });
+  document.addEventListener('click', resetIdleTimer);
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible' && activeSession && !activeSession.isFinished) {
@@ -89,6 +92,7 @@ function registerLiveModals() {
       el: bigClock,
       displayStyle: 'flex',
       onOpen: () => { 
+        if (idleTimer) clearTimeout(idleTimer); // Останавливаем автозапуск, мы уже здесь
         renderBigClockWidgets();
         startBigClockEngine(); 
       },
@@ -463,6 +467,7 @@ function discardLiveWorkoutSession() {
 function stopAllTimers() {
   if (workoutDurationInterval) { clearInterval(workoutDurationInterval); workoutDurationInterval = null; }
   if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
 }
 
 function startDurationTicker() {
@@ -481,12 +486,24 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * BIG CLOCK / AMBIENT DASHBOARD
+ * BIG CLOCK / AMBIENT DASHBOARD & IDLE TIMER (V2.8.1)
  * ========================================================= */
 
 function openBigClockOverlay() { 
   registerLiveModals(); 
   openModal('liveBigClockOverlay'); 
+}
+
+function resetIdleTimer() {
+  if (idleTimer) clearTimeout(idleTimer);
+  if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) return;
+  if (isModalOpen('liveBigClockOverlay') || isModalOpen('liveClusterSheet') || isModalOpen('liveDropSheet')) return;
+
+  idleTimer = setTimeout(() => {
+    if (activeSession && activeSession.restState.isActive && !isModalOpen('liveBigClockOverlay')) {
+      openBigClockOverlay();
+    }
+  }, 10000); // 10 секунд
 }
 
 function renderBigClockWidgets() {
@@ -563,7 +580,6 @@ function startBigClockEngine() {
 
     if (isResting) {
       if (!activeSession.restState.isActive) {
-        // Отдых закончился, пока мы смотрели
         digitsEl.innerText = '00:00';
         overlay.classList.add('is-warning');
         stopBigClock();
@@ -1041,7 +1057,7 @@ function renderPAB() {
       const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
       const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
       const s = String(remainingSec % 60).padStart(2, '0');
-      restInlineHtml = `<div class="live-pab-rest-info" style="margin-bottom:6px;"><span class="live-pab-rest-label">⏱ Отдых (можно подождать)</span><span class="live-pab-rest-countdown" id="livePabRestCountdownInline" onclick="document.getElementById('liveBigClockOverlay').style.display='flex'; document.getElementById('livePabRestCountdownInline').blur();">${m}:${s}</span></div>`;
+      restInlineHtml = `<div class="live-pab-rest-info" style="margin-bottom:6px;"><span class="live-pab-rest-label">⏱ Отдых (можно подождать)</span><span class="live-pab-rest-countdown" id="livePabRestCountdownInline">${m}:${s}</span></div>`;
       if (remainingSec <= 15 && remainingSec > 0) pab.classList.add('is-warning');
     }
     pab.innerHTML = `
@@ -1055,6 +1071,11 @@ function renderPAB() {
     `;
     const nextBtn = document.getElementById('livePabCompleteNext');
     if (nextBtn) nextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
+    
+    // V2.8.1: Фикс клика по инлайн-таймеру
+    const inlineTimer = document.getElementById('livePabRestCountdownInline');
+    if (inlineTimer) inlineTimer.onclick = (e) => { e.stopPropagation(); openBigClockOverlay(); };
+
     return;
   }
 
@@ -1068,7 +1089,7 @@ function renderPAB() {
       <div class="live-pab-content">
         <div class="live-pab-rest-info">
           <span class="live-pab-rest-label">⏱ Отдых · ATP-CrP</span>
-          <span class="live-pab-rest-countdown" id="livePabRestCountdown" onclick="document.getElementById('liveBigClockOverlay').style.display='flex'; document.getElementById('livePabRestCountdown').blur();">${m}:${s}</span>
+          <span class="live-pab-rest-countdown" id="livePabRestCountdown">${m}:${s}</span>
         </div>
         <div class="live-pab-rest">
           <button class="live-pab-rest-btn" id="livePabRestMinus30" type="button">− 30 сек</button>
@@ -1083,6 +1104,11 @@ function renderPAB() {
     if (minus) minus.onclick = () => adjustRestTimer(-30);
     if (plus) plus.onclick = () => adjustRestTimer(30);
     if (skip) skip.onclick = () => stopRestTimer();
+
+    // V2.8.1: Фикс клика по центральному таймеру PAB
+    const countdown = document.getElementById('livePabRestCountdown');
+    if (countdown) countdown.onclick = (e) => { e.stopPropagation(); openBigClockOverlay(); };
+
     return;
   }
 
@@ -1393,7 +1419,8 @@ function commitRecordedSet(partialSet) {
   let restSeconds = prefs.compound;
   if (recordedSet.category === 'Разминка') restSeconds = prefs.warmup;
   else if (currentEx.order > 2) restSeconds = prefs.isolation;
-  startRestTimer(restSeconds);
+  
+  startRestTimer(restSeconds); // Внутри вызовется resetIdleTimer
   persistActiveSession();
   renderLiveWorkoutScreen();
 }
@@ -1757,7 +1784,8 @@ function startRestTimer(seconds) {
   persistActiveSession();
   renderPAB();
   syncRestTimerWithWallClock();
-  if (isModalOpen('liveBigClockOverlay')) startBigClockEngine(); // Обновляем дашборд если он открыт
+  if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
+  resetIdleTimer(); // V2.8.1: Запуск таймера бездействия
 }
 
 function adjustRestTimer(deltaSeconds) {
@@ -1767,6 +1795,7 @@ function adjustRestTimer(deltaSeconds) {
   persistActiveSession();
   syncRestTimerWithWallClock();
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
+  resetIdleTimer(); // V2.8.1: Сброс таймера бездействия при ручном вмешательстве
 }
 
 function stopRestTimer() {
@@ -1775,6 +1804,7 @@ function stopRestTimer() {
   activeSession.restState.endsAtMs = 0;
   activeSession.lastRestEndMs = Date.now();
   if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } // V2.8.1: Остановка бездействия
   persistActiveSession();
   renderPAB();
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
