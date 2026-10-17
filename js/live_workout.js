@@ -1,13 +1,16 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.4 SMART MEV BARS & HELP)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.5 SMART BARS & MANUAL METHODS)
  * =========================================================================
- * V2.8.4:
- * - Заменены точки на полоски (Bars) с цветовой индикацией RIR.
- * - Добавлена кнопка справки (?) для виджета MEV.
- * - Исправлен баг с обновлением дашборда после записи сета.
- * - Возвращен зеленый цвет весу в карточке плана.
- * - Исправлена сетка (Flex-grow), чтобы карточки были прижаты к низу.
+ * V2.8.5:
+ * - Добавлены кнопки ручного включения Дроп/Кластер в шапку упражнения.
+ * - Полоски в дашборде теперь отображают и разминку (серые), и рабочие (цвета RIR).
+ * - Текущий сет подсвечивается пульсацией (is-current).
+ * - Финальный сет с дропом/кластером помечается желтым пунктиром (is-special).
+ * - Заголовок сета в дашборде динамический: РАЗМИНКА или РАБОЧИЙ СЕТ.
+ * - Блок "В ПРОШЛЫЙ РАЗ" фильтруется по текущей категории (Разминка к Разминке, Рабочий к Рабочему).
+ * - Дельта веса пересчитывается по эффективному весу, цвет изменен на нейтральный синий (для объемной недели).
+ * =========================================================================
  */
 
 import {
@@ -582,14 +585,25 @@ function renderBigClockWidgets() {
   // 2. Полоски подходов (Bars)
   const barsContainer = document.getElementById('liveClockBars');
   if (barsContainer) {
-    const totalSets = currentEx.targetSets;
-    const workSets = currentEx.completedSets.filter(s => s.category === 'Рабочий');
+    const totalWarmups = (currentEx.warmupSteps || []).length;
+    const warmupDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+    const totalWork = currentEx.targetSets;
+    const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+    const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+
     let barsHtml = '';
-    
-    for (let i = 0; i < totalSets; i++) {
+    // Полоски разминки
+    for (let i = 0; i < totalWarmups; i++) {
       let barClass = 'clock-bar';
-      const isLast = (i === totalSets - 1);
-      const set = workSets[i];
+      if (i < warmupDone) barClass += ' is-done is-warmup';
+      else if (i === warmupDone && isWarmupMode) barClass += ' is-current';
+      barsHtml += `<div class="${barClass}"></div>`;
+    }
+    // Полоски рабочих
+    for (let i = 0; i < totalWork; i++) {
+      let barClass = 'clock-bar';
+      const isLast = (i === totalWork - 1);
+      const set = currentEx.completedSets.filter(s => s.category === 'Рабочий')[i];
 
       if (set) {
         barClass += ' is-done';
@@ -599,9 +613,8 @@ function renderBigClockWidgets() {
         else if (rir === '2') barClass += ' is-rir-2';
         else barClass += ' is-rir-3';
       } else {
-        if (isLast && (currentEx.isDrop || currentEx.isCluster)) {
-          barClass += ' is-special';
-        }
+        if (i === workDone && !isWarmupMode) barClass += ' is-current';
+        if (isLast && (currentEx.isDrop || currentEx.isCluster)) barClass += ' is-special';
       }
       barsHtml += `<div class="${barClass}"></div>`;
     }
@@ -609,11 +622,19 @@ function renderBigClockWidgets() {
   }
 
   // 3. План на подход (Next Set)
-  const nextSetNum = currentEx.completedSets.filter(s => s.category === 'Рабочий').length + 1;
-  const isFinal = nextSetNum >= currentEx.targetSets;
+  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+  const totalWarmups = (currentEx.warmupSteps || []).length;
+  const warmupDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+  const nextSetNum = workDone + 1;
+  
   const labelEl = document.getElementById('liveClockNextSetLabel');
   if (labelEl) {
-    labelEl.innerText = `СЕТ ${Math.min(nextSetNum, currentEx.targetSets)} ИЗ ${currentEx.targetSets}`;
+    if (isWarmupMode) {
+      labelEl.innerText = `РАЗМИНКА: ШАГ ${warmupDone + 1} ИЗ ${totalWarmups}`;
+    } else {
+      labelEl.innerText = `РАБОЧИЙ СЕТ ${Math.min(nextSetNum, currentEx.targetSets)} ИЗ ${currentEx.targetSets}`;
+    }
   }
 
   const multBadge = currentEx.multiplier === 2 ? ' (×2)' : '';
@@ -642,9 +663,10 @@ function renderBigClockWidgets() {
   const deltaEl = document.getElementById('liveClockWidgetDelta');
   
   if (histTextEl && deltaEl) {
+    const targetCat = activeSession.draftSet.category;
     let lastSet = null;
     if (state.dbData && Array.isArray(state.dbData.sets)) {
-      const validSets = state.dbData.sets.filter(s => s.exercise === currentEx.name && s.category === 'Рабочий');
+      const validSets = state.dbData.sets.filter(s => s.exercise === currentEx.name && s.category === targetCat);
       if (validSets.length > 0) {
         lastSet = validSets[validSets.length - 1];
       }
@@ -652,21 +674,23 @@ function renderBigClockWidgets() {
 
     if (lastSet) {
       const histMult = lastSet.multiplier || getExerciseMultiplier(currentEx.name) || 1;
+      const histMultBadge = histMult === 2 ? '(×2)' : '';
       const histW = lastSet.weightDisplay !== undefined ? lastSet.weightDisplay : (lastSet.weight ? Math.round((lastSet.weight / histMult) * 2) / 2 : 0);
       const histRir = lastSet.reserve ? lastSet.reserve.replace('+','') : '?';
       
-      histTextEl.innerText = `${histW} (×2) кг × ${lastSet.reps} • RIR ${histRir}`;
+      histTextEl.innerText = `${histW} ${histMultBadge} кг × ${lastSet.reps} • RIR ${histRir}`;
       
       const currentW = activeSession.draftSet.weight;
       const diff = currentW - histW;
+
       if (diff > 0) {
         deltaEl.innerText = `↑ +${diff}`;
         deltaEl.style.background = 'var(--app-color-success-container)';
         deltaEl.style.color = 'var(--app-color-success)';
       } else if (diff < 0) {
         deltaEl.innerText = `↓ ${diff}`;
-        deltaEl.style.background = 'rgba(255, 107, 107, 0.12)';
-        deltaEl.style.color = '#ff6b6b';
+        deltaEl.style.background = 'rgba(168, 200, 255, 0.12)'; // Нейтральный синий для планового снижения веса
+        deltaEl.style.color = 'var(--md-sys-color-primary)';
       } else {
         deltaEl.innerText = `=`;
         deltaEl.style.background = 'var(--md-sys-color-surface-container-highest)';
@@ -689,7 +713,6 @@ function renderBigClockWidgets() {
     const volData = analyzeMuscleVolume(currentEx.targetMuscle);
     
     if (volTitleEl) {
-      // Вставляем кнопку справки прямо в заголовок (или оставляем как есть, если кнопка уже в HTML)
       volTitleEl.innerHTML = `ОБЪЕМ: ${currentEx.targetMuscle.toUpperCase()}`;
     }
     if (volTextEl) volTextEl.innerText = `${volData.weeklyDone} / ${volData.thr.mavMax} (MAV)`;
@@ -849,6 +872,12 @@ function renderExerciseHeader() {
   const isCollapsed = activeSession.headerCollapsed === true;
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const totalSets = currentEx.targetSets;
+
+  // Кнопки ручного включения методов
+  const clusterBtn = document.getElementById('liveManualClusterBtn');
+  const dropBtn = document.getElementById('liveManualDropBtn');
+  if (clusterBtn) clusterBtn.classList.toggle('is-active', currentEx.isCluster);
+  if (dropBtn) dropBtn.classList.toggle('is-active', currentEx.isDrop);
 
   if (isCollapsed) {
     if (compactEl) compactEl.style.display = 'flex';
@@ -1639,9 +1668,8 @@ function commitRecordedSet(partialSet) {
   
   startRestTimer(restSeconds);
   persistActiveSession();
-  renderLiveWorkoutScreen(); // Вызываем рендер экрана
+  renderLiveWorkoutScreen();
   
-  // ФИКС БАГА: Если дашборд открыт, принудительно перерисовываем его виджеты
   if (isModalOpen('liveBigClockOverlay')) {
     renderBigClockWidgets();
   }
@@ -2247,6 +2275,32 @@ function bindLiveWorkoutDomEvents() {
   const techChip = document.getElementById('liveTechniqueChip');
   if (equipChip) equipChip.onclick = () => openNotesSheet();
   if (techChip) techChip.onclick = () => openNotesSheet();
+
+  // Кнопки ручного включения Дроп/Кластер
+  const clusterBtn = document.getElementById('liveManualClusterBtn');
+  const dropBtn = document.getElementById('liveManualDropBtn');
+  const handleMethodToggle = (methodType) => {
+    if (!activeSession) return;
+    const ex = activeSession.exercises[activeSession.currentExerciseIndex];
+    if (ex.isCompleted) return;
+
+    if (methodType === 'cluster') {
+      ex.isCluster = !ex.isCluster;
+      ex.isDrop = false;
+      ex.plannedMethod = ex.isCluster ? 'Кластер' : 'Стандарт';
+    } else if (methodType === 'drop') {
+      ex.isDrop = !ex.isDrop;
+      ex.isCluster = false;
+      ex.plannedMethod = ex.isDrop ? 'Дроп-сет' : 'Стандарт';
+    }
+    activeSession.draftSet = computeSmartDraftSetForExercise(ex);
+    persistActiveSession();
+    renderLiveWorkoutScreen();
+    triggerHaptic([30]);
+  };
+  if (clusterBtn) clusterBtn.onclick = () => handleMethodToggle('cluster');
+  if (dropBtn) dropBtn.onclick = () => handleMethodToggle('drop');
+
   const notesSaveBtn = document.getElementById('liveNotesSaveBtn');
   const notesCancelBtn = document.getElementById('liveNotesCancelBtn');
   if (notesSaveBtn) notesSaveBtn.onclick = () => saveNotesSheet();
