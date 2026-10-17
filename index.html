@@ -13,7 +13,7 @@
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap" rel="stylesheet">
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" crossorigin="anonymous"></script>
   <script type="module" src="https://esm.sh/@material/web@1.5.1/all.js?bundle" crossorigin="anonymous"></script>
@@ -49,9 +49,9 @@
       --app-color-volume: #78dc9c;
       --app-color-deload: #64748b;
 
-      --md-sys-typescale-display-large: 400 3.5rem/4rem 'Roboto';
-      --md-sys-typescale-headline-large: 400 2rem/2.5rem 'Roboto';
-      --md-sys-typescale-headline-medium: 400 1.75rem/2.25rem 'Roboto';
+      --md-sys-typescale-display-large: 300 3.5rem/4rem 'Roboto';
+      --md-sys-typescale-headline-large: 300 2rem/2.5rem 'Roboto';
+      --md-sys-typescale-headline-medium: 300 1.75rem/2.25rem 'Roboto';
       --md-sys-typescale-headline-small: 500 1.5rem/2rem 'Roboto';
       --md-sys-typescale-title-large: 500 1.375rem/1.75rem 'Roboto';
       --md-sys-typescale-title-medium: 500 1rem/1.5rem 'Roboto';
@@ -667,7 +667,7 @@
       max-width: 600px;
       width: 100%;
       margin: 0 auto;
-      padding: 10px 14px 140px 14px; /* Увеличен padding-bottom под плавающий PAB */
+      padding: 10px 14px 140px 14px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -1137,6 +1137,12 @@
       font: 700 0.95rem/1.3 'Roboto';
       color: var(--app-color-success);
     }
+    .live-complete-volume-text {
+      font: var(--md-sys-typescale-body-small);
+      color: var(--md-sys-color-on-surface-variant);
+      line-height: 1.4;
+      margin-top: -4px;
+    }
 
     .live-bonus-set-btn {
       width: 100%;
@@ -1157,6 +1163,12 @@
     }
     .live-bonus-set-btn:hover { background: rgba(255, 255, 255, 0.1); }
     .live-bonus-set-btn:active { background: rgba(255, 255, 255, 0.15); }
+    .live-bonus-set-btn.is-mev-warning {
+      background: var(--app-color-warning-container);
+      border-color: var(--app-color-warning);
+      color: var(--app-color-warning);
+    }
+    .live-bonus-set-btn.is-mev-warning:hover { background: rgba(250, 204, 21, 0.2); }
 
     /* History groups */
     .live-history-groups-container {
@@ -1459,15 +1471,36 @@
       flex-direction: column;
       align-items: center;
       justify-content: space-between;
-      padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
+      padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
+    }
+
+    .live-clock-top-bar {
+      display: flex;
+      width: 100%;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: env(safe-area-inset-top, 0px);
+      padding: 0 4px;
+      min-height: 48px;
+    }
+    .live-clock-time-context {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .live-clock-context-row {
+      font: 600 0.75rem/1.3 'Roboto';
+      color: rgba(255, 255, 255, 0.5);
+      letter-spacing: 0.3px;
+    }
+    .live-clock-context-row b {
+      color: rgba(168, 200, 255, 0.8);
+      font-weight: 700;
     }
 
     .live-big-clock-close {
-      position: absolute;
-      top: calc(12px + env(safe-area-inset-top, 0px));
-      right: 16px;
-      width: 48px;
-      height: 48px;
+      width: 44px;
+      height: 44px;
       border-radius: var(--md-sys-shape-corner-full);
       border: 1px solid rgba(255, 255, 255, 0.1);
       background: rgba(255, 255, 255, 0.08);
@@ -1483,23 +1516,6 @@
     .live-big-clock-close:active { transform: scale(0.92); }
     .live-big-clock-close .material-symbols-outlined { font-size: 24px; }
 
-    .live-clock-top-context {
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      margin-top: 48px;
-    }
-    .live-clock-context-row {
-      font: 600 0.85rem/1.3 'Roboto';
-      color: rgba(255, 255, 255, 0.6);
-      letter-spacing: 0.3px;
-    }
-    .live-clock-context-row b {
-      color: rgba(168, 200, 255, 0.9);
-      font-weight: 700;
-    }
-
     .live-clock-center {
       display: flex;
       flex-direction: column;
@@ -1509,27 +1525,70 @@
       width: 100%;
     }
 
+    .live-clock-dots-container {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 20px;
+      min-height: 32px;
+    }
+    .clock-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    .clock-dot .material-symbols-outlined {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+    .clock-dot.is-done { border-color: transparent; }
+    .clock-dot.is-done.rir-0 { background-color: #ff6b6b; box-shadow: 0 0 10px rgba(255,107,107,0.5); }
+    .clock-dot.is-done.rir-1 { background-color: #facc15; box-shadow: 0 0 10px rgba(250,204,21,0.5); }
+    .clock-dot.is-done.rir-2 { background-color: #78dc9c; box-shadow: 0 0 10px rgba(120,220,156,0.5); }
+    .clock-dot.is-done.rir-3 { background-color: #a8c8ff; box-shadow: 0 0 10px rgba(168,200,255,0.5); }
+    
+    .clock-dot.is-special {
+      border-color: #facc15;
+      background-color: rgba(250, 204, 21, 0.1);
+    }
+    .clock-dot.is-special .material-symbols-outlined {
+      color: #facc15;
+    }
+    .clock-dot.is-current {
+      border-color: var(--md-sys-color-primary);
+      box-shadow: 0 0 12px rgba(168, 200, 255, 0.6);
+    }
+
     .live-big-clock-title {
-      font: 700 1rem/1 'Roboto';
+      font: 700 0.9rem/1 'Roboto';
       letter-spacing: 2px;
       text-transform: uppercase;
-      color: rgba(168, 200, 255, 0.6);
-      margin-bottom: 12px;
+      color: rgba(168, 200, 255, 0.5);
+      margin-bottom: 8px;
       text-align: center;
     }
     
     .live-big-clock-digits {
       font-family: 'Roboto Mono', ui-monospace, monospace;
-      font-size: clamp(6rem, 28vw, 15rem);
-      font-weight: 700;
+      font-size: clamp(5rem, 26vw, 11rem);
+      font-weight: 300;
       color: #ffffff;
-      line-height: 0.95;
-      letter-spacing: -0.05em;
+      line-height: 0.85;
+      letter-spacing: -0.04em;
       user-select: none;
       text-align: center;
       font-variant-numeric: tabular-nums;
+      transform: scaleY(1.15);
       transition: color var(--md-sys-motion-duration-short4),
                   transform var(--md-sys-motion-duration-short4);
+      margin-bottom: 20px;
     }
 
     .live-big-clock-overlay.is-warning .live-big-clock-digits {
@@ -1541,51 +1600,87 @@
       color: #ff6b6b;
     }
 
-    .live-clock-analytics-grid {
+    .live-clock-cards-container {
       width: 100%;
       max-width: 500px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      margin-bottom: 24px;
+      gap: 8px;
+      margin-bottom: 16px;
     }
 
-    .live-clock-widget {
+    .live-clock-card {
       background: rgba(29, 32, 36, 0.75);
       backdrop-filter: blur(16px) saturate(140%);
       -webkit-backdrop-filter: blur(16px) saturate(140%);
       border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: var(--md-sys-shape-corner-large);
-      padding: 14px 16px;
+      border-radius: var(--md-sys-shape-corner-medium);
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
     }
     
-    .live-clock-widget-header {
-      font: 700 0.75rem/1.2 'Roboto';
+    .live-clock-card-header {
+      font: 700 0.7rem/1.2 'Roboto';
       text-transform: uppercase;
       letter-spacing: 0.6px;
       color: var(--md-sys-color-primary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     
-    .live-clock-widget-body {
+    .live-clock-card-body {
       font: 600 0.95rem/1.3 'Roboto';
       color: #ffffff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
     }
-    .live-clock-widget-body b {
+    
+    .live-clock-card-body b {
       color: var(--app-color-success);
     }
+    
+    .live-clock-delta {
+      font: 700 0.8rem/1 'Roboto';
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: rgba(120, 220, 156, 0.15);
+      color: var(--app-color-success);
+    }
+    .live-clock-delta.is-negative {
+      background: rgba(255, 180, 171, 0.15);
+      color: var(--md-sys-color-error);
+    }
+
+    .live-clock-vol-bar {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .live-clock-vol-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.3s ease, background-color 0.3s ease;
+    }
+    .live-clock-vol-fill.low { background-color: #ff6b6b; }
+    .live-clock-vol-fill.opt { background-color: #facc15; }
+    .live-clock-vol-fill.high { background-color: #78dc9c; }
+    .live-clock-vol-fill.max { background-color: #a8c8ff; }
 
     .live-clock-actions {
-      display: none;
-      grid-template-columns: 1fr 1fr;
+      display: grid;
+      grid-template-columns: 1fr 1.5fr;
       gap: 10px;
       width: 100%;
       max-width: 500px;
-    }
-    .live-big-clock-overlay.is-resting .live-clock-actions {
-      display: grid;
     }
     
     .live-clock-action-btn {
@@ -1597,6 +1692,10 @@
       font: 700 0.95rem/1.2 'Roboto';
       cursor: pointer;
       transition: transform var(--md-sys-motion-duration-short3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
     }
     .live-clock-action-btn:active { transform: scale(0.96); }
     .live-clock-action-btn.is-primary {
@@ -3175,6 +3274,7 @@
 
       <div id="liveExCompletedCard" class="live-complete-ex-card">
         <div id="liveExCompletedTitle" class="live-complete-title">✅ Упражнение выполнено!</div>
+        <div id="liveCompletedVolumeText" class="live-complete-volume-text"></div>
         <button id="liveAddBonusSetBtn" class="live-bonus-set-btn" type="button">
           + Добавить еще 1 подход сверх плана
         </button>
@@ -3208,33 +3308,56 @@
 
   <!-- BIG CLOCK OVERLAY / AMBIENT DASHBOARD V3.0 -->
   <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Дашборд отдыха">
-    <button id="liveBigClockClose" class="live-big-clock-close" aria-label="Закрыть часы">
-      <span class="material-symbols-outlined" aria-hidden="true">close</span>
-    </button>
-
-    <div class="live-clock-top-context">
-      <div class="live-clock-context-row is-primary" id="liveBigClockNow">Сейчас <b>14:23</b></div>
-      <div class="live-clock-context-row" id="liveBigClockEtaRel">До финиша <b>12 мин</b></div>
-      <div class="live-clock-context-row" id="liveBigClockEtaAbs">Окончание ~<b>14:35</b></div>
+    
+    <div class="live-clock-top-bar">
+      <div class="live-clock-time-context">
+        <div class="live-clock-context-row" id="liveBigClockNow">Сейчас <b>14:23</b></div>
+        <div class="live-clock-context-row" id="liveBigClockEtaAbs">Финиш ~<b>14:35</b></div>
+      </div>
+      <button id="liveBigClockClose" class="live-big-clock-close" aria-label="Закрыть часы">
+        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+      </button>
     </div>
 
     <div class="live-clock-center">
-      <div class="live-big-clock-title" id="liveBigClockTitle">СЕКУНДОМЕР</div>
+      <div class="live-clock-dots-container" id="liveClockDots"></div>
+      <div class="live-big-clock-title" id="liveBigClockTitle">ОТДЫХ</div>
       <div id="liveBigClockDigits" class="live-big-clock-digits">00:00</div>
     </div>
 
-    <div class="live-clock-analytics-grid">
-      <div class="live-clock-widget">
-        <div class="live-clock-widget-header">Текущее упражнение</div>
-        <div class="live-clock-widget-body" id="liveClockWidgetExName">Жим в тренажере</div>
+    <div class="live-clock-cards-container">
+      <!-- Card 1: Plan -->
+      <div class="live-clock-card">
+        <div class="live-clock-card-header">
+          <span id="liveClockNextSetLabel">СЕТ 2 ИЗ 4</span>
+          <span id="liveClockMethodBadge" style="display: none; color: var(--app-color-warning);">⚡ ДРОП</span>
+        </div>
+        <div class="live-clock-card-body">
+          <span id="liveClockNextSetValue" style="font-size: 1.1rem;"><b>50 (×2)</b> кг × 12</span>
+          <span id="liveClockNextSetRir" class="coach-card-chip">RIR 2</span>
+        </div>
       </div>
-      <div class="live-clock-widget">
-        <div class="live-clock-widget-header">План на подход</div>
-        <div class="live-clock-widget-body" id="liveClockWidgetPlan">57.5 кг × 12-16 • RIR 2</div>
+
+      <!-- Card 2: History -->
+      <div class="live-clock-card" id="liveClockHistoryCard">
+        <div class="live-clock-card-header">
+          <span>В ПРОШЛЫЙ РАЗ</span>
+          <span id="liveClockHistoryDelta" class="live-clock-delta">+2.5 кг</span>
+        </div>
+        <div class="live-clock-card-body">
+          <span id="liveClockHistoryValue">50 (×2) кг × 12</span>
+        </div>
       </div>
-      <div class="live-clock-widget">
-        <div class="live-clock-widget-header">Прогресс сессии</div>
-        <div class="live-clock-widget-body" id="liveClockWidgetStats">Сделано: 8 сетов • 2.4 т</div>
+
+      <!-- Card 3: Volume -->
+      <div class="live-clock-card">
+        <div class="live-clock-card-header">
+          <span id="liveClockVolTitle">ОБЪЕМ: ГРУДЬ</span>
+          <span id="liveClockVolCount">7 / 12 (MAV)</span>
+        </div>
+        <div class="live-clock-vol-bar">
+          <div class="live-clock-vol-fill opt" id="liveClockVolFill" style="width: 58%;"></div>
+        </div>
       </div>
     </div>
 
