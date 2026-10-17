@@ -404,34 +404,6 @@ function buildAthleteSituationPromptBlock() {
 ${lagging.join('\n')}`;
 }
 
-/**
- * V5.9.1: Проверяет, что ИИ не изменил список упражнений.
- */
-function validateExercisesUnchanged(parsedPlan, expectedDayA, expectedDayB) {
-  const warnings = [];
-
-  ['A', 'B'].forEach(splitKey => {
-    const expected = (splitKey === 'A' ? expectedDayA : expectedDayB).map(n => String(n).toLowerCase().trim());
-    if (expected.length === 0) return;
-
-    const split = parsedPlan.splits[splitKey];
-    if (!split || !Array.isArray(split.exercises)) return;
-
-    const actual = split.exercises.map(e => String(e.name || '').toLowerCase().trim()).filter(Boolean);
-    const missing = expected.filter(ex => !actual.includes(ex));
-    const added = actual.filter(ex => !expected.includes(ex));
-
-    if (missing.length > 0) {
-      warnings.push(`День ${splitKey}: ИИ убрал — ${missing.join(', ')}`);
-    }
-    if (added.length > 0) {
-      warnings.push(`День ${splitKey}: ИИ добавил — ${added.join(', ')}`);
-    }
-  });
-
-  return warnings;
-}
-
 async function generateMesocyclePlan() {
   const loadingBox = document.getElementById('coachPlanLoadingBox');
   const genBtn = document.getElementById('generateCyclePlanBtn');
@@ -483,10 +455,10 @@ async function generateMesocyclePlan() {
   const athleteSituation = buildAthleteSituationPromptBlock();
 
   const fixedDayAText = lastSplitExercises.dayA.length > 0
-    ? lastSplitExercises.dayA.join(', ')
+    ? lastSplitExercises.dayA.map((ex, i) => `${i + 1}. ${ex}`).join('\n')
     : 'НЕТ ИСТОРИИ — выбери 6-8 упражнений из каталога ниже';
   const fixedDayBText = lastSplitExercises.dayB.length > 0
-    ? lastSplitExercises.dayB.join(', ')
+    ? lastSplitExercises.dayB.map((ex, i) => `${i + 1}. ${ex}`).join('\n')
     : 'НЕТ ИСТОРИИ — выбери 6-8 упражнений из каталога ниже';
 
   const catalogBlock = buildCatalogRecommendationsBlock(
@@ -502,15 +474,19 @@ ${userIntent || 'Нет специфических указаний, следу�
 Если здесь запрошены конкретные подходы, методы, веса — они ОБЯЗАТЕЛЬНЫ.
 
 [ПРИОРИТЕТ 2: ЗАФИКСИРОВАННЫЙ СПИСОК УПРАЖНЕНИЙ (НЕ МЕНЯТЬ!)]
-День А: ${fixedDayAText}
-День Б: ${fixedDayBText}
+День А:
+${fixedDayAText}
+День Б:
+${fixedDayBText}
 
-КРИТИЧЕСКОЕ ПРАВИЛО: Упражнения из этого списка — НЕЛЬЗЯ УБИРАТЬ, ЗАМЕНЯТЬ ИЛИ ДОБАВЛЯТЬ.
-Сохраняй список 1-в-1. Менять разрешено ТОЛЬКО параметры: weight, sets, reps, rir, method (Стандарт / Дроп-сет -25% / Кластер A+B+C). Порядок упражнений сохраняй тем же.
+КРИТИЧЕСКОЕ ПРАВИЛО:
+1. Список упражнений — НЕЛЬЗЯ УБИРАТЬ, ЗАМЕНЯТЬ ИЛИ ДОБАВЛЯТЬ.
+2. СТРОГО СОХРАНЯЙ ПОРЯДОК. Поле "order" должно идти строго 1, 2, 3... в том же порядке, в котором они указаны в списке.
+3. Разрешено менять ТОЛЬКО параметры: weight, sets, reps, rir, method.
 Если упражнения в списке нет (НЕТ ИСТОРИИ) — подбери 6-8 из каталога ниже.
 
 [ПРИОРИТЕТ 3: ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (ЛАГАЮЩИЕ МЫШЦЫ)]
-${athleteSituation ? athleteSituation + '\nДля этих мышц добавь подходы (например, 5-й подход с RIR 0 + дроп-сет) К СУЩЕСТВУЮЩИМ упражнениям в списке, а не создавай новые.' : 'Все мышцы в норме.'}
+${athleteSituation ? athleteSituation + '\nДля этих мышц добавь подходы (например, 5-й подход с RIR 0 + дроп-сет) К СУЩЕСТВУЮЩИМ упражнениям в списке.' : 'Все мышцы в норме.'}
 
 [ПРИОРИТЕТ 4: ЦЕЛЕВАЯ ФАЗА ЦИКЛА]
 Сгенерируй план СТРОГО на Неделю ${phase.nextWeek} (Режим: ${phase.nextMode}).
@@ -531,8 +507,8 @@ ${catalogBlock}
 
 ПРАВИЛА:
 1. Веса СТРОГО кратны 2.5 кг.
-2. Для каждого упражнения напиши краткое обоснование (justification): почему такой вес, подходы и метод.
-3. В поле recommendations верни 2-3 упражнения из каталога, которые можно добавить в СЛЕДУЮЩЕМ цикле, чтобы закрыть лаги или добавить разнообразие. Для каждого укажи целевые мышцы и причину.
+2. В поле "justification" напиши физиологическое обоснование (почему это упражнение важно, зачем столько подходов, зачем нужен дроп/RIR 0), НО КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО писать математические расчеты весов (типа 100 * 0.75). Объясняй биомеханику и логику нагрузки.
+3. В поле recommendations верни 2-3 упражнения СТРОГО ИЗ КАТАЛОГА (который передан выше). Запрещено выдумывать упражнения. Для каждого укажи целевые мышцы и причину.
 4. В поле rationale — общее обоснование стратегии.
 
 ФОРМАТ ОТВЕТА (СТРОГО валидный JSON БЕЗ Markdown-тегов):
@@ -554,7 +530,7 @@ ${catalogBlock}
           "rir": "+2..+3",
           "method": "Стандарт",
           "notes": "",
-          "justification": "Обоснование выбора веса и метода для этого упражнения в данной фазе."
+          "justification": "Физиологическое обоснование без математики."
         }
       ]
     },
@@ -601,12 +577,6 @@ ${catalogBlock}
       throw new Error('ИИ забыл сгенерировать День Б (менее 5 упражнений). Нажмите «Рассчитать» ещё раз.');
     }
 
-    // Проверка, что список упражнений не изменён
-    const warnings = validateExercisesUnchanged(parsedPlan, lastSplitExercises.dayA, lastSplitExercises.dayB);
-    if (warnings.length > 0) {
-      console.warn('[Coach] ИИ нарушил фиксацию упражнений:', warnings);
-    }
-
     parsedPlan.cycleId = phase.cycleId;
     parsedPlan.cycleWeek = phase.nextWeek;
     parsedPlan.cycleMode = phase.nextMode;
@@ -635,8 +605,6 @@ ${catalogBlock}
       localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
       try { renderStructuredCards(); } catch(e) {}
       alert('⚠️ План сохранен в памяти телефона, но сервер временно не смог записать его в таблицу. Нажмите «Отправить несохраненный план в таблицу» чуть позже.');
-    } else if (warnings.length > 0) {
-      alert('⚠️ ИИ изменил список упражнений:\n\n' + warnings.join('\n') + '\n\nПроверьте карточки и при необходимости перегенерируйте план.');
     }
   } catch (err) {
     alert(`Ошибка генерации плана: ${err.message}`);
@@ -674,6 +642,11 @@ function renderStructuredCards() {
   const splitTitleEl = document.getElementById('coachActiveSplitTitle');
 
   if (!container || !cachedPlanData) return;
+
+  // V5.9.2: Отключаем pre-wrap, чтобы HTML-карточки не расползались
+  if (rationaleText) {
+    rationaleText.style.whiteSpace = 'normal';
+  }
 
   if (badgeEl && cachedPlanData.cycleId) {
     badgeEl.innerText = cachedPlanData.cycleId;
@@ -717,6 +690,9 @@ function renderStructuredCards() {
     return;
   }
 
+  // V5.9.2: Принудительная сортировка по order на случай галлюцинаций ИИ
+  currentSplit.exercises.sort((a, b) => (parseInt(a.order, 10) || 0) - (parseInt(b.order, 10) || 0));
+
   container.innerHTML = '';
 
   currentSplit.exercises.forEach(ex => {
@@ -747,41 +723,28 @@ function renderStructuredCards() {
     }
   });
 
-  // V5.9.1: Отрисовка обоснований + рекомендаций в блоке rationale
+  // V5.9.2: Отрисовка обоснований + рекомендаций без лишних переносов строк
   if (rationaleBox && rationaleText) {
     let justHtml = '';
 
     currentSplit.exercises.forEach(ex => {
       if (ex.justification) {
-        justHtml += `<div style="margin-bottom: 8px;"><b>#${ex.order} ${escapeHtml(ex.name)}:</b> ${escapeHtml(ex.justification)}</div>`;
+        justHtml += `<div style="margin-bottom: 6px; font-size: 0.82rem; line-height: 1.4;"><b>#${ex.order} ${escapeHtml(ex.name)}:</b> ${escapeHtml(ex.justification)}</div>`;
       }
     });
 
     if (cachedPlanData.recommendations && Array.isArray(cachedPlanData.recommendations) && cachedPlanData.recommendations.length > 0) {
-      justHtml += `<div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant);">`;
-      justHtml += `<b style="color: var(--md-sys-color-primary); font-size: 0.92rem;">🔮 Рекомендации к следующему циклу</b>`;
-      justHtml += `<div style="margin-top:8px; display: flex; flex-direction: column; gap: 8px;">`;
-
+      justHtml += `<div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--md-sys-color-outline-variant);"><b style="color: var(--md-sys-color-primary); font-size: 0.85rem;">🔮 Рекомендации к следующему циклу</b>`;
+      
       cachedPlanData.recommendations.forEach(rec => {
-        justHtml += `<div style="padding:8px 10px; background:var(--md-sys-color-surface-container-high); border-radius:8px;">
-          <div style="font-weight:700; color:var(--md-sys-color-on-surface); font-size: 0.85rem;">
-            ${escapeHtml(rec.exercise || '')}
-            <span style="color:var(--md-sys-color-on-surface-variant); font-weight:500;"> → ${escapeHtml(rec.target || '')}</span>
-          </div>
-          <div style="font-size:0.78rem; color:var(--md-sys-color-on-surface-variant); margin-top:3px; line-height: 1.4;">
-            ${escapeHtml(rec.reason || '')}
-          </div>
-        </div>`;
+        justHtml += `<div style="margin-top:6px; padding:8px; background:var(--md-sys-color-surface-container-high); border-radius:6px;"><div style="font-weight:700; color:var(--md-sys-color-on-surface); font-size:0.8rem;">${escapeHtml(rec.exercise || '')} <span style="color:var(--md-sys-color-on-surface-variant); font-weight:500;">→ ${escapeHtml(rec.target || '')}</span></div><div style="font-size:0.75rem; color:var(--md-sys-color-on-surface-variant); margin-top:2px; line-height:1.3;">${escapeHtml(rec.reason || '')}</div></div>`;
       });
-
-      justHtml += `</div></div>`;
+      
+      justHtml += `</div>`;
     }
 
     if (cachedPlanData.rationale) {
-      justHtml += `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant);">
-        <b>Общая стратегия:</b>
-        <div style="margin-top: 4px;">${escapeHtml(cachedPlanData.rationale)}</div>
-      </div>`;
+      justHtml += `<div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--md-sys-color-outline-variant); font-size: 0.82rem; line-height: 1.4;"><b>Общая стратегия:</b> ${escapeHtml(cachedPlanData.rationale)}</div>`;
     }
 
     if (justHtml) {
