@@ -1,12 +1,12 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.6 SMART BARS & DROP PRESETS)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.7 BIG CLOCK & DROP UI FIX)
  * =========================================================================
- * V2.8.6:
- * - Бейдж метода (Кластер/Дроп) в дашборде перенесен вправо над RIR.
- * - В шторке дроп-сетов инпуты получили onfocus="this.select()" и inputmode="decimal".
- * - Добавлены чипы быстрого сброса веса (-10%...-50%) в шторке дроп-сетов.
- * - Добавлена функция sanitizeWeightInput для защиты от мусора при вводе.
+ * V2.8.7:
+ * - Фикс пустого места в блоке "План на подход" (Big Clock).
+ * - Замена <input> на <span> + openDropWeightInput для веса в дроп-сетах.
+ *   Исключает системные меню паролей и копирования, работает как в главном экране.
+ * - Удалены процентные пресеты быстрого сброса веса в шторке дроп-сетов.
  * =========================================================================
  */
 
@@ -633,7 +633,7 @@ function renderBigClockWidgets() {
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const nextSetNum = workDone + 1;
   
-  // ФИКС (Пункт 1): Бейдж метода справа над RIR
+  // Бейдж метода справа над RIR
   const methodBadgeEl = document.getElementById('liveClockMethodBadge');
   if (methodBadgeEl) {
     if (!isWarmupMode && activeSession.draftSet.useSpecialMethod) {
@@ -715,7 +715,7 @@ function renderBigClockWidgets() {
         deltaEl.style.color = 'var(--app-color-success)';
       } else if (diff < 0) {
         deltaEl.innerText = `↓ ${diff}`;
-        deltaEl.style.background = 'rgba(168, 200, 255, 0.12)'; // Нейтральный синий для планового снижения
+        deltaEl.style.background = 'rgba(168, 200, 255, 0.12)';
         deltaEl.style.color = 'var(--md-sys-color-primary)';
       } else {
         deltaEl.innerText = `=`;
@@ -1447,7 +1447,7 @@ function patchDraftSetDisplay() {
 }
 
 /* =========================================================
- * V2.7.0: MANUAL WEIGHT INPUT
+ * V2.7.0: MANUAL WEIGHT INPUT (MAIN SCREEN)
  * ========================================================= */
 
 function openWeightManualInput() {
@@ -1519,6 +1519,86 @@ function openWeightManualInput() {
     if (done) return;
     done = true;
     cleanup();
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+}
+
+/* =========================================================
+ * V2.8.7: DROP SHEET MANUAL WEIGHT INPUT
+ * ========================================================= */
+
+function openDropWeightInput(displayEl, currentValue, onCommit) {
+  if (!displayEl) return;
+  if (displayEl.dataset.editing === '1') return;
+  displayEl.dataset.editing = '1';
+
+  const originalText = displayEl.innerText;
+  displayEl.style.display = 'none';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'decimal';
+  input.enterKeyHint = 'done';
+  input.autocomplete = 'off';
+  input.value = String(currentValue);
+  input.setAttribute('aria-label', 'Вес в килограммах');
+  input.style.cssText = [
+    'width:50px',
+    'background:transparent',
+    'border:none',
+    'border-bottom:2px solid var(--md-sys-color-primary)',
+    'color:var(--md-sys-color-primary)',
+    "font:700 1.05rem/1 'Roboto'",
+    'text-align:center',
+    'letter-spacing:-0.3px',
+    'padding:0',
+    'margin:0',
+    'outline:none'
+  ].join(';');
+
+  displayEl.parentNode.insertBefore(input, displayEl.nextSibling);
+
+  requestAnimationFrame(function () {
+    try { input.focus(); input.select(); } catch (e) {}
+  });
+
+  let done = false;
+
+  const cleanup = () => {
+    if (input.parentNode) input.parentNode.removeChild(input);
+    displayEl.style.display = '';
+    delete displayEl.dataset.editing;
+  };
+
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const raw = sanitizeWeightInput(input.value);
+    const m = raw.match(/^(\d+(?:\.\d+)?)$/);
+    let isValid = false;
+    let parsed = 0;
+    if (m) {
+      parsed = parseFloat(m[1]);
+      isValid = !isNaN(parsed) && parsed > 0 && parsed <= 999.99;
+    }
+    cleanup();
+    if (isValid) {
+      onCommit(Math.round(parsed * 100) / 100);
+    } else {
+      displayEl.innerText = originalText;
+    }
+  };
+
+  const cancel = () => {
+    if (done) return;
+    done = true;
+    cleanup();
+    displayEl.innerText = originalText;
   };
 
   input.addEventListener('blur', commit);
@@ -1862,15 +1942,12 @@ function renderDropSheet() {
   if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.mainWeightDisplay} кг${multBadge} · основной + ${sheetState.drops.length} дроп${sheetState.drops.length > 1 ? 'а' : ''}`;
   
   if (mainWeightEl) {
-    mainWeightEl.value = sheetState.mainWeightDisplay;
-    mainWeightEl.onchange = (e) => {
-      const parsed = parseFloat(e.target.value.replace(',', '.'));
-      if (!isNaN(parsed) && parsed > 0) {
-        sheetState.mainWeightDisplay = Math.round(parsed * 100) / 100;
-      } else {
-        e.target.value = sheetState.mainWeightDisplay;
-      }
-      renderDropSheet();
+    mainWeightEl.innerText = sheetState.mainWeightDisplay;
+    mainWeightEl.onclick = () => {
+      openDropWeightInput(mainWeightEl, sheetState.mainWeightDisplay, (newVal) => {
+        sheetState.mainWeightDisplay = newVal;
+        renderDropSheet();
+      });
     };
   }
 
@@ -1894,17 +1971,13 @@ function renderDropSheet() {
       </div>
       <div class="live-sheet-row-2-bottom">
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="-2.5" type="button">−</button>
-        <input type="text" inputmode="decimal" class="live-sheet-input-value" onfocus="this.select()" data-drop-input-weight="${idx}" value="${drop.weightDisplay}" aria-label="Вес дропа ${idx + 1}">
+        <span class="live-sheet-value" style="border-bottom: 2px dashed var(--md-sys-color-primary); cursor: pointer; min-width: 30px; text-align: center;" data-drop-input-weight="${idx}">${drop.weightDisplay}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="+2.5" type="button">+</button>
         <span class="live-sheet-unit">кг ×</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="-1" type="button">−</button>
         <span class="live-sheet-value">${drop.reps}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="+1" type="button">+</button>
         <span class="live-sheet-unit">повт</span>
-      </div>
-      <!-- Пресеты -->
-      <div class="live-drop-presets">
-        ${[-10, -20, -25, -30, -50].map(pct => `<button class="live-drop-preset-chip" data-drop-preset="${pct}" data-drop-idx="${idx}" type="button">${pct}%</button>`).join('')}
       </div>
     </div>
   `).join('');
@@ -1918,28 +1991,13 @@ function renderDropSheet() {
   }
 
   // Обработчик ручного ввода веса дропов
-  dropsContainer.querySelectorAll('[data-drop-input-weight]').forEach(input => {
-    input.onchange = (e) => {
-      const idx = parseInt(e.target.getAttribute('data-drop-input-weight'), 10);
-      const parsed = parseFloat(sanitizeWeightInput(e.target.value));
-      if (!isNaN(parsed) && parsed > 0) {
-        sheetState.drops[idx].weightDisplay = Math.round(parsed * 100) / 100;
-      } else {
-        e.target.value = sheetState.drops[idx].weightDisplay;
-      }
-      renderDropSheet();
-    };
-  });
-
-  // Обработчик чипов быстрого сброса
-  dropsContainer.querySelectorAll('[data-drop-preset]').forEach(btn => {
-    btn.onclick = () => {
-      const idx = parseInt(btn.getAttribute('data-drop-idx'), 10);
-      const pct = parseFloat(btn.getAttribute('data-drop-preset')) / 100;
-      const newW = sheetState.drops[idx].weightDisplay * (1 + pct);
-      sheetState.drops[idx].weightDisplay = roundToGymStep(newW);
-      triggerHaptic([15]);
-      renderDropSheet();
+  dropsContainer.querySelectorAll('[data-drop-input-weight]').forEach(el => {
+    el.onclick = () => {
+      const idx = parseInt(el.getAttribute('data-drop-input-weight'), 10);
+      openDropWeightInput(el, sheetState.drops[idx].weightDisplay, (newVal) => {
+        sheetState.drops[idx].weightDisplay = newVal;
+        renderDropSheet();
+      });
     };
   });
 
