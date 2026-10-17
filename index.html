@@ -1816,6 +1816,24 @@
       text-align: center;
       letter-spacing: -0.3px;
     }
+    
+    .live-sheet-input-value {
+      width: 50px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px dashed var(--md-sys-color-primary);
+      color: var(--md-sys-color-primary);
+      font: 700 1.05rem/1 'Roboto';
+      text-align: center;
+      letter-spacing: -0.3px;
+      padding: 0;
+      margin: 0;
+      outline: none;
+    }
+    .live-sheet-input-value:focus {
+      border-bottom-style: solid;
+      border-bottom-color: #fff;
+    }
 
     .live-sheet-rir {
       display: flex;
@@ -3334,9 +3352,8 @@
       <!-- План на подход -->
       <div class="live-clock-widget" style="border-color: rgba(168, 200, 255, 0.3);">
         <div class="live-clock-widget-header" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+          <span id="liveClockMethodBadge" class="coach-method-badge" style="display: none; font-size: 0.65rem; padding: 2px 6px; margin-bottom: 2px;"></span>
           <span id="liveClockNextSetLabel">СЕТ 2 ИЗ 4</span>
-          <!-- ФИКС (Пункт 5): Бейдж метода -->
-          <span id="liveClockMethodBadge" class="coach-method-badge" style="display: none; font-size: 0.65rem; padding: 2px 6px;"></span>
         </div>
         <div class="live-clock-widget-body" style="display: flex; justify-content: space-between; align-items: center;">
           <!-- Вернули зеленый цвет -->
@@ -3415,7 +3432,7 @@
         </div>
         <div class="live-sheet-row-2-bottom">
           <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="-2.5" type="button">−</button>
-          <span class="live-sheet-value" id="liveDropMainWeight">45</span>
+          <input type="text" inputmode="decimal" class="live-sheet-input-value" id="liveDropMainWeight" value="45">
           <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="+2.5" type="button">+</button>
           <span class="live-sheet-unit">кг ×</span>
           <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="-1" type="button">−</button>
