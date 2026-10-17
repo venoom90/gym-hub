@@ -1,15 +1,15 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.2 UX FEEDBACK UPDATE)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V3.0 SMART DASHBOARD)
  * =========================================================================
- * V2.8.2:
- * - Внедрена визуальная обратная связь (вспышка карточки, трансформация кнопки).
- * - Кнопка "Записать" плавно исчезает, уступая место таймеру (с задержкой 400мс).
+ * V3.0:
+ * - Умный дашборд отдыха: точки подходов, тонкий таймер, карточки плана, истории и MEV.
+ * - MEV-Ассистент на карточке завершения упражнения.
  */
 
 import {
   state, setInitialData, formatDateDisplay, escapeHtml, computeE1RM,
-  getLastSetFieldForExercise, getExerciseMultiplier
+  getLastSetFieldForExercise, getExerciseMultiplier, MUSCLE_THRESHOLDS
 } from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
@@ -272,6 +272,42 @@ function computeSmartDraftSetForExercise(ex) {
 }
 
 /* =========================================================
+ * VOLUME CALCULATION (MEV ASSISTANT)
+ * ========================================================= */
+
+function analyzeMuscleVolume(muscleName) {
+  const th = MUSCLE_THRESHOLDS[muscleName] || { mev: 8, mavMin: 12, mavMax: 20, mrv: 22 };
+  
+  // 1. Calculate volume from current session
+  let sessionDone = 0;
+  activeSession.exercises.forEach(ex => {
+    if (ex.targetMuscle === muscleName) {
+      sessionDone += ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    }
+  });
+
+  // 2. Calculate past volume this week (heuristic based on active exercises)
+  let pastDone = 0;
+  if (state.dbData && Array.isArray(state.dbData.sets)) {
+     state.dbData.sets.forEach(s => {
+        if (s.cycleId === activeSession.cycleId && s.cycleWeek === activeSession.cycleWeek && s.category === 'Рабочий') {
+            const matchingEx = activeSession.exercises.find(e => e.name === s.exercise);
+            if (matchingEx && matchingEx.targetMuscle === muscleName) {
+                pastDone++;
+            }
+        }
+     });
+  }
+
+  const weeklyDone = pastDone + sessionDone;
+  // If it's Day A, we assume Day B will cover the rest.
+  const hasFutureSessions = activeSession.splitDay === 'А';
+  const mevDiff = th.mev - weeklyDone;
+
+  return { weeklyDone, th, hasFutureSessions, mevDiff };
+}
+
+/* =========================================================
  * START WORKOUT
  * ========================================================= */
 
@@ -509,31 +545,113 @@ function renderBigClockWidgets() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
 
-  const exNameEl = document.getElementById('liveClockWidgetExName');
-  if (exNameEl) exNameEl.innerText = currentEx.name;
-
-  const multBadge = currentEx.multiplier === 2 ? ' (×2)' : '';
-  const planEl = document.getElementById('liveClockWidgetPlan');
-  if (planEl) {
-    const weight = activeSession.draftSet.weight;
-    const reps = activeSession.draftSet.reps;
-    const rir = activeSession.draftSet.rir;
-    planEl.innerHTML = `${weight}${multBadge} кг × ${reps} • RIR ${rir}`;
+  const multBadge = currentEx.multiplier === 2 ? '(×2)' : '';
+  
+  // --- Render Dots ---
+  const dotsContainer = document.getElementById('liveClockDots');
+  if (dotsContainer) {
+    let dotsHtml = '';
+    let workDoneCount = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+    
+    for (let i = 0; i < currentEx.targetSets; i++) {
+      let dotClass = 'clock-dot';
+      let innerIcon = '';
+      
+      if (i < workDoneCount) {
+        const set = currentEx.completedSets.filter(s => s.category === 'Рабочий')[i];
+        const rir = String(set.reserve || '+2').replace('+', '');
+        if (rir === '0') dotClass += ' is-done rir-0';
+        else if (rir === '1') dotClass += ' is-done rir-1';
+        else if (rir === '2') dotClass += ' is-done rir-2';
+        else dotClass += ' is-done rir-3';
+      } else {
+        if (i === workDoneCount) dotClass += ' is-current';
+        if (i === currentEx.targetSets - 1 && (currentEx.isDrop || currentEx.isCluster)) {
+          dotClass += ' is-special';
+          innerIcon = `<span class="material-symbols-outlined">bolt</span>`;
+        }
+      }
+      dotsHtml += `<div class="${dotClass}">${innerIcon}</div>`;
+    }
+    dotsContainer.innerHTML = dotsHtml;
   }
 
-  let totalSets = 0;
-  let totalTonnage = 0;
-  activeSession.exercises.forEach(ex => {
-    ex.completedSets.forEach(s => {
-      totalSets++;
-      totalTonnage += (s.tonnage || 0);
-    });
-  });
+  // --- Render Plan Card ---
+  const planLabel = document.getElementById('liveClockNextSetLabel');
+  const planValue = document.getElementById('liveClockNextSetValue');
+  const planRir = document.getElementById('liveClockNextSetRir');
+  const methodBadge = document.getElementById('liveClockMethodBadge');
   
-  const statsEl = document.getElementById('liveClockWidgetStats');
-  if (statsEl) {
-    const tons = (totalTonnage / 1000).toFixed(1);
-    statsEl.innerHTML = `Сделано: <b>${totalSets}</b> сетов • <b>${tons}</b> т`;
+  if (planLabel && planValue && planRir) {
+    const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
+    planLabel.innerText = `СЕТ ${Math.min(workDone + 1, currentEx.targetSets)} ИЗ ${currentEx.targetSets}`;
+    
+    planValue.innerHTML = `<b>${activeSession.draftSet.weight} ${multBadge}</b> кг × ${activeSession.draftSet.reps}`;
+    planRir.innerText = `RIR ${activeSession.draftSet.rir.replace('+', '')}`;
+    
+    if (activeSession.draftSet.useSpecialMethod && currentEx.isDrop) {
+      methodBadge.style.display = 'inline-block';
+      methodBadge.innerText = '⚡ ДРОП';
+    } else if (activeSession.draftSet.useSpecialMethod && currentEx.isCluster) {
+      methodBadge.style.display = 'inline-block';
+      methodBadge.innerText = '⚡ КЛАСТЕР';
+    } else {
+      methodBadge.style.display = 'none';
+    }
+  }
+
+  // --- Render History Card ---
+  const historyCard = document.getElementById('liveClockHistoryCard');
+  const historyValue = document.getElementById('liveClockHistoryValue');
+  const historyDelta = document.getElementById('liveClockHistoryDelta');
+  
+  if (historyCard && historyValue && historyDelta) {
+    const history = Array.isArray(state.dbData.sets) ? state.dbData.sets : [];
+    const pastSets = history.filter(s => s.exercise === currentEx.name && s.category === 'Рабочий');
+    
+    if (pastSets.length > 0) {
+      pastSets.sort((a, b) => new Date(b.date) - new Date(a.date));
+      const lastSet = pastSets[0];
+      const mult = currentEx.multiplier === 2 ? '(×2)' : '';
+      historyValue.innerText = `${lastSet.weightDisplay} ${mult} кг × ${lastSet.reps}`;
+      
+      const delta = activeSession.draftSet.weight - lastSet.weightDisplay;
+      if (delta > 0) {
+        historyDelta.innerText = `↑ +${delta} кг`;
+        historyDelta.className = 'live-clock-delta';
+      } else if (delta < 0) {
+        historyDelta.innerText = `↓ ${delta} кг`;
+        historyDelta.className = 'live-clock-delta is-negative';
+      } else {
+        historyDelta.innerText = '=';
+        historyDelta.className = 'live-clock-delta';
+      }
+      historyCard.style.display = 'block';
+    } else {
+      historyCard.style.display = 'none';
+    }
+  }
+
+  // --- Render Volume Card ---
+  const volTitle = document.getElementById('liveClockVolTitle');
+  const volCount = document.getElementById('liveClockVolCount');
+  const volFill = document.getElementById('liveClockVolFill');
+  
+  if (volTitle && volCount && volFill && currentEx.targetMuscle) {
+    const volData = analyzeMuscleVolume(currentEx.targetMuscle);
+    volTitle.innerText = `ОБЪЕМ: ${currentEx.targetMuscle.toUpperCase()}`;
+    
+    const maxScale = volData.th.mavMax + 4;
+    let pct = Math.min(100, Math.round((volData.weeklyDone / maxScale) * 100));
+    if (pct < 5 && volData.weeklyDone > 0) pct = 5;
+    
+    volCount.innerText = `${volData.weeklyDone} / ${volData.th.mavMax} (MAV)`;
+    volFill.style.width = `${pct}%`;
+    
+    if (volData.weeklyDone < volData.th.mev) volFill.className = 'live-clock-vol-fill low';
+    else if (volData.weeklyDone <= volData.th.mavMax) volFill.className = 'live-clock-vol-fill opt';
+    else if (volData.weeklyDone <= volData.th.mrv) volFill.className = 'live-clock-vol-fill high';
+    else volFill.className = 'live-clock-vol-fill max';
   }
 }
 
@@ -544,7 +662,6 @@ function startBigClockEngine() {
   const titleEl = document.getElementById('liveBigClockTitle');
   const digitsEl = document.getElementById('liveBigClockDigits');
   const nowEl = document.getElementById('liveBigClockNow');
-  const etaRelEl = document.getElementById('liveBigClockEtaRel');
   const etaAbsEl = document.getElementById('liveBigClockEtaAbs');
   
   if (!overlay || !digitsEl) return;
@@ -570,10 +687,8 @@ function startBigClockEngine() {
     if (nowEl) nowEl.innerHTML = `Сейчас <b>${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}</b>`;
     
     if (eta) {
-      const remMin = Math.max(0, Math.round((eta.endsAtMs - Date.now()) / 60000));
-      if (etaRelEl) etaRelEl.innerHTML = `До финиша <b>${String(Math.floor(remMin / 60)).padStart(2, '0')}:${String(remMin % 60).padStart(2, '0')}</b>`;
       const endsAt = new Date(eta.endsAtMs);
-      if (etaAbsEl) etaAbsEl.innerHTML = `Окончание ~<b>${String(endsAt.getHours()).padStart(2, '0')}:${String(endsAt.getMinutes()).padStart(2, '0')}</b>`;
+      if (etaAbsEl) etaAbsEl.innerHTML = `Финиш ~<b>${String(endsAt.getHours()).padStart(2, '0')}:${String(endsAt.getMinutes()).padStart(2, '0')}</b>`;
     }
 
     if (isResting) {
@@ -877,13 +992,46 @@ function renderCompletedCard() {
   const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
   const card = document.getElementById('liveExCompletedCard');
   const title = document.getElementById('liveExCompletedTitle');
+  const volText = document.getElementById('liveCompletedVolumeText');
+  const bonusBtn = document.getElementById('liveAddBonusSetBtn');
+  
   if (!card) return;
+  
   if (isTargetReached) {
     card.style.display = 'flex';
     if (title) {
       const bonusTag = workDone > currentEx.targetSets ? ` (+${workDone - currentEx.targetSets} бонус)` : '';
       title.innerText = `✅ Упражнение выполнено (${Math.min(workDone, currentEx.targetSets)} из ${currentEx.targetSets}${bonusTag})`;
     }
+
+    // MEV Assistant Logic
+    if (volText && bonusBtn && currentEx.targetMuscle) {
+      const volData = analyzeMuscleVolume(currentEx.targetMuscle);
+      
+      if (volData.mevDiff > 0) {
+        if (volData.hasFutureSessions) {
+          volText.innerHTML = `До недельного MEV для <b>${currentEx.targetMuscle}</b> осталось ${volData.mevDiff} сета.<br><span style="color:var(--md-sys-color-primary); font-size:0.75rem;">Остаток закроем в следующей тренировке.</span>`;
+          bonusBtn.className = 'live-bonus-set-btn';
+          bonusBtn.innerText = '+ Бонусный подход (опционально)';
+        } else {
+          volText.innerHTML = `⚠️ Это последняя тренировка недели. До MEV для <b>${currentEx.targetMuscle}</b> не хватает <b>${volData.mevDiff}</b> сета!`;
+          bonusBtn.className = 'live-bonus-set-btn is-mev-warning';
+          bonusBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px;">bolt</span> + ДОБАВИТЬ ${volData.mevDiff} ПОДХОД(А) ДО MEV`;
+        }
+      } else if (volData.weeklyDone >= volData.th.mrv) {
+        volText.innerHTML = `⚠️ Вы достигли MRV (${volData.weeklyDone} сетов) для этой мышцы. Дальнейший объем не рекомендуется.`;
+        bonusBtn.className = 'live-bonus-set-btn';
+        bonusBtn.innerText = '+ Бонусный подход (Риск перебора)';
+      } else {
+        volText.innerHTML = `Объем <b>${currentEx.targetMuscle}</b> за неделю: ${volData.weeklyDone} (MEV пройден).`;
+        bonusBtn.className = 'live-bonus-set-btn';
+        bonusBtn.innerText = '+ Бонусный подход (опционально)';
+      }
+    } else if (bonusBtn) {
+      bonusBtn.className = 'live-bonus-set-btn';
+      bonusBtn.innerText = '+ Добавить еще 1 подход сверх плана';
+    }
+
   } else {
     card.style.display = 'none';
   }
@@ -1361,7 +1509,6 @@ function recordSimpleSet() {
     e1rm: e1rm
   };
 
-  // Визуальный фидбек
   const btn = document.getElementById('livePabRecord');
   const controlsCard = document.getElementById('liveActiveSetControlsCard');
 
