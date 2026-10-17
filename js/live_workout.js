@@ -1,19 +1,13 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.7.0 WEIGHT MANUAL INPUT)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.0 AMBIENT DASHBOARD)
  * =========================================================================
- * V2.7.0:
- * - Добавлен ручной ввод display-веса тапом по центральному дисплею.
- * - Инлайн-редактирование с валидацией (0 < w <= 999.99, запятая → точка).
- * - Escape/пустой/NaN/0 → откат. Enter/blur → коммит в draftSet.weight.
- * - Поддержка стеков с шагом 1.25 кг и нестандартных гантелей.
- *
- * V2.6.0:
- * - Внедрена поддержка множителя веса (гантели/раздельные ручки).
- * - Степпер и ввод веса работают с display-весами (вес одной гантели).
- * - В recordedSet сохраняется weight (effective) и weightDisplay (display).
- * - В method-строках используется effective вес для корректного расчета тоннажа.
- * - Шаги разминки и история отображаются в display-весах с бейджем (×2).
+ * V2.8.0:
+ * - Добавлен режим "Ambient Dashboard" для Big Clock.
+ * - Интеграция таймера отдыха в PAB: клик по таймеру открывает дашборд.
+ * - Умный Big Clock: считает вниз (если идет отдых) или вверх (секундомер).
+ * - Визуальное оповещение (< 15 сек) с пульсацией и красным свечением.
+ * - Вывод аналитики в Big Clock (Упражнение, План, Прогресс).
  */
 
 import {
@@ -94,7 +88,10 @@ function registerLiveModals() {
     registerModal('liveBigClockOverlay', {
       el: bigClock,
       displayStyle: 'flex',
-      onOpen: () => { startBigClockCountUp(); },
+      onOpen: () => { 
+        renderBigClockWidgets();
+        startBigClockEngine(); 
+      },
       onClose: () => { stopBigClock(); }
     });
   }
@@ -484,39 +481,127 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * BIG CLOCK
+ * BIG CLOCK / AMBIENT DASHBOARD
  * ========================================================= */
 
-function openBigClockOverlay() { registerLiveModals(); openModal('liveBigClockOverlay'); }
+function openBigClockOverlay() { 
+  registerLiveModals(); 
+  openModal('liveBigClockOverlay'); 
+}
 
-function startBigClockCountUp() {
-  bigClockStartedAtMs = Date.now();
+function renderBigClockWidgets() {
+  if (!activeSession) return;
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const exNameEl = document.getElementById('liveClockWidgetExName');
+  if (exNameEl) exNameEl.innerText = currentEx.name;
+
+  const multBadge = currentEx.multiplier === 2 ? ' (×2)' : '';
+  const planEl = document.getElementById('liveClockWidgetPlan');
+  if (planEl) {
+    const weight = activeSession.draftSet.weight;
+    const reps = activeSession.draftSet.reps;
+    const rir = activeSession.draftSet.rir;
+    planEl.innerHTML = `${weight}${multBadge} кг × ${reps} • RIR ${rir}`;
+  }
+
+  let totalSets = 0;
+  let totalTonnage = 0;
+  activeSession.exercises.forEach(ex => {
+    ex.completedSets.forEach(s => {
+      totalSets++;
+      totalTonnage += (s.tonnage || 0);
+    });
+  });
+  
+  const statsEl = document.getElementById('liveClockWidgetStats');
+  if (statsEl) {
+    const tons = (totalTonnage / 1000).toFixed(1);
+    statsEl.innerHTML = `Сделано: <b>${totalSets}</b> сетов • <b>${tons}</b> т`;
+  }
+}
+
+function startBigClockEngine() {
+  if (!activeSession) return;
+  
+  const overlay = document.getElementById('liveBigClockOverlay');
+  const titleEl = document.getElementById('liveBigClockTitle');
   const digitsEl = document.getElementById('liveBigClockDigits');
   const nowEl = document.getElementById('liveBigClockNow');
   const etaRelEl = document.getElementById('liveBigClockEtaRel');
   const etaAbsEl = document.getElementById('liveBigClockEtaAbs');
+  
+  if (!overlay || !digitsEl) return;
+
+  const isResting = activeSession.restState && activeSession.restState.isActive;
+  
+  overlay.classList.toggle('is-resting', isResting);
+  overlay.classList.remove('is-warning');
+
+  if (isResting) {
+    if (titleEl) titleEl.innerText = 'ОТДЫХ';
+    bigClockStartedAtMs = activeSession.restState.endsAtMs;
+  } else {
+    if (titleEl) titleEl.innerText = 'СЕКУНДОМЕР';
+    bigClockStartedAtMs = Date.now();
+  }
+
   const eta = computeSessionEta();
+
   const update = () => {
-    if (!bigClockStartedAtMs) return;
-    const elapsedSec = Math.max(0, Math.floor((Date.now() - bigClockStartedAtMs) / 1000));
-    const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
-    const s = String(elapsedSec % 60).padStart(2, '0');
-    if (digitsEl) digitsEl.innerText = `${m}:${s}`;
+    if (!activeSession) return;
     const now = new Date();
     if (nowEl) nowEl.innerHTML = `Сейчас <b>${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}</b>`;
+    
     if (eta) {
       const remMin = Math.max(0, Math.round((eta.endsAtMs - Date.now()) / 60000));
       if (etaRelEl) etaRelEl.innerHTML = `До финиша <b>${String(Math.floor(remMin / 60)).padStart(2, '0')}:${String(remMin % 60).padStart(2, '0')}</b>`;
       const endsAt = new Date(eta.endsAtMs);
       if (etaAbsEl) etaAbsEl.innerHTML = `Окончание ~<b>${String(endsAt.getHours()).padStart(2, '0')}:${String(endsAt.getMinutes()).padStart(2, '0')}</b>`;
     }
+
+    if (isResting) {
+      if (!activeSession.restState.isActive) {
+        // Отдых закончился, пока мы смотрели
+        digitsEl.innerText = '00:00';
+        overlay.classList.add('is-warning');
+        stopBigClock();
+        return;
+      }
+
+      const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
+      const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+      const s = String(remainingSec % 60).padStart(2, '0');
+      digitsEl.innerText = `${m}:${s}`;
+
+      if (remainingSec <= 15 && remainingSec > 0) {
+        overlay.classList.add('is-warning');
+      } else {
+        overlay.classList.remove('is-warning');
+      }
+    } else {
+      const elapsedSec = Math.max(0, Math.floor((Date.now() - bigClockStartedAtMs) / 1000));
+      const m = String(Math.floor(elapsedSec / 60)).padStart(2, '0');
+      const s = String(elapsedSec % 60).padStart(2, '0');
+      digitsEl.innerText = `${m}:${s}`;
+    }
   };
+
   if (bigClockInterval) clearInterval(bigClockInterval);
   update();
-  bigClockInterval = setInterval(update, 500);
+  bigClockInterval = setInterval(update, 250);
 }
-function stopBigClock() { if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; } bigClockStartedAtMs = 0; }
-function syncBigClockWithWallClock() { if (bigClockStartedAtMs && !bigClockInterval) startBigClockCountUp(); }
+
+function stopBigClock() { 
+  if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; } 
+  bigClockStartedAtMs = 0; 
+}
+
+function syncBigClockWithWallClock() { 
+  if (bigClockStartedAtMs && !bigClockInterval) startBigClockEngine(); 
+}
+
 function computeSessionEta() {
   if (!activeSession) return null;
   const history = Array.isArray(state.dbData.workouts) ? state.dbData.workouts : [];
@@ -551,6 +636,7 @@ function renderLiveWorkoutScreen() {
   renderCompletedCard();
   renderHistoryGroups();
   renderPAB();
+  if (isModalOpen('liveBigClockOverlay')) renderBigClockWidgets();
 }
 
 function renderProgressStrip() {
@@ -632,7 +718,6 @@ function renderExerciseHeader() {
     }
     const warmupHintEl = document.getElementById('liveExWarmupHint');
     if (warmupHintEl) {
-      // В подсказке разминка отображается в effective, переводим её в display
       const displayWarmupText = currentEx.warmupText ? currentEx.warmupText.replace(/(\d+(?:\.\d+)?)\s*кг/g, (m, p1) => {
         const val = parseFloat(p1);
         const disp = roundToGymStep(val / currentEx.multiplier);
@@ -956,7 +1041,7 @@ function renderPAB() {
       const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
       const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
       const s = String(remainingSec % 60).padStart(2, '0');
-      restInlineHtml = `<div class="live-pab-rest-info" style="margin-bottom:6px;"><span class="live-pab-rest-label">⏱ Отдых (можно подождать)</span><span class="live-pab-rest-countdown" id="livePabRestCountdownInline">${m}:${s}</span></div>`;
+      restInlineHtml = `<div class="live-pab-rest-info" style="margin-bottom:6px;"><span class="live-pab-rest-label">⏱ Отдых (можно подождать)</span><span class="live-pab-rest-countdown" id="livePabRestCountdownInline" onclick="document.getElementById('liveBigClockOverlay').style.display='flex'; document.getElementById('livePabRestCountdownInline').blur();">${m}:${s}</span></div>`;
       if (remainingSec <= 15 && remainingSec > 0) pab.classList.add('is-warning');
     }
     pab.innerHTML = `
@@ -983,7 +1068,7 @@ function renderPAB() {
       <div class="live-pab-content">
         <div class="live-pab-rest-info">
           <span class="live-pab-rest-label">⏱ Отдых · ATP-CrP</span>
-          <span class="live-pab-rest-countdown" id="livePabRestCountdown">${m}:${s}</span>
+          <span class="live-pab-rest-countdown" id="livePabRestCountdown" onclick="document.getElementById('liveBigClockOverlay').style.display='flex'; document.getElementById('livePabRestCountdown').blur();">${m}:${s}</span>
         </div>
         <div class="live-pab-rest">
           <button class="live-pab-rest-btn" id="livePabRestMinus30" type="button">− 30 сек</button>
@@ -1583,7 +1668,6 @@ function saveDropSet() {
   const totalTonnage = mainWeightEffective * mainReps + drops.reduce((a, d) => a + (d.weightDisplay * sheetState.multiplier) * d.reps, 0);
   const e1rm = computeE1RM(mainWeightEffective, mainReps);
 
-  // Строка метода в Effective-весах для сервера
   const chainParts = [`${mainWeightEffective}×${mainReps}`, ...drops.map(d => `${d.weightDisplay * sheetState.multiplier}×${d.reps}`)];
   const methodLabel = `Дроп ${chainParts.join('→')}`;
 
@@ -1673,6 +1757,7 @@ function startRestTimer(seconds) {
   persistActiveSession();
   renderPAB();
   syncRestTimerWithWallClock();
+  if (isModalOpen('liveBigClockOverlay')) startBigClockEngine(); // Обновляем дашборд если он открыт
 }
 
 function adjustRestTimer(deltaSeconds) {
@@ -1681,6 +1766,7 @@ function adjustRestTimer(deltaSeconds) {
   activeSession.restState.totalSeconds = Math.max(10, activeSession.restState.totalSeconds + deltaSeconds);
   persistActiveSession();
   syncRestTimerWithWallClock();
+  if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
 }
 
 function stopRestTimer() {
@@ -1691,6 +1777,7 @@ function stopRestTimer() {
   if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
   persistActiveSession();
   renderPAB();
+  if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
 }
 
 function syncRestTimerWithWallClock() {
@@ -1983,7 +2070,6 @@ function bindLiveWorkoutDomEvents() {
   if (wMinus) wMinus.onclick = () => { if (!activeSession) return; activeSession.draftSet.weight = Math.max(0, activeSession.draftSet.weight - 2.5); triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
   if (wPlus) wPlus.onclick = () => { if (!activeSession) return; activeSession.draftSet.weight += 2.5; triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
 
-  // V2.7.0: ручной ввод веса тапом по центральному дисплею
   const wDisplay = document.getElementById('liveWeightValue');
   if (wDisplay) {
     wDisplay.setAttribute('tabindex', '0');
@@ -2006,8 +2092,15 @@ function bindLiveWorkoutDomEvents() {
   document.querySelectorAll('.live-rir-chip').forEach(chip => {
     chip.onclick = () => { if (!activeSession) return; activeSession.draftSet.rir = chip.getAttribute('data-rir') || '2'; triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
   });
+  
   const bigClockClose = document.getElementById('liveBigClockClose');
   if (bigClockClose) bigClockClose.onclick = () => closeModal('liveBigClockOverlay');
+  
+  const clockAdd30Btn = document.getElementById('liveClockAdd30Btn');
+  const clockSkipBtn = document.getElementById('liveClockSkipBtn');
+  if (clockAdd30Btn) clockAdd30Btn.onclick = () => adjustRestTimer(30);
+  if (clockSkipBtn) clockSkipBtn.onclick = () => { stopRestTimer(); closeModal('liveBigClockOverlay'); };
+
   const clusterSaveBtn = document.getElementById('liveClusterSaveBtn');
   const clusterCancelBtn = document.getElementById('liveClusterCancelBtn');
   if (clusterSaveBtn) clusterSaveBtn.onclick = () => saveClusterSet();
