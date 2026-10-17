@@ -1,22 +1,23 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.4 DROPS ARRAY FIX)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.5 METHOD FORMAT)
  * =========================================================================
- * V2.4:
- * - Сет хранит полный массив дропов: `drops: [{weight, reps, rir}, ...]`.
- *   Раньше сохранялся только первый дроп — остальные терялись.
- * - renderHistoryRow показывает все дропы:
- *     • 1 дроп → inline: `42.5×8 + 32.5×5`
- *     • 2+ дропа → цепочкой на второй строке: `+ 32.5×5 → 25×5 → 20×5`
- * - renderHistoryGroups meta показывает `+N дроп.` для много-дроповых сетов.
- * - finalizeAndSync передаёт массив drops в payload (для будущего бэкенда).
- * - Fallback на legacy dropWeight/dropReps для старых сессий.
+ * V2.5:
+ * - Метод дроп-сета с разбивкой весов: `Дроп 62.5×10→47.5×12`.
+ *   Для 2+ дропов — цепочка `→`. Всё в одной строке `method`.
+ * - Метод кластера с весом и схемой: `Кластер 62.5×4/3/2 (RIR 3/2/1)`.
+ *   Раньше `schemeText` мог быть устаревшим, если пользователь правил
+ *   сегменты через +/-. Теперь строится из актуальных segments.
+ * - renderHistoryRow: regex расширен `[+\/]` — новый формат `4/3/2`
+ *   отображается чипом `⚡ 4/3/2` (не только `⚡ Кластер`).
  *
- * V2.3 (сохранено):
- * - Big Clock — пассивный секундомер вверх, 3 строки в углу.
+ * V2.4 (сохранено):
+ * - recordedSet.drops = [{weight, reps, rir}, ...]. Legacy dropWeight/dropReps.
+ * - renderHistoryRow: 1 дроп inline, 2+ — цепочкой на 2-й строке.
+ * - Big Clock — секундомер вверх, ETA в углу.
  * - Круглая кнопка-часы в PAB (method-combo).
- * - Компактные двухстрочные Cluster/Drop Sheet.
- * - Логирование отдыха: startedAtMs / recordedAtMs → честный avgRestSec.
+ * - Компактные Cluster/Drop Sheet.
+ * - Логирование отдыха через startedAtMs / recordedAtMs.
  */
 
 import {
@@ -725,7 +726,7 @@ function renderExerciseHeader() {
 
       if (currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт') {
         let methodLabel = currentEx.plannedMethod;
-        const schemeMatch = currentEx.plannedMethod.match(/(\d+(?:\+\d+)+)/);
+        const schemeMatch = currentEx.plannedMethod.match(/(\d+(?:[+\/]\d+)+)/);
         if (schemeMatch) methodLabel = `⚡ ${schemeMatch[1]}`;
         else if (methodLabel.toLowerCase().includes('дроп')) methodLabel = '⚡ Дроп';
         else if (methodLabel.toLowerCase().includes('кластер')) methodLabel = '⚡ Кластер';
@@ -855,7 +856,7 @@ function renderMethodToggle() {
   if (!isWarmupMode && currentEx.plannedMethod && currentEx.plannedMethod !== 'Стандарт') {
     btn.hidden = false;
     let chipLabel = currentEx.plannedMethod;
-    const schemeMatch = currentEx.plannedMethod.match(/(\d+(?:\+\d+)+)/);
+    const schemeMatch = currentEx.plannedMethod.match(/(\d+(?:[+\/]\d+)+)/);
     if (schemeMatch) chipLabel = schemeMatch[1];
     else if (chipLabel.toLowerCase().includes('дроп')) chipLabel = 'Дроп';
     else if (chipLabel.toLowerCase().includes('кластер')) chipLabel = 'Кластер';
@@ -973,8 +974,6 @@ function renderHistoryGroups() {
   if (workSets.length > 0 && workGroup && workBody) {
     workGroup.style.display = 'block';
     const last = workSets[workSets.length - 1];
-
-    // V2.4: мета с учётом дропов
     const lastDropsCount = Array.isArray(last.drops) ? last.drops.length : (last.dropWeight > 0 ? 1 : 0);
     const dropsMetaTxt = lastDropsCount > 1 ? ` (+${lastDropsCount} дроп.)` : '';
     const rirTxt = last.reserve ? ` · RIR ${last.reserve.replace('+','')}` : '';
@@ -994,10 +993,11 @@ function renderHistoryGroups() {
 }
 
 /**
- * V2.4: рендер строки с поддержкой массива дропов.
- *   - 1 дроп → inline: `42.5×8 + 32.5×5`
- *   - 2+ дропа → main + цепочка на 2-й строке: `+ 32.5×5 → 25×5 → 20×5`
- *   - legacy (dropWeight/dropReps без массива) → как раньше, inline.
+ * V2.5: рендер строки с поддержкой нового формата method.
+ *   - 1 дроп: inline `62.5×10 + 47.5×12`
+ *   - 2+ дропа: цепочка `+ 47.5×12 → 35×8` на 2-й строке
+ *   - Legacy (dropWeight/dropReps без массива): как раньше, inline
+ *   - Кластер с `/` в схеме: чип `⚡ 4/3/2`
  */
 function renderHistoryRow(set, displayNum, kind) {
   const label = kind === 'warmup' ? `Разм. #${displayNum}` : `Раб. #${displayNum}`;
@@ -1033,7 +1033,8 @@ function renderHistoryRow(set, displayNum, kind) {
 
   if (kind === 'work' && set.method) {
     let methodLabel = set.method;
-    const schemeMatch = set.method.match(/(\d+(?:\+\d+)+)/);
+    // V2.5: `+` для кластера, `/` для нового формата `4/3/2`
+    const schemeMatch = set.method.match(/(\d+(?:[+\/]\d+)+)/);
     if (schemeMatch) methodLabel = `⚡ ${schemeMatch[1]}`;
     else if (methodLower.includes('дроп')) methodLabel = '⚡ Дроп';
     else if (methodLower.includes('кластер')) methodLabel = '⚡ Кластер';
@@ -1425,7 +1426,7 @@ function commitRecordedSet(partialSet) {
 }
 
 /* =========================================================
- * CLUSTER SHEET
+ * CLUSTER SHEET — V2.5: метод с весом и схемой через `/`
  * ========================================================= */
 
 function openClusterSheet() {
@@ -1525,7 +1526,11 @@ function saveClusterSet() {
   const tonnage = parseFloat((weight * totalReps).toFixed(1));
   const e1rm = computeE1RM(weight, firstSegmentReps);
 
-  const method = `Кластер ${sheetState.schemeText} (RIR ${rirChain})`;
+  // V2.5: метод = `Кластер 62.5×4/3/2 (RIR 3/2/1)`. Схема строится из актуальных
+  // сегментов (защита от устаревшего schemeText после ручных правок в sheet).
+  const schemeCompact = segments.map(s => s.reps).join('/');
+  const method = `Кластер ${weight}×${schemeCompact} (RIR ${rirChain})`;
+
   const setNum = currentEx.completedSets.length + 1;
 
   commitRecordedSet({
@@ -1544,14 +1549,14 @@ function saveClusterSet() {
     e1rm: e1rm
   });
 
-  logToTerminal('LIVE_SET', `${currentEx.name} • Кластер #${setNum}: ${weight} кг [${sheetState.schemeText}] = ${totalReps} повт (RIR ${rirChain})`, 'success');
+  logToTerminal('LIVE_SET', `${currentEx.name} • ${method}: ${weight} кг [${schemeCompact}] = ${totalReps} повт`, 'success');
 
   activeClusterSheetState = null;
   closeModal('liveClusterSheet');
 }
 
 /* =========================================================
- * DROP SHEET — V2.4: сохраняем ПОЛНЫЙ массив drops
+ * DROP SHEET — V2.5: метод с разбивкой весов
  * ========================================================= */
 
 function openDropSheet() {
@@ -1706,14 +1711,13 @@ function saveDropSet() {
   const totalTonnage = mainWeight * mainReps + drops.reduce((a, d) => a + d.weight * d.reps, 0);
   const e1rm = computeE1RM(mainWeight, mainReps);
 
-  let methodLabel;
-  if (drops.length === 1) methodLabel = `Дроп-сет (осн. RIR ${mainRir.replace('+','')})`;
-  else if (drops.length === 2) methodLabel = `Двойной дроп-сет (осн. RIR ${mainRir.replace('+','')})`;
-  else methodLabel = `${drops.length}-й дроп-сет (осн. RIR ${mainRir.replace('+','')})`;
+  // V2.5: method = `Дроп 62.5×10→47.5×12` (компактный, с разбивкой).
+  // Для 2+ дропов: `Дроп 62.5×10→47.5×12→35×8`.
+  const chainParts = [`${mainWeight}×${mainReps}`, ...drops.map(d => `${d.weight}×${d.reps}`)];
+  const methodLabel = `Дроп ${chainParts.join('→')}`;
 
   const setNum = currentEx.completedSets.length + 1;
 
-  // V2.4: сохраняем массив drops целиком
   const dropsPayload = drops.map(d => ({
     weight: parseFloat(d.weight) || 0,
     reps: parseInt(d.reps, 10) || 0,
@@ -1736,8 +1740,7 @@ function saveDropSet() {
     e1rm: e1rm
   });
 
-  const chain = drops.map(d => `${d.weight}×${d.reps}`).join(' → ');
-  logToTerminal('LIVE_SET', `${currentEx.name} • ${methodLabel}: ${mainWeight}×${mainReps} → ${chain}`, 'success');
+  logToTerminal('LIVE_SET', `${currentEx.name} • ${methodLabel} (осн. RIR ${mainRir.replace('+','')})`, 'success');
 
   activeDropSheetState = null;
   closeModal('liveDropSheet');
@@ -1982,7 +1985,7 @@ function renderCloseoutSummaryBox() {
 }
 
 /* =========================================================
- * FINALIZE SYNC — V2.4: передаём массив drops в payload
+ * FINALIZE SYNC
  * ========================================================= */
 
 async function finalizeAndSyncLiveWorkout() {
