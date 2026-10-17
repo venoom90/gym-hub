@@ -667,7 +667,7 @@
       max-width: 600px;
       width: 100%;
       margin: 0 auto;
-      padding: 10px 14px 140px 14px; /* Увеличен padding-bottom под плавающий PAB */
+      padding: 10px 14px 140px 14px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -1414,7 +1414,7 @@
     }
     .live-pab-rest-countdown {
       font-family: 'Roboto Mono', ui-monospace, monospace;
-      font-size: 1.8rem; /* Увеличен размер */
+      font-size: 1.8rem;
       font-weight: 700;
       color: var(--md-sys-color-primary);
       letter-spacing: 0.5px;
@@ -1462,7 +1462,7 @@
     }
 
     /* =========================================================
-     * BIG CLOCK OVERLAY / AMBIENT DASHBOARD (V3.1)
+     * BIG CLOCK OVERLAY / AMBIENT DASHBOARD (V3.2)
      * ========================================================= */
     .live-big-clock-overlay {
       display: none;
@@ -1481,7 +1481,7 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 24px;
+      margin-bottom: 12px;
     }
 
     .live-clock-top-time {
@@ -1515,37 +1515,31 @@
     .live-clock-dots-row {
       display: flex;
       justify-content: center;
-      gap: 10px;
-      margin-bottom: 16px;
-      height: 24px;
+      gap: 8px;
+      margin-bottom: 24px;
+      height: 12px;
       align-items: center;
     }
     
-    .clock-dot {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.2);
+    /* Заменили точки на полоски */
+    .clock-bar {
+      width: 24px;
+      height: 8px;
+      border-radius: var(--md-sys-shape-corner-full);
+      border: 1px solid rgba(255,255,255,0.2);
       background: transparent;
       transition: all 0.3s ease;
       position: relative;
     }
-    .clock-dot.is-done { border-color: transparent; }
-    .clock-dot.is-rir-0 { background: #ff6b6b; box-shadow: 0 0 10px rgba(255,107,107,0.5); }
-    .clock-dot.is-rir-1 { background: #facc15; box-shadow: 0 0 10px rgba(250,204,21,0.5); }
-    .clock-dot.is-rir-2 { background: #4ade80; box-shadow: 0 0 10px rgba(74,222,128,0.5); }
-    .clock-dot.is-rir-3 { background: #60a5fa; box-shadow: 0 0 10px rgba(96,165,250,0.5); }
+    .clock-bar.is-done { border-color: transparent; }
+    .clock-bar.is-rir-0 { background: #ff6b6b; box-shadow: 0 0 10px rgba(255,107,107,0.5); }
+    .clock-bar.is-rir-1 { background: #facc15; box-shadow: 0 0 10px rgba(250,204,21,0.5); }
+    .clock-bar.is-rir-2 { background: #4ade80; box-shadow: 0 0 10px rgba(74,222,128,0.5); }
+    .clock-bar.is-rir-3 { background: #60a5fa; box-shadow: 0 0 10px rgba(96,165,250,0.5); }
     
-    .clock-dot.is-special {
+    .clock-bar.is-special {
       border-color: var(--app-color-warning);
-    }
-    .clock-dot.is-special::after {
-      content: '⚡';
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 10px;
-      color: var(--app-color-warning);
+      border-style: dashed;
     }
 
     .live-clock-center {
@@ -1554,7 +1548,8 @@
       align-items: center;
       justify-content: center;
       width: 100%;
-      margin-bottom: 32px;
+      flex: 1; /* Раздвигает верх и низ */
+      margin-bottom: 24px;
     }
 
     .live-big-clock-title {
@@ -1569,14 +1564,14 @@
     .live-big-clock-digits {
       font-family: 'Roboto Mono', ui-monospace, monospace;
       font-size: clamp(6rem, 28vw, 15rem);
-      font-weight: 300; /* Тонкий шрифт */
+      font-weight: 300;
       color: #ffffff;
       line-height: 0.95;
       letter-spacing: -0.05em;
       user-select: none;
       text-align: center;
       font-variant-numeric: tabular-nums;
-      transform: scaleY(1.15); /* Вытянутый */
+      transform: scaleY(1.15);
       transform-origin: center;
       transition: color var(--md-sys-motion-duration-short4),
                   transform var(--md-sys-motion-duration-short4);
@@ -1597,7 +1592,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
 
     .live-clock-widget {
@@ -1628,6 +1623,12 @@
     }
     .live-clock-widget-body b {
       color: var(--app-color-success);
+    }
+    
+    .live-clock-plan-val {
+      color: var(--app-color-success);
+      font-weight: 700;
+      font-size: 1.1rem;
     }
 
     .live-clock-volume-bar {
@@ -3278,7 +3279,7 @@
 
   </div>
 
-  <!-- BIG CLOCK OVERLAY / AMBIENT DASHBOARD V3.1 -->
+  <!-- BIG CLOCK OVERLAY / AMBIENT DASHBOARD V3.2 -->
   <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Дашборд отдыха">
     
     <div class="live-clock-top-bar">
@@ -3291,7 +3292,8 @@
       </button>
     </div>
 
-    <div class="live-clock-dots-row" id="liveClockDots"></div>
+    <!-- Заменили точки на полоски -->
+    <div class="live-clock-dots-row" id="liveClockBars"></div>
 
     <div class="live-clock-center">
       <div class="live-big-clock-title" id="liveBigClockTitle">ОТДЫХ</div>
@@ -3305,7 +3307,8 @@
           <span id="liveClockNextSetLabel">СЕТ 2 ИЗ 4</span>
         </div>
         <div class="live-clock-widget-body" style="display: flex; justify-content: space-between; align-items: center;">
-          <span id="liveClockWidgetNextPlan">52.5 (×2) кг × 12</span>
+          <!-- Вернули зеленый цвет -->
+          <span id="liveClockWidgetNextPlan" class="live-clock-plan-val">52.5 (×2) кг × 12</span>
           <span id="liveClockWidgetRirBadge" class="coach-card-chip" style="font-size: 0.8rem;">RIR 2</span>
         </div>
       </div>
@@ -3322,7 +3325,12 @@
       <!-- Объем -->
       <div class="live-clock-widget">
         <div class="live-clock-widget-header">
-          <span id="liveClockWidgetMuscle">ОБЪЕМ: ГРУДЬ</span>
+          <span id="liveClockWidgetMuscle" style="display: flex; align-items: center; gap: 4px;">
+            ОБЪЕМ: ГРУДЬ
+            <button id="liveClockVolumeHelpBtn" class="help-trigger-btn" style="width:24px; height:24px; margin:0;" aria-label="Справка по MEV">
+              <span class="material-symbols-outlined" style="font-size:16px;">help_outline</span>
+            </button>
+          </span>
           <span id="liveClockWidgetVolumeText">8 / 20 (MAV)</span>
         </div>
         <div class="live-clock-volume-bar">
