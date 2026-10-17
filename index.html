@@ -881,6 +881,12 @@
     .live-note-chip.is-empty .material-symbols-outlined { font-size: 18px; }
     .live-note-chip.is-empty .live-note-value { display: none; }
 
+    .live-note-chip.is-active {
+      background: var(--app-color-warning-container);
+      border-color: var(--app-color-warning);
+      color: var(--app-color-warning);
+    }
+
     .live-intensifier-banner {
       display: none;
       align-items: center;
@@ -1536,6 +1542,22 @@
     .clock-bar.is-rir-1 { background: #facc15; box-shadow: 0 0 10px rgba(250,204,21,0.5); }
     .clock-bar.is-rir-2 { background: #4ade80; box-shadow: 0 0 10px rgba(74,222,128,0.5); }
     .clock-bar.is-rir-3 { background: #60a5fa; box-shadow: 0 0 10px rgba(96,165,250,0.5); }
+    
+    .clock-bar.is-warmup {
+      background: #64748b;
+      box-shadow: none;
+      border-color: transparent;
+    }
+    
+    .clock-bar.is-current {
+      animation: barPulse 1.5s infinite;
+      border: 1.5px solid #ffffff;
+    }
+    
+    @keyframes barPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
     
     .clock-bar.is-special {
       border-color: var(--app-color-warning);
@@ -3130,7 +3152,7 @@
     </div>
   </div>
 
-  <!-- LIVE WORKOUT OVERLAY V2.8 -->
+  <!-- LIVE WORKOUT OVERLAY V2.8.5 -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
 
     <div class="live-top-bar">
@@ -3182,6 +3204,14 @@
             <button type="button" id="liveTechniqueChip" class="live-note-chip is-empty" aria-label="Технические заметки">
               <span class="material-symbols-outlined" aria-hidden="true">notes</span>
               <span class="live-note-value" id="liveTechniqueValue"></span>
+            </button>
+            <button type="button" id="liveManualClusterBtn" class="live-note-chip" aria-label="Кластер">
+              <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+              <span class="live-note-value">Кластер</span>
+            </button>
+            <button type="button" id="liveManualDropBtn" class="live-note-chip" aria-label="Дроп">
+              <span class="material-symbols-outlined" aria-hidden="true">trending_down</span>
+              <span class="live-note-value">Дроп</span>
             </button>
           </div>
           <div id="liveExWarmupHint" class="live-ex-warmup-hint"></div>
