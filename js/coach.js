@@ -1,7 +1,7 @@
 import {
   state, normalizeDate, escapeHtml, computeE1RM,
   MUSCLE_THRESHOLDS, MUSCLE_ADVICE, classifyMuscleState,
-  rirWeight, isIsolationExercise, isDeloadSet
+  rirWeight, isIsolationExercise, isDeloadSet, getExerciseMultiplier
 } from './state.js';
 import { askGasGeminiCoach, saveAiPlanToSheets } from './api.js';
 
@@ -368,8 +368,14 @@ async function generateMesocyclePlan() {
 
   Object.keys(exerciseStatsMap).forEach(ex => {
     const item = exerciseStatsMap[ex];
-    const e1rmStr = item.max1RM > 0 ? `, 1ПМ ${item.max1RM} кг` : '';
-    const line = `${ex}: макс. рабочий вес ${item.maxWeight} кг${e1rmStr}`;
+    const mult = getExerciseMultiplier(ex);
+    
+    // V5.9.5: Для ИИ отдаем Display-веса, чтобы модель думала в реальных снарядах (36 кг, а не 72).
+    const displayMaxWeight = parseFloat((item.maxWeight / mult).toFixed(1));
+    const displayMax1RM = parseFloat((item.max1RM / mult).toFixed(1));
+    const e1rmStr = displayMax1RM > 0 ? `, 1ПМ ${displayMax1RM} кг` : '';
+    const line = `${ex}: макс. рабочий вес ${displayMaxWeight} кг${e1rmStr}`;
+    
     if (item.split === 'Б' || item.split === 'B') {
       dayBExercises.push(line);
     } else {
@@ -484,15 +490,18 @@ ${catalogList || 'Нет размеченных упражнений в ката
       throw new Error('ИИ забыл сгенерировать День Б (менее 5 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
 
+    // V5.9.5: Конвертация Display -> Effective перед сохранением в базу и кэш
+    const effectivePlan = convertPlanToEffective(parsedPlan);
+
     // Принудительно фиксируем фазу (защита от галлюцинаций)
-    parsedPlan.cycleId = phase.cycleId;
-    parsedPlan.cycleWeek = phase.nextWeek;
-    parsedPlan.cycleMode = phase.nextMode;
+    effectivePlan.cycleId = phase.cycleId;
+    effectivePlan.cycleWeek = phase.nextWeek;
+    effectivePlan.cycleMode = phase.nextMode;
 
-    parsedPlan.generatedAt = Date.now();
-    delete parsedPlan._pendingCloudSync;
+    effectivePlan.generatedAt = Date.now();
+    delete effectivePlan._pendingCloudSync;
 
-    cachedPlanData = parsedPlan;
+    cachedPlanData = effectivePlan;
     localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
 
     try {
@@ -505,8 +514,7 @@ ${catalogList || 'Нет размеченных упражнений в ката
       loadingBox.innerText = `☁️ Сохранение плана на лист AI_Plan...`;
     }
 
-    const { _pendingCloudSync, ...cleanPlanToSend } = cachedPlanData;
-    const saveResult = await saveAiPlanToSheets(cleanPlanToSend);
+    const saveResult = await saveAiPlanToSheets(effectivePlan);
 
     if (!saveResult || !saveResult.success) {
       cachedPlanData._pendingCloudSync = true;
@@ -521,6 +529,24 @@ ${catalogList || 'Нет размеченных упражнений в ката
     if (loadingBox) loadingBox.style.display = 'none';
     if (genBtn) genBtn.disabled = false;
   }
+}
+
+/**
+ * V5.9.5: Переводит все веса в плане из display (36) в effective (72)
+ */
+function convertPlanToEffective(plan) {
+  const clone = JSON.parse(JSON.stringify(plan));
+  ['A', 'B'].forEach(splitKey => {
+    if (clone.splits && clone.splits[splitKey] && clone.splits[splitKey].exercises) {
+      clone.splits[splitKey].exercises.forEach(ex => {
+        const mult = getExerciseMultiplier(ex.name);
+        if (ex.weight) {
+          ex.weight = parseFloat((parseFloat(ex.weight) * mult).toFixed(1));
+        }
+      });
+    }
+  });
+  return clone;
 }
 
 function loadCachedPlan() {
@@ -599,6 +625,11 @@ function renderStructuredCards() {
     if (!ex || typeof ex !== 'object') return;
 
     try {
+      // V5.9.5: Конвертация Effective -> Display для UI
+      const mult = getExerciseMultiplier(ex.name);
+      const displayWeight = parseFloat(((parseFloat(ex.weight) || 0) / mult).toFixed(1));
+      const multBadge = mult === 2 ? ' (×2)' : '';
+
       const card = document.createElement('div');
       card.className = 'coach-exercise-card';
       card.innerHTML = `
@@ -607,7 +638,7 @@ function renderStructuredCards() {
             <span style="font-size: 0.72rem; color: var(--md-sys-color-primary); font-weight: 700;">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.target || 'База')}</span>
             <div class="coach-exercise-title">${escapeHtml(ex.name || 'Упражнение')}</div>
           </div>
-          <span class="coach-weight-tag">${parseFloat(ex.weight) || 0} кг</span>
+          <span class="coach-weight-tag">${displayWeight} кг${multBadge}</span>
         </div>
         <div class="coach-card-chips">
           <span class="coach-card-chip">${parseInt(ex.sets, 10) || 3} подх.</span>
@@ -623,7 +654,6 @@ function renderStructuredCards() {
     }
   });
 
-  // V5.9.0: Отрисовка обоснований по каждому упражнению + общая стратегия
   if (rationaleBox && rationaleText) {
     let justHtml = '';
     currentSplit.exercises.forEach(ex => {

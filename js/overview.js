@@ -1,6 +1,6 @@
 import {
   state, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, isMaintenanceRir,
-  getLastSetFieldForExercise
+  getLastSetFieldForExercise, getExerciseMultiplier
 } from './state.js';
 import { extractPeriodization } from './parser.js';
 import { startNewLiveWorkout } from './live_workout.js';
@@ -442,6 +442,7 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
     const baseRir = String(ex.rir || '+1..+2');
     const baseMethod = String(ex.method || 'Стандарт');
     const isMaint = isMaintenanceExercise(ex, muscle);
+    const mult = getExerciseMultiplier(ex.name);
 
     let calculatedWeight = baseWeight;
     let finalSets = baseSets;
@@ -493,6 +494,10 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
       }
     }
 
+    // V5.9.1: Рассчитываем Display-веса для UI
+    const weightDisplay = roundToGymStep(calculatedWeight / mult);
+    const warmupTextDisplay = calculateWarmupRamp(orderNum, weightDisplay, cycleMode);
+
     const warmupRampText = calculateWarmupRamp(orderNum, calculatedWeight, cycleMode);
     const warmupSteps = buildWarmupStepsArray(orderNum, calculatedWeight, cycleMode);
 
@@ -500,12 +505,15 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
       order: orderNum,
       name: ex.name || 'Упражнение',
       target: muscle,
-      weight: calculatedWeight,
+      weight: calculatedWeight,       // Effective
+      weightDisplay: weightDisplay,   // Display
+      multiplier: mult,               // Множитель
       sets: finalSets,
       reps: finalReps,
       rir: finalRir,
       method: finalMethod,
-      warmupText: warmupRampText,
+      warmupText: warmupRampText,           // Effective (для LiveWorkout)
+      warmupTextDisplay: warmupTextDisplay, // Display (для UI модалки)
       warmupSteps: warmupSteps,
       notes: ex.notes ? String(ex.notes) : ''
     });
@@ -726,6 +734,12 @@ function renderAiRecipeCard() {
     }
 
     const finalTargetLoad = roundToGymStep(rawTargetLoad);
+    
+    // V5.9.1: Поддержка множителя для Fallback-плана
+    const mult = getExerciseMultiplier(ex);
+    const weightDisplay = roundToGymStep(finalTargetLoad / mult);
+    const warmupTextDisplay = calculateWarmupRamp(idx + 1, weightDisplay, nextMode);
+
     const warmupRampText = calculateWarmupRamp(idx + 1, finalTargetLoad, nextMode);
     const warmupSteps = buildWarmupStepsArray(idx + 1, finalTargetLoad, nextMode);
     const catItem = catalogMap[ex.trim()];
@@ -734,12 +748,15 @@ function renderAiRecipeCard() {
       order: idx + 1,
       name: ex,
       target: catItem ? catItem.primaryMuscle : '',
-      weight: finalTargetLoad,
+      weight: finalTargetLoad,         // Effective
+      weightDisplay: weightDisplay,    // Display
+      multiplier: mult,                // Множитель
       sets: (nextMode === 'Делоад') ? 2 : 3,
       reps: targetRepsBadge,
       rir: rirBadgeText,
       method: 'Стандарт',
       warmupText: warmupRampText,
+      warmupTextDisplay: warmupTextDisplay,
       warmupSteps: warmupSteps,
       notes: ''
     });
@@ -828,9 +845,16 @@ function renderModalSplitExercises(payload) {
 
     const isDropMethod = String(ex.method || '').toLowerCase().includes('дроп');
     const dropWeightVal = isDropMethod ? roundToGymStep(ex.weight * 0.75) : 0;
+    
+    // V5.9.1: Отображение Display-весов в модалке
+    const mult = ex.multiplier || 1;
+    const displayDropWeight = isDropMethod ? roundToGymStep(dropWeightVal / mult) : 0;
+    const displayWeight = ex.weightDisplay !== undefined ? ex.weightDisplay : ex.weight;
+    const weightStr = `${displayWeight > 0 ? displayWeight + ' кг' : 'рабочий вес'}${mult === 2 ? ' (×2)' : ''}`;
+    const warmupStr = ex.warmupTextDisplay || ex.warmupText;
 
     const methodBadgeHtml = (ex.method && ex.method !== 'Стандарт')
-      ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Финал: ${escapeHtml(ex.method)}${dropWeightVal > 0 ? ` → ${dropWeightVal} кг × 4–6` : ''}</span>`
+      ? `<span class="recipe-rir-badge" style="background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);">Финал: ${escapeHtml(ex.method)}${displayDropWeight > 0 ? ` → ${displayDropWeight} кг × 4–6` : ''}</span>`
       : '';
 
     // V5.4.0: read-only чипы из истории (equipment / positioning)
@@ -852,14 +876,14 @@ function renderModalSplitExercises(payload) {
       <div class="recipe-step-header">#${ex.order} • ${escapeHtml(ex.name)}</div>
       <div class="recipe-metrics-row">
         <span class="recipe-sets-count">${ex.sets} сета ×</span>
-        <span class="recipe-weight-highlight">${ex.weight > 0 ? ex.weight + ' кг' : 'рабочий вес'}</span>
+        <span class="recipe-weight-highlight">${weightStr}</span>
         <span class="recipe-reps-chip">${escapeHtml(ex.reps)} повт.</span>
         <span class="recipe-rir-badge">RIR ${escapeHtml(ex.rir)}</span>
         ${methodBadgeHtml}
       </div>
       <div class="recipe-warmup-row">
         <span class="material-symbols-outlined">restart_alt</span>
-        <span>Разминка: <b>${escapeHtml(ex.warmupText)}</b></span>
+        <span>Разминка: <b>${escapeHtml(warmupStr)}</b></span>
       </div>
       ${notesRowHtml}
       ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); margin-top: 2px;">📌 ${escapeHtml(ex.notes)}</div>` : ''}

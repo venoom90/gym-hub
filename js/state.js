@@ -311,6 +311,18 @@ export function isMaintenanceRir(rirStr) {
 }
 
 /* =========================================================================
+ * V5.5.0: Множитель веса (1/2) для гантелей и раздельных рукоятей
+ * ========================================================================= */
+export function getExerciseMultiplier(exerciseName) {
+  const name = String(exerciseName || '').trim();
+  if (!name) return 1;
+  const catalog = state.dbData.catalog || [];
+  const item = catalog.find(c => c.name && c.name.trim() === name);
+  if (!item) return 1;
+  return parseFloat(item.multiplier) === 2 ? 2 : 1;
+}
+
+/* =========================================================================
  * V5.4.0: Lookup последнего значения поля для упражнения
  * -------------------------------------------------------------------------
  * Используется для автоподстановки equipment / positioning из истории.
