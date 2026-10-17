@@ -1,7 +1,7 @@
 import {
   state, setSelectedCycle, normalizeDate, formatDateDisplay, getDateKey, escapeHtml, computeE1RM,
   MUSCLE_THRESHOLDS, MUSCLE_ADVICE, classifyMuscleState, rirWeight, isIsolationExercise,
-  isDeloadSet, getPreviousCycleId, MAINTENANCE_LOWER_BOUND, MAINTENANCE_UPPER_BOUND
+  isDeloadSet, getPreviousCycleId, MAINTENANCE_LOWER_BOUND, MAINTENANCE_UPPER_BOUND, getExerciseMultiplier
 } from './state.js';
 import { extractPeriodization } from './parser.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
@@ -63,7 +63,6 @@ function initHelpModals() {
 
   if (!modal) return;
 
-  // V5.4.0: ModalManager
   registerModal('metricHelpModal', {
     el: modal,
     displayStyle: 'flex'
@@ -670,34 +669,42 @@ function renderFatigueControl(sets) {
 
   if (!fosterContainer || !rirCanvas) return;
 
-  // --- 1. Индекс Фостера (Monotony & Strain) ---
+  // --- 1. Индекс Фостера (Monotony & Strain) — V5.9.9 (учет 7 дней) ---
   const workouts = state.dbData.workouts || [];
-  const nowMs = Date.now();
-  const sevenDaysAgo = nowMs - 7 * 86400000;
+  const dailyLoads = [];
+  
+  const today = new Date();
+  today.setHours(12, 0, 0, 0); // Нормализация на полдень
 
-  const recentWorkouts = workouts.filter(w => {
-    const d = normalizeDate(w.date);
-    return d && d.getTime() >= sevenDaysAgo;
-  });
-
-  let fosterHtml = '';
-  if (recentWorkouts.length < 2) {
-    fosterHtml = `<div class="foster-indicator good">🟢 Недостаточно данных (нужно ≥2 тренировки за 7 дней)</div>`;
-  } else {
-    const loads = recentWorkouts.map(w => {
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = getDateKey(d);
+    
+    const dayWorkouts = workouts.filter(w => getDateKey(w.date) === key);
+    let dayLoad = 0;
+    dayWorkouts.forEach(w => {
       let tl = parseFloat(w.trainingLoad);
       if (isNaN(tl) || tl <= 0) {
         tl = (parseFloat(w.sRPE) || 8) * (parseFloat(w.durationMin) || 45);
       }
-      return tl;
+      dayLoad += tl;
     });
+    dailyLoads.push(dayLoad);
+  }
 
-    const sum = loads.reduce((a, b) => a + b, 0);
-    const mean = sum / loads.length;
-    const variance = loads.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / loads.length;
+  const totalWorkouts = dailyLoads.filter(l => l > 0).length;
+
+  let fosterHtml = '';
+  if (totalWorkouts === 0) {
+    fosterHtml = `<div class="foster-indicator good">🟢 Нет данных о тренировках за 7 дней</div>`;
+  } else {
+    const sum = dailyLoads.reduce((a, b) => a + b, 0);
+    const mean = sum / 7;
+    const variance = dailyLoads.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / 7;
     const stdDev = Math.sqrt(variance);
 
-    let monotony = stdDev > 0 ? (mean / stdDev) : mean;
+    let monotony = stdDev > 0 ? (mean / stdDev) : 0;
     if (!isFinite(monotony) || isNaN(monotony)) monotony = 0;
     const strain = sum * monotony;
 
@@ -849,6 +856,9 @@ function renderExercise1RMChart(sets, exerciseName) {
     exerciseChartInstance = null;
   }
 
+  // V5.9.9: Множитель веса для корректного отображения графика (вес одной руки/гантели)
+  const mult = getExerciseMultiplier(exerciseName);
+
   const workSets = sets.filter(
     s => (s.exercise || '').trim() === exerciseName && s.category === 'Рабочий' && s.effort !== 'Размин.'
   );
@@ -856,7 +866,7 @@ function renderExercise1RMChart(sets, exerciseName) {
   const byDateMax = {};
   let allTimePr = 0;
 
-  // V5.9.9: Рекорды в диапазонах (5ПМ, 8ПМ, 12ПМ)
+  // V5.9.9: Рекорды в диапазонах (5ПМ, 8ПМ, 12ПМ) — в Display-весах
   let max5 = 0, max8 = 0, max12 = 0;
 
   workSets.forEach(s => {
@@ -867,10 +877,12 @@ function renderExercise1RMChart(sets, exerciseName) {
     const r = parseInt(s.reps, 10) || 0;
     const serverE1 = parseFloat(s.e1rm);
 
+    const displayW = w / mult;
+    
     // Расчет Rep-Max (берем реальный поднятый вес, не расчетный)
-    if (r >= 4 && r <= 6 && w > max5) max5 = w;
-    if (r >= 7 && r <= 9 && w > max8) max8 = w;
-    if (r >= 10 && r <= 14 && w > max12) max12 = w;
+    if (r >= 4 && r <= 6 && displayW > max5) max5 = displayW;
+    if (r >= 7 && r <= 9 && displayW > max8) max8 = displayW;
+    if (r >= 10 && r <= 14 && displayW > max12) max12 = displayW;
 
     const validE1RM = (!isNaN(serverE1) && serverE1 > 0)
       ? serverE1
@@ -878,14 +890,16 @@ function renderExercise1RMChart(sets, exerciseName) {
 
     if (validE1RM <= 0) return;
 
-    if (validE1RM > allTimePr) allTimePr = validE1RM;
+    const displayE1RM = parseFloat((validE1RM / mult).toFixed(1));
 
-    if (!byDateMax[key] || validE1RM > byDateMax[key].e1rm) {
+    if (displayE1RM > allTimePr) allTimePr = displayE1RM;
+
+    if (!byDateMax[key] || displayE1RM > byDateMax[key].e1rm) {
       byDateMax[key] = {
         dateKey: key,
         displayDate: formatDateDisplay(s.date).slice(0, 5),
-        e1rm: validE1RM,
-        weight: w,
+        e1rm: displayE1RM,
+        weight: displayW,
         reps: r
       };
     }
@@ -895,9 +909,9 @@ function renderExercise1RMChart(sets, exerciseName) {
   if (repMaxContainer) {
     if (max5 > 0 || max8 > 0 || max12 > 0) {
       repMaxContainer.style.display = 'grid';
-      document.getElementById('repMax5').innerText = max5 > 0 ? `${max5} кг` : '-';
-      document.getElementById('repMax8').innerText = max8 > 0 ? `${max8} кг` : '-';
-      document.getElementById('repMax12').innerText = max12 > 0 ? `${max12} кг` : '-';
+      document.getElementById('repMax5').innerText = max5 > 0 ? `${max5.toFixed(1).replace('.0', '')} кг` : '-';
+      document.getElementById('repMax8').innerText = max8 > 0 ? `${max8.toFixed(1).replace('.0', '')} кг` : '-';
+      document.getElementById('repMax12').innerText = max12 > 0 ? `${max12.toFixed(1).replace('.0', '')} кг` : '-';
     } else {
       repMaxContainer.style.display = 'none';
     }
@@ -926,9 +940,12 @@ function renderExercise1RMChart(sets, exerciseName) {
       sumXY += i * yData[i];
       sumXX += i * i;
     }
-    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
-    trendData = yData.map((_, i) => slope * i + intercept);
+    const denominator = (n * sumXX - sumX * sumX);
+    if (denominator !== 0) {
+      const slope = (n * sumXY - sumX * sumY) / denominator;
+      const intercept = (sumY - slope * sumX) / n;
+      trendData = yData.map((_, i) => slope * i + intercept);
+    }
   }
 
   const datasets = [{
