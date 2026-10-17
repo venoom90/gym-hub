@@ -1,7 +1,13 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.6.0 MULTIPLIER & DISPLAY)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.7.0 WEIGHT MANUAL INPUT)
  * =========================================================================
+ * V2.7.0:
+ * - Добавлен ручной ввод display-веса тапом по центральному дисплею.
+ * - Инлайн-редактирование с валидацией (0 < w <= 999.99, запятая → точка).
+ * - Escape/пустой/NaN/0 → откат. Enter/blur → коммит в draftSet.weight.
+ * - Поддержка стеков с шагом 1.25 кг и нестандартных гантелей.
+ *
  * V2.6.0:
  * - Внедрена поддержка множителя веса (гантели/раздельные ручки).
  * - Степпер и ввод веса работают с display-весами (вес одной гантели).
@@ -1082,6 +1088,88 @@ function patchDraftSetDisplay() {
 }
 
 /* =========================================================
+ * V2.7.0: MANUAL WEIGHT INPUT
+ * ========================================================= */
+
+function openWeightManualInput() {
+  if (!activeSession) return;
+  const displayEl = document.getElementById('liveWeightValue');
+  if (!displayEl) return;
+  if (displayEl.dataset.editing === '1') return;
+  displayEl.dataset.editing = '1';
+
+  const currentValue = activeSession.draftSet.weight;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.inputMode = 'decimal';
+  input.enterKeyHint = 'done';
+  input.autocomplete = 'off';
+  input.value = String(currentValue);
+  input.setAttribute('aria-label', 'Вес снаряда в килограммах');
+  input.style.cssText = [
+    'width:100%',
+    'height:64px',
+    'box-sizing:border-box',
+    'border-radius:var(--md-sys-shape-corner-medium)',
+    'background:var(--md-sys-color-surface-container-high)',
+    'border:2px solid var(--md-sys-color-primary)',
+    'color:var(--md-sys-color-primary)',
+    "font:700 1.85rem/1 'Roboto'",
+    'text-align:center',
+    'outline:none',
+    'padding:0',
+    'letter-spacing:-0.5px'
+  ].join(';');
+
+  displayEl.style.display = 'none';
+  displayEl.parentNode.insertBefore(input, displayEl.nextSibling);
+
+  requestAnimationFrame(function () {
+    try { input.focus(); input.select(); } catch (e) {}
+  });
+
+  let done = false;
+
+  const cleanup = () => {
+    if (input.parentNode) input.parentNode.removeChild(input);
+    displayEl.style.display = '';
+    delete displayEl.dataset.editing;
+  };
+
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const raw = String(input.value || '').trim().replace(',', '.');
+    const m = raw.match(/^(\d+(?:\.\d+)?)$/);
+    let isValid = false;
+    let parsed = 0;
+    if (m) {
+      parsed = parseFloat(m[1]);
+      isValid = !isNaN(parsed) && parsed > 0 && parsed <= 999.99;
+    }
+    if (isValid) {
+      activeSession.draftSet.weight = Math.round(parsed * 100) / 100;
+      persistActiveSession();
+    }
+    cleanup();
+    if (isValid) patchDraftSetDisplay();
+  };
+
+  const cancel = () => {
+    if (done) return;
+    done = true;
+    cleanup();
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+}
+
+/* =========================================================
  * NOTE CHIPS
  * ========================================================= */
 
@@ -1894,6 +1982,23 @@ function bindLiveWorkoutDomEvents() {
   const wPlus = document.getElementById('liveWeightPlusBtn');
   if (wMinus) wMinus.onclick = () => { if (!activeSession) return; activeSession.draftSet.weight = Math.max(0, activeSession.draftSet.weight - 2.5); triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
   if (wPlus) wPlus.onclick = () => { if (!activeSession) return; activeSession.draftSet.weight += 2.5; triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
+
+  // V2.7.0: ручной ввод веса тапом по центральному дисплею
+  const wDisplay = document.getElementById('liveWeightValue');
+  if (wDisplay) {
+    wDisplay.setAttribute('tabindex', '0');
+    wDisplay.setAttribute('role', 'button');
+    wDisplay.setAttribute('aria-label', 'Вес снаряда. Нажмите для ручного ввода');
+    wDisplay.style.cursor = 'pointer';
+    wDisplay.onclick = () => openWeightManualInput();
+    wDisplay.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openWeightManualInput();
+      }
+    });
+  }
+
   const rMinus = document.getElementById('liveRepsMinusBtn');
   const rPlus = document.getElementById('liveRepsPlusBtn');
   if (rMinus) rMinus.onclick = () => { if (!activeSession) return; activeSession.draftSet.reps = Math.max(1, activeSession.draftSet.reps - 1); triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
