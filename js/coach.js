@@ -217,9 +217,6 @@ async function syncCachedPlanToSheets() {
   }
 }
 
-/**
- * V5.3.0: Определяет следующую фазу цикла на основе последних тренировок.
- */
 function detectNextCyclePhase() {
   const sets = state.dbData.sets || [];
   if (sets.length === 0) {
@@ -243,7 +240,6 @@ function detectNextCyclePhase() {
   let nextSplit = (currentSplit === 'А' || currentSplit === 'A') ? 'Б' : 'А';
   let cycleId = currentCycleId;
 
-  // Если последняя тренировка была День Б, переходим на новую неделю
   if (nextSplit === 'А') {
     nextWeek += 1;
     if (nextWeek === 2) { nextMode = 'Объем'; nextWave = '1'; }
@@ -255,9 +251,6 @@ function detectNextCyclePhase() {
   return { nextWeek, nextMode, nextWave, nextSplit, cycleId };
 }
 
-/**
- * V5.3.0: Формирует текстовый блок [ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА] для промпта Gemini.
- */
 function buildAthleteSituationPromptBlock() {
   const allSets = (state.dbData.sets || []).filter(s =>
     s.category === 'Рабочий' &&
@@ -354,10 +347,7 @@ async function generateMesocyclePlan() {
       exerciseStatsMap[ex].maxWeight = w;
     }
 
-    const validE1 = (!isNaN(serverE1) && serverE1 > 0)
-      ? serverE1
-      : computeE1RM(w, r);
-
+    const validE1 = (!isNaN(serverE1) && serverE1 > 0) ? serverE1 : computeE1RM(w, r);
     if (validE1 > exerciseStatsMap[ex].max1RM) {
       exerciseStatsMap[ex].max1RM = parseFloat(validE1.toFixed(1));
     }
@@ -370,11 +360,12 @@ async function generateMesocyclePlan() {
     const item = exerciseStatsMap[ex];
     const mult = getExerciseMultiplier(ex);
     
-    // V5.9.5: Для ИИ отдаем Display-веса, чтобы модель думала в реальных снарядах (36 кг, а не 72).
     const displayMaxWeight = parseFloat((item.maxWeight / mult).toFixed(1));
     const displayMax1RM = parseFloat((item.max1RM / mult).toFixed(1));
     const e1rmStr = displayMax1RM > 0 ? `, 1ПМ ${displayMax1RM} кг` : '';
-    const line = `${ex}: макс. рабочий вес ${displayMaxWeight} кг${e1rmStr}`;
+    
+    // V5.9.6: Передаем в ИИ веса последней недели с акцентом на рабочий вес, а не 1ПМ
+    const line = `${ex}: рабочий вес ${displayMaxWeight} кг (1ПМ ${displayMax1RM} кг)`;
     
     if (item.split === 'Б' || item.split === 'B') {
       dayBExercises.push(line);
@@ -418,16 +409,16 @@ ${catalogList || 'Нет размеченных упражнений в ката
 
 [ПРИОРИТЕТ 3: ЦЕЛЕВАЯ ФАЗА ЦИКЛА]
 Сгенерируй план СТРОГО на Неделю ${phase.nextWeek} (Режим: ${phase.nextMode}).
-- Если Объем: 12-16 повторов, RIR 2-3, вес ~75% от силового.
-- Если Сила: 4-6 повторов, RIR 1-2, вес ~100% от силового.
+- Если Объем: 12-16 повторов, RIR 2-3. ВЕС: 60-65% от указанного рабочего веса (не от 1ПМ!).
+- Если Сила: 4-6 повторов, RIR 1-2. ВЕС: 100% от указанного рабочего веса.
 
 [СТРОГИЕ ПРАВИЛА]
 1. НОГИ: КАТЕГОРИЧЕСКИЙ ЗАПРЕТ на добавление любых новых упражнений на ноги. ЗАПРЕЩЕНЫ сгибания ног, разгибания ног, становая тяга, выпады. Из упражнений на ноги разрешено использовать СТРОГО ТОЛЬКО жим ногами и подъемы на носки.
 2. РУКИ: Убери дублирование. Оставь изоляцию на Бицепс только в одном дне (например, в А), а изоляцию на Трицепс — только в другом (например, в Б).
 3. РАСПРЕДЕЛЕНИЕ ЛАГАЮЩИХ МЫШЦ: Не ставь два упражнения на одну мышцу в ОДИН день. Так как средняя дельта сильно отстает, используй два разных упражнения за неделю: в День А поставь "Разведение в тренажере плечи" (3-4 подхода, без дропа), а в День Б добавь из каталога "Отведение руки в сторону на нижнем блоке" (4 подхода).
-4. ДРОП-СЕТЫ НА ЛАГАХ: Для отстающих мышц (Средняя дельта, Задняя дельта, Икры, Трицепс) в финальном подходе обязательно используй метод "Дроп-сет -25%" и RIR 0. Применяй это к упражнениям на эти мышцы (например, на отведение в Дне Б, на обратную бабочку, на трицепс и икры).
+4. ДРОП-СЕТЫ НА ЛАГАХ: Для отстающих мышц (Средняя дельта, Задняя дельта, Икры, Трицепс) в финальном подходе обязательно используй метод "Дроп-сет -25%" и RIR 0.
 5. ВЕСА: Строго кратны 2.5 кг.
-6. Для КАЖДОГО упражнения напиши краткое обоснование (justification): почему именно это упражнение и метод.
+6. Для КАЖДОГО упражнения напиши краткое обоснование (justification).
 
 ФОРМАТ ОТВЕТА:
 Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
@@ -482,22 +473,46 @@ ${catalogList || 'Нет размеченных упражнений в ката
 
     const parsedPlan = JSON.parse(jsonMatch[0]);
     
-    // Строгая валидация
     if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length < 5) {
-      throw new Error('ИИ сгенерировал неполный День А (менее 5 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
+      throw new Error('ИИ сгенерировал неполный День А. Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
     if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length < 5) {
-      throw new Error('ИИ забыл сгенерировать День Б (менее 5 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
+      throw new Error('ИИ забыл сгенерировать День Б. Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
 
-    // V5.9.5: Конвертация Display -> Effective перед сохранением в базу и кэш
+    // V5.9.6: ВАЛИДАЦИЯ (Предохранитель от переоценки)
+    // Проходим по всем упражнениям, сверяем с историей и срезаем завышенные веса
+    ['A', 'B'].forEach(splitKey => {
+      parsedPlan.splits[splitKey].exercises.forEach(ex => {
+        const hist = exerciseStatsMap[ex.name];
+        if (hist && hist.maxWeight > 0) {
+          const mult = getExerciseMultiplier(ex.name);
+          const displayMaxWeight = hist.maxWeight / mult; // Исторический силовой вес в display
+          
+          let maxAllowed = 0;
+          if (phase.nextMode === 'Объем') {
+            maxAllowed = displayMaxWeight * 0.75; 
+          } else if (phase.nextMode === 'Сила') {
+            maxAllowed = displayMaxWeight * 1.05;
+          } else if (phase.nextMode === 'Делоад') {
+            maxAllowed = displayMaxWeight * 0.65;
+          }
+
+          // Если ИИ поставил больше лимита, принудительно срезаем
+          if (ex.weight > maxAllowed && maxAllowed > 0) {
+            ex.weight = Math.round(maxAllowed / 2.5) * 2.5;
+            ex.notes = (ex.notes || '') + ' (Вес скорректирован физиологическим лимитом)';
+          }
+        }
+      });
+    });
+
+    // Конвертация Display -> Effective перед сохранением
     const effectivePlan = convertPlanToEffective(parsedPlan);
 
-    // Принудительно фиксируем фазу (защита от галлюцинаций)
     effectivePlan.cycleId = phase.cycleId;
     effectivePlan.cycleWeek = phase.nextWeek;
     effectivePlan.cycleMode = phase.nextMode;
-
     effectivePlan.generatedAt = Date.now();
     delete effectivePlan._pendingCloudSync;
 
@@ -531,9 +546,6 @@ ${catalogList || 'Нет размеченных упражнений в ката
   }
 }
 
-/**
- * V5.9.5: Переводит все веса в плане из display (36) в effective (72)
- */
 function convertPlanToEffective(plan) {
   const clone = JSON.parse(JSON.stringify(plan));
   ['A', 'B'].forEach(splitKey => {
@@ -625,7 +637,6 @@ function renderStructuredCards() {
     if (!ex || typeof ex !== 'object') return;
 
     try {
-      // V5.9.5: Конвертация Effective -> Display для UI
       const mult = getExerciseMultiplier(ex.name);
       const displayWeight = parseFloat(((parseFloat(ex.weight) || 0) / mult).toFixed(1));
       const multBadge = mult === 2 ? ' (×2)' : '';
