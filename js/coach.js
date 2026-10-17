@@ -434,7 +434,12 @@ ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
     cachedPlanData = parsedPlan;
     localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
 
-    renderStructuredCards();
+    // Защита от падения UI рендеринга
+    try {
+      renderStructuredCards();
+    } catch (renderErr) {
+      console.error('[Coach] Ошибка отрисовки карточек:', renderErr);
+    }
 
     if (loadingBox) {
       loadingBox.innerText = `☁️ Сохранение плана на лист AI_Plan...`;
@@ -446,7 +451,7 @@ ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
     if (!saveResult || !saveResult.success) {
       cachedPlanData._pendingCloudSync = true;
       localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
-      renderStructuredCards();
+      try { renderStructuredCards(); } catch(e) {}
       alert('⚠️ План сохранен в памяти телефона, но сервер временно не смог записать его в таблицу. Нажмите «Отправить несохраненный план в таблицу» чуть позже.');
     }
   } catch (err) {
@@ -523,7 +528,7 @@ function renderStructuredCards() {
     }
   }
 
-  if (!currentSplit || !currentSplit.exercises || currentSplit.exercises.length === 0) {
+  if (!currentSplit || !Array.isArray(currentSplit.exercises) || currentSplit.exercises.length === 0) {
     container.innerHTML = `<div style="font-size: 0.85rem; color: #94a3b8; text-align: center; padding: 12px 0;">Нет упражнений для Дня ${escapeHtml(activeSplitView)}</div>`;
     return;
   }
@@ -531,25 +536,31 @@ function renderStructuredCards() {
   container.innerHTML = '';
 
   currentSplit.exercises.forEach(ex => {
-    const card = document.createElement('div');
-    card.className = 'coach-exercise-card';
-    card.innerHTML = `
-      <div class="coach-card-header">
-        <div>
-          <span style="font-size: 0.72rem; color: var(--md-sys-color-primary); font-weight: 700;">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.target || 'База')}</span>
-          <div class="coach-exercise-title">${escapeHtml(ex.name)}</div>
+    if (!ex || typeof ex !== 'object') return;
+
+    try {
+      const card = document.createElement('div');
+      card.className = 'coach-exercise-card';
+      card.innerHTML = `
+        <div class="coach-card-header">
+          <div>
+            <span style="font-size: 0.72rem; color: var(--md-sys-color-primary); font-weight: 700;">#${parseInt(ex.order, 10) || 1} • ${escapeHtml(ex.target || 'База')}</span>
+            <div class="coach-exercise-title">${escapeHtml(ex.name || 'Упражнение')}</div>
+          </div>
+          <span class="coach-weight-tag">${parseFloat(ex.weight) || 0} кг</span>
         </div>
-        <span class="coach-weight-tag">${parseFloat(ex.weight) || 0} кг</span>
-      </div>
-      <div class="coach-card-chips">
-        <span class="coach-card-chip">${parseInt(ex.sets, 10) || 3} подх.</span>
-        <span class="coach-card-chip">${escapeHtml(ex.reps || '6')} повт.</span>
-        <span class="coach-card-chip" style="color: var(--md-sys-color-primary);">RIR ${escapeHtml(ex.rir || '1-2')}</span>
-        <span class="coach-method-badge">${escapeHtml(ex.method || 'Стандарт')}</span>
-      </div>
-      ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
-    `;
-    container.appendChild(card);
+        <div class="coach-card-chips">
+          <span class="coach-card-chip">${parseInt(ex.sets, 10) || 3} подх.</span>
+          <span class="coach-card-chip">${escapeHtml(ex.reps || '6')} повт.</span>
+          <span class="coach-card-chip" style="color: var(--md-sys-color-primary);">RIR ${escapeHtml(ex.rir || '1-2')}</span>
+          <span class="coach-method-badge">${escapeHtml(ex.method || 'Стандарт')}</span>
+        </div>
+        ${ex.notes ? `<div style="font-size: 0.75rem; color: var(--md-sys-color-on-surface-variant); line-height: 1.3;">📌 ${escapeHtml(ex.notes)}</div>` : ''}
+      `;
+      container.appendChild(card);
+    } catch (e) {
+      console.warn('[Coach] Ошибка при отрисовке карточки упражнения:', ex, e);
+    }
   });
 
   if (rationaleBox && rationaleText && cachedPlanData.rationale) {
