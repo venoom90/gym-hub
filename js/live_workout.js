@@ -1,11 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.1 AMBIENT DASHBOARD FIX)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.2 UX FEEDBACK UPDATE)
  * =========================================================================
- * V2.8.1:
- * - Фикс заморозки Big Clock при клике из нижней панели (переход на ModalManager).
- * - Добавлен таймер бездействия (10 сек): если не трогать экран во время отдыха,
- *   автоматически открывается полноэкранный дашборд.
+ * V2.8.2:
+ * - Внедрена визуальная обратная связь (вспышка карточки, трансформация кнопки).
+ * - Кнопка "Записать" плавно исчезает, уступая место таймеру (с задержкой 400мс).
  */
 
 import {
@@ -28,7 +27,7 @@ let isLiveWorkoutInitialized = false;
 
 let bigClockStartedAtMs = 0;
 let bigClockInterval = null;
-let idleTimer = null; // V2.8.1: Таймер бездействия для автозапуска дашборда
+let idleTimer = null;
 
 let activeClusterSheetState = null;
 let activeDropSheetState = null;
@@ -46,7 +45,6 @@ export function initLiveWorkoutModule(onComplete) {
   bindLiveWorkoutDomEvents();
   checkCrashRecoverySession();
 
-  // V2.8.1: Сброс таймера бездействия при любом касании экрана
   document.addEventListener('touchstart', resetIdleTimer, { passive: true });
   document.addEventListener('click', resetIdleTimer);
 
@@ -92,7 +90,7 @@ function registerLiveModals() {
       el: bigClock,
       displayStyle: 'flex',
       onOpen: () => { 
-        if (idleTimer) clearTimeout(idleTimer); // Останавливаем автозапуск, мы уже здесь
+        if (idleTimer) clearTimeout(idleTimer);
         renderBigClockWidgets();
         startBigClockEngine(); 
       },
@@ -486,7 +484,7 @@ function startDurationTicker() {
 }
 
 /* =========================================================
- * BIG CLOCK / AMBIENT DASHBOARD & IDLE TIMER (V2.8.1)
+ * BIG CLOCK / AMBIENT DASHBOARD & IDLE TIMER
  * ========================================================= */
 
 function openBigClockOverlay() { 
@@ -503,7 +501,7 @@ function resetIdleTimer() {
     if (activeSession && activeSession.restState.isActive && !isModalOpen('liveBigClockOverlay')) {
       openBigClockOverlay();
     }
-  }, 10000); // 10 секунд
+  }, 10000);
 }
 
 function renderBigClockWidgets() {
@@ -1072,7 +1070,6 @@ function renderPAB() {
     const nextBtn = document.getElementById('livePabCompleteNext');
     if (nextBtn) nextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
     
-    // V2.8.1: Фикс клика по инлайн-таймеру
     const inlineTimer = document.getElementById('livePabRestCountdownInline');
     if (inlineTimer) inlineTimer.onclick = (e) => { e.stopPropagation(); openBigClockOverlay(); };
 
@@ -1105,7 +1102,6 @@ function renderPAB() {
     if (plus) plus.onclick = () => adjustRestTimer(30);
     if (skip) skip.onclick = () => stopRestTimer();
 
-    // V2.8.1: Фикс клика по центральному таймеру PAB
     const countdown = document.getElementById('livePabRestCountdown');
     if (countdown) countdown.onclick = (e) => { e.stopPropagation(); openBigClockOverlay(); };
 
@@ -1347,7 +1343,7 @@ function recordSimpleSet() {
   const tonnage = parseFloat((weightEffective * reps).toFixed(1));
   const e1rm = isWarmup ? 0.0 : computeE1RM(weightEffective, reps);
 
-  commitRecordedSet({
+  const recordedSet = {
     setNum: setNum,
     weight: weightEffective,
     weightDisplay: weightDisplay,
@@ -1363,10 +1359,37 @@ function recordSimpleSet() {
     category: isWarmup ? 'Разминка' : 'Рабочий',
     tonnage: tonnage,
     e1rm: e1rm
-  });
+  };
 
-  const kind = isWarmup ? 'Разминка' : 'Рабочий';
-  logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weightDisplay}${currentEx.multiplier === 2 ? '(×2)' : ''} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}`, 'success');
+  // Визуальный фидбек
+  const btn = document.getElementById('livePabRecord');
+  const controlsCard = document.getElementById('liveActiveSetControlsCard');
+
+  if (btn && controlsCard) {
+    btn.classList.add('is-success');
+    btn.innerHTML = `<span class="live-pab-primary-label">✓ ЗАПИСАНО</span>`;
+    controlsCard.classList.add('is-flashing');
+    
+    triggerHaptic([40, 60, 40]);
+
+    setTimeout(() => {
+      btn.classList.add('is-fading-out');
+    }, 250);
+
+    setTimeout(() => {
+      btn.classList.remove('is-success', 'is-fading-out');
+      controlsCard.classList.remove('is-flashing');
+      
+      commitRecordedSet(recordedSet);
+      
+      const kind = isWarmup ? 'Разминка' : 'Рабочий';
+      logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weightDisplay}${currentEx.multiplier === 2 ? '(×2)' : ''} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}`, 'success');
+    }, 400);
+  } else {
+    commitRecordedSet(recordedSet);
+    const kind = isWarmup ? 'Разминка' : 'Рабочий';
+    logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weightDisplay}${currentEx.multiplier === 2 ? '(×2)' : ''} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}`, 'success');
+  }
 }
 
 function commitRecordedSet(partialSet) {
@@ -1412,7 +1435,6 @@ function commitRecordedSet(partialSet) {
     if (warmupCount > 0) activeSession.historyUiState.warmupCollapsed = true;
   }
 
-  triggerHaptic([80]);
   activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
   activeSession.lastRestEndMs = 0;
   const prefs = getTimerPrefs();
@@ -1420,7 +1442,7 @@ function commitRecordedSet(partialSet) {
   if (recordedSet.category === 'Разминка') restSeconds = prefs.warmup;
   else if (currentEx.order > 2) restSeconds = prefs.isolation;
   
-  startRestTimer(restSeconds); // Внутри вызовется resetIdleTimer
+  startRestTimer(restSeconds);
   persistActiveSession();
   renderLiveWorkoutScreen();
 }
@@ -1785,7 +1807,7 @@ function startRestTimer(seconds) {
   renderPAB();
   syncRestTimerWithWallClock();
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
-  resetIdleTimer(); // V2.8.1: Запуск таймера бездействия
+  resetIdleTimer();
 }
 
 function adjustRestTimer(deltaSeconds) {
@@ -1795,7 +1817,7 @@ function adjustRestTimer(deltaSeconds) {
   persistActiveSession();
   syncRestTimerWithWallClock();
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
-  resetIdleTimer(); // V2.8.1: Сброс таймера бездействия при ручном вмешательстве
+  resetIdleTimer();
 }
 
 function stopRestTimer() {
@@ -1804,7 +1826,7 @@ function stopRestTimer() {
   activeSession.restState.endsAtMs = 0;
   activeSession.lastRestEndMs = Date.now();
   if (restTimerInterval) { clearInterval(restTimerInterval); restTimerInterval = null; }
-  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } // V2.8.1: Остановка бездействия
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   persistActiveSession();
   renderPAB();
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
