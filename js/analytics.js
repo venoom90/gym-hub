@@ -8,6 +8,7 @@ import { registerModal, openModal, closeModal } from './modal_manager.js';
 
 let tonnageChartInstance = null;
 let exerciseChartInstance = null;
+let rirChartInstance = null;
 let isHelpModalInitialized = false;
 
 const METRIC_HELP_DICTIONARY = {
@@ -49,6 +50,7 @@ export function renderAnalyticsModule() {
   renderPushPullBalance(filteredSets);
   renderMuscleVolumeLandmarks(filteredSets);
   renderTonnageChart(filteredSets);
+  renderFatigueControl(filteredSets);
   populateExerciseSelector(filteredSets);
 }
 
@@ -120,6 +122,7 @@ function populateCycleSelector() {
     renderPushPullBalance(filtered);
     renderMuscleVolumeLandmarks(filtered);
     renderTonnageChart(filtered);
+    renderFatigueControl(filtered);
     populateExerciseSelector(filtered);
   };
 }
@@ -661,6 +664,141 @@ function renderTonnageChart(sets) {
   });
 }
 
+function renderFatigueControl(sets) {
+  const fosterContainer = document.getElementById('fosterStatusContainer');
+  const rirCanvas = document.getElementById('rirChart');
+
+  if (!fosterContainer || !rirCanvas) return;
+
+  // --- 1. Индекс Фостера (Monotony & Strain) ---
+  const workouts = state.dbData.workouts || [];
+  const nowMs = Date.now();
+  const sevenDaysAgo = nowMs - 7 * 86400000;
+
+  const recentWorkouts = workouts.filter(w => {
+    const d = normalizeDate(w.date);
+    return d && d.getTime() >= sevenDaysAgo;
+  });
+
+  let fosterHtml = '';
+  if (recentWorkouts.length < 2) {
+    fosterHtml = `<div class="foster-indicator good">🟢 Недостаточно данных (нужно ≥2 тренировки за 7 дней)</div>`;
+  } else {
+    const loads = recentWorkouts.map(w => {
+      let tl = parseFloat(w.trainingLoad);
+      if (isNaN(tl) || tl <= 0) {
+        tl = (parseFloat(w.sRPE) || 8) * (parseFloat(w.durationMin) || 45);
+      }
+      return tl;
+    });
+
+    const sum = loads.reduce((a, b) => a + b, 0);
+    const mean = sum / loads.length;
+    const variance = loads.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / loads.length;
+    const stdDev = Math.sqrt(variance);
+
+    let monotony = stdDev > 0 ? (mean / stdDev) : mean;
+    if (!isFinite(monotony) || isNaN(monotony)) monotony = 0;
+    const strain = sum * monotony;
+
+    let statusClass = 'good';
+    let statusText = '🟢 Оптимум нагрузки';
+
+    if (monotony > 2.0 || strain > 4000) {
+      statusClass = 'bad';
+      statusText = '🔴 Риск перетрена: высокая монотонность или напряжение';
+    } else if (strain > 3000) {
+      statusClass = 'warn';
+      statusText = '🟡 Пограничная нагрузка: следите за сном и пульсом';
+    }
+
+    fosterHtml = `
+      <div class="foster-indicator ${statusClass}" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+        <div style="display: flex; align-items: center; gap: 6px;">${statusText}</div>
+        <div style="font-size: 0.75rem; opacity: 0.85; font-weight: 400;">
+          Monotony: <b>${monotony.toFixed(2)}</b> (норма &lt;2.0) · Strain: <b>${Math.round(strain)}</b> (норма &lt;4000)
+        </div>
+      </div>
+    `;
+  }
+  fosterContainer.innerHTML = fosterHtml;
+
+  // --- 2. График среднего RIR по неделям ---
+  if (rirChartInstance) {
+    rirChartInstance.destroy();
+    rirChartInstance = null;
+  }
+
+  const workSets = sets.filter(s =>
+    s.category === 'Рабочий' &&
+    s.effort !== 'Размин.' &&
+    s.reserve &&
+    String(s.reserve).trim() !== ''
+  );
+
+  const weekRir = {};
+  workSets.forEach(s => {
+    let week = parseInt(s.cycleWeek, 10);
+    if (isNaN(week) || week <= 0) {
+      const p = extractPeriodization(s.workout);
+      week = parseInt(p.cycleWeek, 10) || 1;
+    }
+
+    const clean = parseFloat(String(s.reserve).replace('+', ''));
+    if (isNaN(clean)) return;
+
+    if (!weekRir[week]) weekRir[week] = { sum: 0, count: 0 };
+    weekRir[week].sum += clean;
+    weekRir[week].count++;
+  });
+
+  const weeksSorted = Object.keys(weekRir).map(Number).sort((a, b) => a - b);
+  const rirLabels = weeksSorted.map(w => w >= 5 ? 'Делоад' : `Нед ${w}`);
+  const rirData = weeksSorted.map(w => {
+    return parseFloat((weekRir[w].sum / weekRir[w].count).toFixed(1));
+  });
+
+  const rirColors = rirData.map(val => {
+    if (val < 1.2) return '#ff6b6b';
+    if (val < 2.8) return '#78dc9c';
+    return '#a8c8ff';
+  });
+
+  rirChartInstance = new Chart(rirCanvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: rirLabels,
+      datasets: [{
+        label: 'Средний RIR',
+        data: rirData,
+        backgroundColor: rirColors,
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `RIR: ${ctx.raw} (${ctx.raw < 1.2 ? 'Отказ' : (ctx.raw < 2.8 ? 'Оптимум' : 'Запас')})`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#c4c6d0', font: { size: 10 } }, grid: { display: false } },
+        y: {
+          min: 0,
+          max: 4,
+          ticks: { color: '#c4c6d0', stepSize: 1 },
+          grid: { color: 'rgba(255,255,255,0.06)' }
+        }
+      }
+    }
+  });
+}
+
 function populateExerciseSelector(sets) {
   const select = document.getElementById('exerciseSelector');
   if (!select) return;
@@ -702,6 +840,8 @@ function renderExercise1RMChart(sets, exerciseName) {
   const canvas = document.getElementById('exerciseChart');
   const prBadge = document.getElementById('exercisePrBadge');
   const prValue = document.getElementById('exercisePrValue');
+  const repMaxContainer = document.getElementById('repMaxContainer');
+  
   if (!canvas || typeof Chart === 'undefined') return;
 
   if (exerciseChartInstance) {
@@ -716,6 +856,9 @@ function renderExercise1RMChart(sets, exerciseName) {
   const byDateMax = {};
   let allTimePr = 0;
 
+  // V5.9.9: Рекорды в диапазонах (5ПМ, 8ПМ, 12ПМ)
+  let max5 = 0, max8 = 0, max12 = 0;
+
   workSets.forEach(s => {
     const key = getDateKey(s.date);
     if (!key) return;
@@ -723,6 +866,11 @@ function renderExercise1RMChart(sets, exerciseName) {
     const w = parseFloat(s.weight) || 0;
     const r = parseInt(s.reps, 10) || 0;
     const serverE1 = parseFloat(s.e1rm);
+
+    // Расчет Rep-Max (берем реальный поднятый вес, не расчетный)
+    if (r >= 4 && r <= 6 && w > max5) max5 = w;
+    if (r >= 7 && r <= 9 && w > max8) max8 = w;
+    if (r >= 10 && r <= 14 && w > max12) max12 = w;
 
     const validE1RM = (!isNaN(serverE1) && serverE1 > 0)
       ? serverE1
@@ -743,6 +891,18 @@ function renderExercise1RMChart(sets, exerciseName) {
     }
   });
 
+  // Отрисовка Rep-Max
+  if (repMaxContainer) {
+    if (max5 > 0 || max8 > 0 || max12 > 0) {
+      repMaxContainer.style.display = 'grid';
+      document.getElementById('repMax5').innerText = max5 > 0 ? `${max5} кг` : '-';
+      document.getElementById('repMax8').innerText = max8 > 0 ? `${max8} кг` : '-';
+      document.getElementById('repMax12').innerText = max12 > 0 ? `${max12} кг` : '-';
+    } else {
+      repMaxContainer.style.display = 'none';
+    }
+  }
+
   if (prBadge && prValue) {
     if (allTimePr > 0) {
       prBadge.style.display = 'flex';
@@ -754,20 +914,52 @@ function renderExercise1RMChart(sets, exerciseName) {
 
   const points = Object.values(byDateMax).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
 
+  // Расчет линии тренда (линейная регрессия)
+  let trendData = [];
+  if (points.length >= 2) {
+    const yData = points.map(p => p.e1rm);
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    const n = yData.length;
+    for (let i = 0; i < n; i++) {
+      sumX += i;
+      sumY += yData[i];
+      sumXY += i * yData[i];
+      sumXX += i * i;
+    }
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    trendData = yData.map((_, i) => slope * i + intercept);
+  }
+
+  const datasets = [{
+    label: 'Расчетный 1ПМ (кг)',
+    data: points.map(p => p.e1rm),
+    borderColor: '#a8c8ff',
+    backgroundColor: 'rgba(168, 200, 255, 0.15)',
+    tension: 0.25,
+    fill: true,
+    pointRadius: 4,
+    pointBackgroundColor: '#a8c8ff'
+  }];
+
+  if (trendData.length > 0) {
+    datasets.push({
+      label: 'Тренд',
+      data: trendData,
+      borderColor: '#facc15',
+      borderDash: [5, 5],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+      tension: 0
+    });
+  }
+
   exerciseChartInstance = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
       labels: points.map(p => p.displayDate),
-      datasets: [{
-        label: 'Расчетный 1ПМ (кг)',
-        data: points.map(p => p.e1rm),
-        borderColor: '#a8c8ff',
-        backgroundColor: 'rgba(168, 200, 255, 0.15)',
-        tension: 0.25,
-        fill: true,
-        pointRadius: 4,
-        pointBackgroundColor: '#a8c8ff'
-      }]
+      datasets: datasets
     },
     options: {
       responsive: true,
