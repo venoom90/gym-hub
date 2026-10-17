@@ -196,6 +196,12 @@ async function syncCachedPlanToSheets() {
     return;
   }
 
+  // V5.9.8: защита от случайной перезаписи уже синхронизированного плана
+  if (!cachedPlanData._pendingCloudSync) {
+    const alreadySynced = confirm('План уже сохранён в AI_Plan. Отправить повторно (перезапишет лист)?');
+    if (!alreadySynced) return;
+  }
+
   if (syncCloudBtn) syncCloudBtn.disabled = true;
 
   try {
@@ -259,9 +265,8 @@ function buildAthleteSituationPromptBlock() {
   );
   if (allSets.length === 0) return '';
 
-  const cycleId = state.selectedCycleId !== 'ALL'
-    ? state.selectedCycleId
-    : (state.dbData.currentCycleId || 'C-1');
+  // V5.9.8 FIX: используем currentCycleId, а не selectedCycleId из analytics-фильтра
+  const cycleId = state.dbData.currentCycleId || 'C-1';
 
   const cycleSets = allSets.filter(s => (s.cycleId || 'C-1') === cycleId);
   if (cycleSets.length === 0) return '';
@@ -313,10 +318,116 @@ function buildAthleteSituationPromptBlock() {
     }
   });
 
-  if (lagging.length === 0) return 'Все мышцы в норме.';
+  // V5.9.8: RIR-контекст по всему циклу
+  const rirStats = cycleSets.reduce((acc, s) => {
+    const clean = parseFloat(String(s.reserve || '').replace('+', ''));
+    if (!isNaN(clean)) { acc.sum += clean; acc.count++; }
+    return acc;
+  }, { sum: 0, count: 0 });
+  const avgRir = rirStats.count > 0
+    ? parseFloat((rirStats.sum / rirStats.count).toFixed(1))
+    : 2.0;
+
+  const rirAdvice = avgRir <= 1.0
+    ? 'Атлет работает близко к отказу — НЕ занижай RIR на объёме, оставляй 1-2.'
+    : avgRir >= 2.5
+      ? 'Атлет бережёт ЦНС — на объёме оставляй RIR 2-3, на силе 1-2.'
+      : 'Работай в стандартном диапазоне RIR (сила 1-2, объём 2-3).';
+
+  const laggingText = lagging.length === 0 ? 'Все мышцы в норме.' : lagging.join('\n');
 
   return `[ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (ЛАГАЮЩИЕ МЫШЦЫ)]
-${lagging.join('\n')}`;
+${laggingText}
+
+[СРЕДНИЙ RIR ЗА ЦИКЛ]
+Средний RIR: ${avgRir}. ${rirAdvice}`;
+}
+
+// V5.9.8: Fallback-потолок веса для новых упражнений без истории
+// Используется ТОЛЬКО для защиты от явных галлюцинаций ИИ (×3 потолок).
+function getFallbackWeight(muscleTarget, cycleMode) {
+  const baseMap = {
+    'Грудь': 80, 'Широчайшие': 80, 'Верх спины': 70,
+    'Средняя дельта': 25, 'Передняя дельта': 30, 'Задняя дельта': 20,
+    'Трицепс': 30, 'Бицепс': 30, 'Квадрицепс': 120,
+    'Бицепс бедра': 80, 'Ягодичные': 100, 'Икры': 60, 'Кор': 40
+  };
+  const base = baseMap[String(muscleTarget || '').trim()] || 40;
+  let coef = 0.85;
+  if (cycleMode === 'Объём' || cycleMode === 'Объем') coef = 0.65;
+  else if (cycleMode === 'Делоад') coef = 0.5;
+  return Math.round((base * coef) / 2.5) * 2.5;
+}
+
+// V5.9.8: Строгая валидация JSON-схемы плана
+function extractAndValidatePlan(rawAnswer) {
+  if (!rawAnswer || typeof rawAnswer !== 'string') {
+    throw new Error('Модель вернула пустой ответ');
+  }
+  const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Модель не вернула валидную JSON-структуру (нет фигурных скобок)');
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    throw new Error('Невалидный JSON: ' + e.message);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('JSON не является объектом');
+  }
+  if (!parsed.cycleId || typeof parsed.cycleId !== 'string') {
+    throw new Error('Отсутствует или невалидный cycleId');
+  }
+  if (!parsed.splits || typeof parsed.splits !== 'object') {
+    throw new Error('Отсутствует splits');
+  }
+
+  ['A', 'B'].forEach(function (key) {
+    const split = parsed.splits[key];
+    if (!split) throw new Error('Отсутствует splits.' + key);
+    if (!split.title || typeof split.title !== 'string') {
+      throw new Error('Отсутствует splits.' + key + '.title');
+    }
+    if (!Array.isArray(split.exercises) || split.exercises.length < 5) {
+      const got = split.exercises ? split.exercises.length : 0;
+      throw new Error('splits.' + key + '.exercises должен содержать минимум 5 упражнений (получено ' + got + ')');
+    }
+    split.exercises.forEach(function (ex, i) {
+      if (!ex || typeof ex !== 'object') {
+        throw new Error('splits.' + key + '.exercises[' + i + '] не является объектом');
+      }
+      if (!ex.name || typeof ex.name !== 'string') {
+        throw new Error('splits.' + key + '.exercises[' + i + '].name отсутствует');
+      }
+      if (typeof ex.weight !== 'number' || !isFinite(ex.weight) || ex.weight <= 0) {
+        throw new Error('splits.' + key + '.exercises[' + i + '].weight невалидный (должен быть > 0)');
+      }
+      if (typeof ex.sets !== 'number' || !isFinite(ex.sets) || ex.sets < 1 || ex.sets > 10) {
+        throw new Error('splits.' + key + '.exercises[' + i + '].sets невалидный (1..10)');
+      }
+      if (!ex.reps || typeof ex.reps !== 'string') {
+        throw new Error('splits.' + key + '.exercises[' + i + '].reps невалидный (строка)');
+      }
+    });
+  });
+
+  return parsed;
+}
+
+// V5.9.8: Усиление промпта при retry
+function buildPromptWithAttempt(basePrompt, attempt) {
+  if (attempt <= 1) return basePrompt;
+  return basePrompt + `\n\n[ПОВТОРНАЯ ПОПЫТКА №${attempt} — КРИТИЧЕСКОЕ ТРЕБОВАНИЕ]
+Предыдущий ответ не прошёл валидацию схемы. Верни СТРОГО валидный JSON БЕЗ Markdown-тегов и внешнего текста.
+Все поля обязательны:
+- cycleId (строка), splits.A.title (строка), splits.B.title (строка);
+- splits.A.exercises и splits.B.exercises — массивы МИНИМУМ из 5 упражнений каждый;
+- у каждого упражнения: name (строка), weight (число > 0), sets (число 1..10), reps (строка).
+НЕ добавляй комментарии, НЕ оборачивай в \`\`\`json. Только чистый JSON.`;
 }
 
 async function generateMesocyclePlan() {
@@ -359,13 +470,11 @@ async function generateMesocyclePlan() {
   Object.keys(exerciseStatsMap).forEach(ex => {
     const item = exerciseStatsMap[ex];
     const mult = getExerciseMultiplier(ex);
-    
+
     const displayMaxWeight = parseFloat((item.maxWeight / mult).toFixed(1));
     const displayMax1RM = parseFloat((item.max1RM / mult).toFixed(1));
-    const e1rmStr = displayMax1RM > 0 ? `, 1ПМ ${displayMax1RM} кг` : '';
-    
     const line = `${ex}: рабочий вес ${displayMaxWeight} кг (1ПМ ${displayMax1RM} кг)`;
-    
+
     if (item.split === 'Б' || item.split === 'B') {
       dayBExercises.push(line);
     } else {
@@ -466,30 +575,43 @@ ${catalogList || 'Нет размеченных упражнений в ката
   if (genBtn) genBtn.disabled = true;
 
   try {
-    const rawAnswer = await askGasGeminiCoach(prompt);
-    const jsonMatch = rawAnswer.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Модель не вернула валидную JSON-структуру.');
+    // V5.9.8: retry-цикл с валидацией схемы (2 попытки)
+    const MAX_ATTEMPTS = 2;
+    let parsedPlan = null;
+    let lastError = null;
 
-    const parsedPlan = JSON.parse(jsonMatch[0]);
-    
-    if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length < 5) {
-      throw new Error('ИИ сгенерировал неполный День А. Пожалуйста, нажмите «Рассчитать» еще раз.');
-    }
-    if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length < 5) {
-      throw new Error('ИИ забыл сгенерировать День Б. Пожалуйста, нажмите «Рассчитать» еще раз.');
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      if (attempt > 1 && loadingBox) {
+        loadingBox.innerText = `🤖 Повторная попытка (${attempt}/${MAX_ATTEMPTS})...`;
+      }
+      try {
+        const attemptPrompt = buildPromptWithAttempt(prompt, attempt);
+        const rawAnswer = await askGasGeminiCoach(attemptPrompt);
+        parsedPlan = extractAndValidatePlan(rawAnswer);
+        break;
+      } catch (err) {
+        lastError = err;
+        if (attempt === MAX_ATTEMPTS) {
+          throw new Error(`${err.message} (после ${MAX_ATTEMPTS} попыток)`);
+        }
+      }
     }
 
-    // V5.9.7: ВАЛИДАЦИЯ (Предохранитель от переоценки) с обновленными лимитами
+    if (!parsedPlan) {
+      throw new Error(lastError ? lastError.message : 'Не удалось получить валидный план после всех попыток');
+    }
+
+    // V5.9.8: Clamping весов — история + fallback для новых упражнений
     ['A', 'B'].forEach(splitKey => {
       parsedPlan.splits[splitKey].exercises.forEach(ex => {
         const hist = exerciseStatsMap[ex.name];
         if (hist && hist.maxWeight > 0) {
           const mult = getExerciseMultiplier(ex.name);
           const displayMaxWeight = hist.maxWeight / mult;
-          
+
           let maxAllowed = 0;
           if (phase.nextMode === 'Объем') {
-            maxAllowed = displayMaxWeight * 0.82; 
+            maxAllowed = displayMaxWeight * 0.82;
           } else if (phase.nextMode === 'Сила') {
             maxAllowed = displayMaxWeight * 1.05;
           } else if (phase.nextMode === 'Делоад') {
@@ -499,6 +621,13 @@ ${catalogList || 'Нет размеченных упражнений в ката
           if (ex.weight > maxAllowed && maxAllowed > 0) {
             ex.weight = Math.round(maxAllowed / 2.5) * 2.5;
             ex.notes = (ex.notes || '') + ' (Вес скорректирован физиологическим лимитом)';
+          }
+        } else {
+          // Новое упражнение без истории — защита от явных галлюцинаций (×3 потолок)
+          const fallbackCap = getFallbackWeight(ex.target, phase.nextMode);
+          if (fallbackCap > 0 && ex.weight > fallbackCap * 3) {
+            ex.weight = fallbackCap;
+            ex.notes = (ex.notes || '') + ' (Защита от галлюцинации: fallback веса по мышечной группе)';
           }
         }
       });
