@@ -316,13 +316,13 @@ function buildAthleteSituationPromptBlock() {
     if (cls.status === 'lagging') {
       const deficit = Math.max(1, Math.ceil(th.mev - weekly));
       const advice = MUSCLE_ADVICE[m] || 'изоляция';
-      lagging.push(`- ${m}: ${weekly} сетов/нед (MEV ${th.mev}) → добавь минимум +${deficit} подхода (${advice})`);
+      lagging.push(`- ${m}: ${weekly} сетов/нед (MEV ${th.mev}) → нужно +${deficit} подхода (${advice})`);
     }
   });
 
-  if (lagging.length === 0) return '';
+  if (lagging.length === 0) return 'Все мышцы в норме.';
 
-  return `[ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (по данным за ${activeWeeks} активных недель цикла ${cycleId})]:
+  return `[ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (ЛАГАЮЩИЕ МЫШЦЫ)]
 ${lagging.join('\n')}`;
 }
 
@@ -369,7 +369,7 @@ async function generateMesocyclePlan() {
   Object.keys(exerciseStatsMap).forEach(ex => {
     const item = exerciseStatsMap[ex];
     const e1rmStr = item.max1RM > 0 ? `, 1ПМ ${item.max1RM} кг` : '';
-    const line = `- ${ex}: макс. рабочий вес ${item.maxWeight} кг${e1rmStr}`;
+    const line = `${ex}: макс. рабочий вес ${item.maxWeight} кг${e1rmStr}`;
     if (item.split === 'Б' || item.split === 'B') {
       dayBExercises.push(line);
     } else {
@@ -377,11 +377,10 @@ async function generateMesocyclePlan() {
     }
   });
 
-  const exSummaryA = dayAExercises.join('\n') || 'Нет данных';
-  const exSummaryB = dayBExercises.join('\n') || 'Нет данных';
+  const dayAFormatted = dayAExercises.length > 0 ? dayAExercises.map((ex, i) => `${i+1}. ${ex}`).join('\n') : 'Нет данных';
+  const dayBFormatted = dayBExercises.length > 0 ? dayBExercises.map((ex, i) => `${i+1}. ${ex}`).join('\n') : 'Нет данных';
   const athleteSituation = buildAthleteSituationPromptBlock();
 
-  // V5.9.3: Передаем каталог упражнений для предотвращения галлюцинаций
   const catalog = state.dbData.catalog || [];
   const catalogList = catalog
     .filter(c => c.status !== 'Требует разметки' && c.name)
@@ -389,37 +388,40 @@ async function generateMesocyclePlan() {
     .join('\n');
 
   const prompt = `Ты — ведущий эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
-Составь тренировочный план на мезоцикл ${phase.cycleId}.
+Составь тренировочный план на Неделю ${phase.nextWeek} (Режим: ${phase.nextMode}) мезоцикла ${phase.cycleId}.
+
+[ТВОЯ ЗАДАЧА]
+Перераспределить нагрузку, убрать дублирование рук и грамотно распределить упражнения на лагающие мышцы по разным дням, строго соблюдая правила.
 
 [ПРИОРИТЕТ 1: ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА (АБСОЛЮТНЫЙ ЗАКОН)]
 ${userIntent || 'Нет специфических указаний, следуй фазе цикла и аналитике.'}
-Если в этом блоке запрошены конкретные упражнения, методы, подходы или веса — они ОБЯЗАТЕЛЬНЫ к исполнению, даже если противоречат фазе или аналитике ниже.
+Если в этом блоке запрошены конкретные упражнения, методы, подходы или веса — они ОБЯЗАТЕЛЬНЫ к исполнению.
+
+[ТЕКУЩИЙ АРХИВ (Что атлет делал на Неделе 1)]
+День А:
+${dayAFormatted}
+
+День Б:
+${dayBFormatted}
 
 [ПРИОРИТЕТ 2: ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (ЛАГАЮЩИЕ МЫШЦЫ)]
-${athleteSituation ? athleteSituation + '\nЭти мышцы нужно добрать до MEV. Если атлет не запретил в Приоритете 1, добавь им объем.' : 'Все мышцы в норме.'}
+${athleteSituation}
+
+[ДОСТУПНЫЙ КАТАЛОГ УПРАЖНЕНИЙ (ВЫБИРАЙ СТРОГО ИЗ НЕГО)]
+${catalogList || 'Нет размеченных упражнений в каталоге.'}
 
 [ПРИОРИТЕТ 3: ЦЕЛЕВАЯ ФАЗА ЦИКЛА]
 Сгенерируй план СТРОГО на Неделю ${phase.nextWeek} (Режим: ${phase.nextMode}).
 - Если Объем: 12-16 повторов, RIR 2-3, вес ~75% от силового.
 - Если Сила: 4-6 повторов, RIR 1-2, вес ~100% от силового.
 
-[АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ А]:
-${exSummaryA}
-
-[АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ Б]:
-${exSummaryB}
-
-[ДОСТУПНЫЙ КАТАЛОГ УПРАЖНЕНИЙ (ВЫБИРАЙ ТОЛЬКО ИЗ НЕГО)]:
-${catalogList || 'Нет размеченных упражнений в каталоге.'}
-
-ПРАВИЛА И ПРИОРИТЕТЫ:
-1. В каждом дне должно быть по 6-8 упражнений. НЕ ОСТАВЛЯЙ День Б пустым.
-2. ЗАПРЕЩЕНО выдумывать упражнения. Выбирай упражнения СТРОГО из [АРХИВА] или из [ДОСТУПНОГО КАТАЛОГА] выше. Если добавляешь упражнение для закрытия лага — оно должно быть в каталоге.
-3. Ты можешь менять порядок упражнений для оптимальной биомеханики (компаунды в начале, изоляция и ноги в конце).
-4. Для лагающих мышц (Средняя дельта, Задняя дельта, Икры, Трицепс) на объемной неделе делай по 5 подходов, последний — RIR 0 с дроп-сетом.
-5. Ноги (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (2–3 сета).
-6. Все веса СТРОГО кратны шагу 2.5 кг.
-7. Для КАЖДОГО упражнения напиши краткое обоснование (justification): почему именно это упражнение, почему столько подходов и почему такой метод.
+[СТРОГИЕ ПРАВИЛА]
+1. НОГИ: КАТЕГОРИЧЕСКИЙ ЗАПРЕТ на добавление любых новых упражнений на ноги. ЗАПРЕЩЕНЫ сгибания ног, разгибания ног, становая тяга, выпады. Из упражнений на ноги разрешено использовать СТРОГО ТОЛЬКО жим ногами и подъемы на носки.
+2. РУКИ: Убери дублирование. Оставь изоляцию на Бицепс только в одном дне (например, в А), а изоляцию на Трицепс — только в другом (например, в Б).
+3. РАСПРЕДЕЛЕНИЕ ЛАГАЮЩИХ МЫШЦ: Не ставь два упражнения на одну мышцу в ОДИН день. Так как средняя дельта сильно отстает, используй два разных упражнения за неделю: в День А поставь "Разведение в тренажере плечи" (3-4 подхода, без дропа), а в День Б добавь из каталога "Отведение руки в сторону на нижнем блоке" (4 подхода).
+4. ДРОП-СЕТЫ НА ЛАГАХ: Для отстающих мышц (Средняя дельта, Задняя дельта, Икры, Трицепс) в финальном подходе обязательно используй метод "Дроп-сет -25%" и RIR 0. Применяй это к упражнениям на эти мышцы (например, на отведение в Дне Б, на обратную бабочку, на трицепс и икры).
+5. ВЕСА: Строго кратны 2.5 кг.
+6. Для КАЖДОГО упражнения напиши краткое обоснование (justification): почему именно это упражнение и метод.
 
 ФОРМАТ ОТВЕТА:
 Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
@@ -433,15 +435,15 @@ ${catalogList || 'Нет размеченных упражнений в ката
       "exercises": [
         {
           "order": 1,
-          "name": "Точное название из архива или каталога",
-          "target": "Грудь",
+          "name": "Название",
+          "target": "Мышца",
           "weight": 100,
           "sets": 4,
           "reps": "12-16",
           "rir": "+2..+3",
           "method": "Стандарт",
           "notes": "",
-          "justification": "Базовое движение на грудь, выполняется первым на свежую ЦНС. 4 подхода для закрытия MEV."
+          "justification": "Почему это упражнение здесь и зачем столько подходов."
         }
       ]
     },
@@ -450,7 +452,7 @@ ${catalogList || 'Нет размеченных упражнений в ката
       "exercises": []
     }
   },
-  "rationale": "Краткое обоснование учета пожеланий атлета, порядка упражнений и выбора фаз."
+  "rationale": "Общая стратегия: как распределили руки и закрыли лаги."
 }`;
 
   let elapsedSeconds = 0;
@@ -475,31 +477,14 @@ ${catalogList || 'Нет размеченных упражнений в ката
     const parsedPlan = JSON.parse(jsonMatch[0]);
     
     // Строгая валидация
-    if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length < 6) {
-      throw new Error('ИИ сгенерировал неполный День А (менее 6 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
+    if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length < 5) {
+      throw new Error('ИИ сгенерировал неполный День А (менее 5 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
-    if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length < 6) {
-      throw new Error('ИИ забыл сгенерировать День Б (менее 6 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
-    }
-
-    // Мягкая проверка на галлюцинации (упражнения не из каталога)
-    const validExerciseNames = new Set(
-      (state.dbData.exercises || []).map(e => e.trim().toLowerCase())
-    );
-    const hallucinated = [];
-    ['A', 'B'].forEach(splitKey => {
-      parsedPlan.splits[splitKey].exercises.forEach(ex => {
-        const name = String(ex.name || '').trim().toLowerCase();
-        if (name && !validExerciseNames.has(name)) {
-          hallucinated.push(ex.name);
-        }
-      });
-    });
-    if (hallucinated.length > 0) {
-      console.warn('[Coach] Внимание: ИИ добавил упражнения вне каталога:', hallucinated);
+    if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length < 5) {
+      throw new Error('ИИ забыл сгенерировать День Б (менее 5 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
 
-    // Принудительно фиксируем фазу
+    // Принудительно фиксируем фазу (защита от галлюцинаций)
     parsedPlan.cycleId = phase.cycleId;
     parsedPlan.cycleWeek = phase.nextWeek;
     parsedPlan.cycleMode = phase.nextMode;
@@ -638,7 +623,7 @@ function renderStructuredCards() {
     }
   });
 
-  // V5.3.0: Отрисовка обоснований по каждому упражнению + общая стратегия
+  // V5.9.0: Отрисовка обоснований по каждому упражнению + общая стратегия
   if (rationaleBox && rationaleText) {
     let justHtml = '';
     currentSplit.exercises.forEach(ex => {
