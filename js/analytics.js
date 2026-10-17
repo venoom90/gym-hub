@@ -213,7 +213,6 @@ function renderKpiCards(sets) {
     }
   }
 
-  // V5.9.10: Плотность и Средний вес
   const workouts = state.dbData.workouts || [];
   let totalTonnage = 0;
   let totalDuration = 0;
@@ -707,38 +706,38 @@ function renderRepRangeSpread(sets) {
 
   const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
   
-  let force = 0, hyper = 0, vol = 0;
+  let strength = 0, hyper = 0, pump = 0;
   
   workSets.forEach(s => {
     const reps = parseInt(s.reps, 10) || 0;
-    if (reps <= 5) force++;
-    else if (reps <= 12) hyper++;
-    else vol++;
+    if (reps <= 8) strength++;
+    else if (reps <= 15) hyper++;
+    else pump++;
   });
 
-  const total = force + hyper + vol;
+  const total = strength + hyper + pump;
   
   if (total === 0) {
     if (verdictEl) verdictEl.innerText = '';
     return;
   }
 
-  const forcePct = Math.round((force / total) * 100);
+  const strengthPct = Math.round((strength / total) * 100);
   const hyperPct = Math.round((hyper / total) * 100);
-  const volPct = 100 - forcePct - hyperPct;
+  const pumpPct = 100 - strengthPct - hyperPct;
 
   if (verdictEl) {
-    if (forcePct < 15 && volPct < 15) {
-      verdictEl.innerText = '⚠️ Вы застряли в гипертрофии (6-12). Добавьте силовые сеты для роста 1ПМ.';
+    if (strengthPct < 15 && pumpPct < 15) {
+      verdictEl.innerText = '⚠️ Вы застряли в гипертрофии (9-15). Добавьте силовые сеты (1-8) для роста 1ПМ.';
       verdictEl.style.color = 'var(--app-color-warning)';
-    } else if (forcePct < 15) {
-      verdictEl.innerText = '⚠️ Мало силовых сетов (1-5 повт). Риск потери силы.';
+    } else if (strengthPct < 15) {
+      verdictEl.innerText = '⚠️ Мало силовых сетов (1-8 повт). Риск потери силы.';
       verdictEl.style.color = 'var(--app-color-warning)';
     } else if (hyperPct < 50) {
-      verdictEl.innerText = '💡 Много крайностей. Для гипертрофии нужно больше сетов в 6-12.';
+      verdictEl.innerText = '💡 Много крайностей. Для гипертрофии нужно больше сетов в 9-15.';
       verdictEl.style.color = 'var(--md-sys-color-primary)';
     } else {
-      verdictEl.innerText = '✅ Идеальный DUP-баланс (Сила + Гипертрофия + Объем).';
+      verdictEl.innerText = '✅ Идеальный DUP-баланс (Сила + Гипертрофия).';
       verdictEl.style.color = 'var(--app-color-success)';
     }
   }
@@ -748,9 +747,9 @@ function renderRepRangeSpread(sets) {
     data: {
       labels: ['Зоны повторений'],
       datasets: [
-        { label: 'Сила (1-5)', data: [force], backgroundColor: '#ff6b6b', borderRadius: { topLeft: 6, bottomLeft: 6 } },
-        { label: 'Гипертрофия (6-12)', data: [hyper], backgroundColor: '#78dc9c' },
-        { label: 'Объем (13+)', data: [vol], backgroundColor: '#a8c8ff', borderRadius: { topRight: 6, bottomRight: 6 } }
+        { label: 'Сила (1-8)', data: [strength], backgroundColor: '#ff6b6b', borderRadius: { topLeft: 6, bottomLeft: 6 } },
+        { label: 'Гипертрофия (9-15)', data: [hyper], backgroundColor: '#78dc9c' },
+        { label: 'Выносливость (16+)', data: [pump], backgroundColor: '#a8c8ff', borderRadius: { topRight: 6, bottomRight: 6 } }
       ]
     },
     options: {
