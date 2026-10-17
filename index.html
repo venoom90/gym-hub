@@ -1882,27 +1882,6 @@
     }
     .live-sheet-add-btn:active { background: rgba(168, 200, 255, 0.08); }
 
-    .live-drop-presets {
-      display: flex;
-      gap: 6px;
-      margin-top: 4px;
-    }
-    .live-drop-preset-chip {
-      flex: 1;
-      background: var(--md-sys-color-surface-container-highest);
-      color: var(--md-sys-color-primary);
-      border: 1px solid var(--md-sys-color-outline-variant);
-      border-radius: 8px;
-      padding: 6px 0;
-      font: 700 0.75rem/1 'Roboto';
-      cursor: pointer;
-      transition: transform 0.1s ease;
-    }
-    .live-drop-preset-chip:active {
-      transform: scale(0.95);
-      background: var(--md-sys-color-primary-container);
-    }
-
     .live-sheet-summary {
       background: var(--md-sys-color-surface-container-high);
       border-radius: var(--md-sys-shape-corner-medium);
@@ -3379,7 +3358,7 @@
             <span id="liveClockWidgetRirBadge" class="coach-card-chip" style="font-size: 0.8rem;">RIR 2</span>
           </div>
         </div>
-        <div class="live-clock-widget-body" style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="live-clock-widget-body" style="display: flex; align-items: center;">
           <!-- Вернули зеленый цвет -->
           <span id="liveClockWidgetNextPlan" class="live-clock-plan-val">52.5 (×2) кг × 12</span>
         </div>
@@ -3455,7 +3434,7 @@
         </div>
         <div class="live-sheet-row-2-bottom">
           <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="-2.5" type="button">−</button>
-          <input type="text" inputmode="decimal" class="live-sheet-input-value" onfocus="this.select()" id="liveDropMainWeight" value="45">
+          <span class="live-sheet-value" style="border-bottom: 2px dashed var(--md-sys-color-primary); cursor: pointer; min-width: 30px; text-align: center;" id="liveDropMainWeight">45</span>
           <button class="live-sheet-mini-btn" data-drop-adjust="main-weight" data-delta="+2.5" type="button">+</button>
           <span class="live-sheet-unit">кг ×</span>
           <button class="live-sheet-mini-btn" data-drop-adjust="main-reps" data-delta="-1" type="button">−</button>
