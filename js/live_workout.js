@@ -9,7 +9,11 @@
  * - Финальный сет с дропом/кластером помечается желтым пунктиром (is-special).
  * - Заголовок сета в дашборде динамический: РАЗМИНКА или РАБОЧИЙ СЕТ.
  * - Блок "В ПРОШЛЫЙ РАЗ" фильтруется по текущей категории (Разминка к Разминке, Рабочий к Рабочему).
- * - Дельта веса пересчитывается по эффективному весу, цвет изменен на нейтральный синий (для объемной недели).
+ * - Дельта веса пересчитывается по эффективному весу, цвет изменен на нейтральный синий.
+ * - ФИКС: Удаление сета сбрасывает бонусный режим и корректно обновляет дашборд.
+ * - ФИКС: Каскадный RIR по умолчанию для кластеров (2 -> 1 -> 0).
+ * - ФИКС: Ручной ввод веса (prompt) в шторке дроп-сетов.
+ * - ФИКС: Бейдж метода (Кластер/Дроп) в дашборде над планом.
  * =========================================================================
  */
 
@@ -233,11 +237,12 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
   return { isCluster: false, schemeText: '', segments: [defaultWorkReps], totalReps: defaultWorkReps, firstSegmentReps: defaultWorkReps };
 }
 
+// ФИКС (Пункт 2): Каскадный разброс RIR для кластеров (2 -> 1 -> 0)
 function defaultRirForSegment(index, total) {
-  if (total <= 1) return '1';
-  if (index === 0) return '3';
-  if (index === total - 1) return '1';
-  return '2';
+  if (total <= 1) return '0';
+  if (index === 0) return '2';
+  if (index === total - 1) return '0';
+  return '1';
 }
 
 function computeSmartDraftSetForExercise(ex) {
@@ -628,6 +633,27 @@ function renderBigClockWidgets() {
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const nextSetNum = workDone + 1;
   
+  // ФИКС (Пункт 5): Бейдж метода над заголовком
+  const methodBadgeEl = document.getElementById('liveClockMethodBadge');
+  if (methodBadgeEl) {
+    if (!isWarmupMode && activeSession.draftSet.useSpecialMethod) {
+      methodBadgeEl.style.display = 'inline-flex';
+      if (currentEx.isCluster) {
+        methodBadgeEl.innerText = 'КЛАСТЕР';
+        methodBadgeEl.style.background = 'var(--app-color-warning)';
+        methodBadgeEl.style.color = '#3a2a06';
+      } else if (currentEx.isDrop) {
+        methodBadgeEl.innerText = 'ДРОП-СЕТ';
+        methodBadgeEl.style.background = 'var(--app-color-warning)';
+        methodBadgeEl.style.color = '#3a2a06';
+      } else {
+        methodBadgeEl.style.display = 'none';
+      }
+    } else {
+      methodBadgeEl.style.display = 'none';
+    }
+  }
+
   const labelEl = document.getElementById('liveClockNextSetLabel');
   if (labelEl) {
     if (isWarmupMode) {
@@ -689,7 +715,7 @@ function renderBigClockWidgets() {
         deltaEl.style.color = 'var(--app-color-success)';
       } else if (diff < 0) {
         deltaEl.innerText = `↓ ${diff}`;
-        deltaEl.style.background = 'rgba(168, 200, 255, 0.12)'; // Нейтральный синий для планового снижения веса
+        deltaEl.style.background = 'rgba(168, 200, 255, 0.12)'; // Нейтральный синий для планового снижения
         deltaEl.style.color = 'var(--md-sys-color-primary)';
       } else {
         deltaEl.innerText = `=`;
@@ -1241,12 +1267,14 @@ function attachHistoryRowHandlers(container, sets, currentEx) {
         if (globalIdx === -1) return;
         currentEx.completedSets.splice(globalIdx, 1);
         currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
+        
+        // ФИКС (Пункт 1): Сбрасываем бонусный режим при удалении
         currentEx.isCompleted = false;
         currentEx.allowBonusSet = false;
         activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
         persistActiveSession();
         triggerHaptic([60]);
-        renderLiveWorkoutScreen();
+        renderLiveWorkoutScreen(); // Перерисовывает в т.ч. дашборд (Пункт 4)
       }
     };
   });
@@ -1833,7 +1861,20 @@ function renderDropSheet() {
   const multBadge = sheetState.multiplier === 2 ? ' (×2)' : '';
 
   if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.mainWeightDisplay} кг${multBadge} · основной + ${sheetState.drops.length} дроп${sheetState.drops.length > 1 ? 'а' : ''}`;
-  if (mainWeightEl) mainWeightEl.innerText = sheetState.mainWeightDisplay;
+  if (mainWeightEl) {
+    mainWeightEl.innerText = sheetState.mainWeightDisplay;
+    mainWeightEl.style.cursor = 'pointer'; // ФИКС (Пункт 3): Визуальный отклик на клик
+    mainWeightEl.onclick = () => {
+      const newVal = prompt('Введите вес основного подхода (кг):', sheetState.mainWeightDisplay);
+      if (newVal !== null) {
+        const parsed = parseFloat(newVal.replace(',', '.'));
+        if (!isNaN(parsed) && parsed > 0) {
+          sheetState.mainWeightDisplay = Math.round(parsed * 100) / 100;
+          renderDropSheet();
+        }
+      }
+    };
+  }
   if (mainRepsEl) mainRepsEl.innerText = sheetState.mainReps;
 
   if (mainRirEl) {
@@ -1854,7 +1895,7 @@ function renderDropSheet() {
       </div>
       <div class="live-sheet-row-2-bottom">
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="-2.5" type="button">−</button>
-        <span class="live-sheet-value">${drop.weightDisplay}</span>
+        <span class="live-sheet-value" data-drop-edit-weight="${idx}" style="cursor:pointer; text-decoration: underline;">${drop.weightDisplay}</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="+2.5" type="button">+</button>
         <span class="live-sheet-unit">кг ×</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="-1" type="button">−</button>
@@ -1872,6 +1913,22 @@ function renderDropSheet() {
   if (summaryEl) {
     summaryEl.innerHTML = `Тоннаж: <b>${totalTonnage.toFixed(1)} кг</b> · e1RM по основному: <b>~${e1rm} кг</b>`;
   }
+
+  // ФИКС (Пункт 3): Обработчик клика на цифры веса дропов для ручного ввода
+  dropsContainer.querySelectorAll('[data-drop-edit-weight]').forEach(el => {
+    el.onclick = () => {
+      const idx = parseInt(el.getAttribute('data-drop-edit-weight'), 10);
+      const currentW = sheetState.drops[idx].weightDisplay;
+      const newVal = prompt('Введите вес дропа (кг):', currentW);
+      if (newVal !== null) {
+        const parsed = parseFloat(newVal.replace(',', '.'));
+        if (!isNaN(parsed) && parsed > 0) {
+          sheetState.drops[idx].weightDisplay = Math.round(parsed * 100) / 100;
+          renderDropSheet();
+        }
+      }
+    };
+  });
 
   dropsContainer.querySelectorAll('[data-drop-adjust]').forEach(btn => {
     btn.onclick = () => {
