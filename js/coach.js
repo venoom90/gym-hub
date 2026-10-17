@@ -364,7 +364,6 @@ async function generateMesocyclePlan() {
     const displayMax1RM = parseFloat((item.max1RM / mult).toFixed(1));
     const e1rmStr = displayMax1RM > 0 ? `, 1ПМ ${displayMax1RM} кг` : '';
     
-    // V5.9.6: Передаем в ИИ веса последней недели с акцентом на рабочий вес, а не 1ПМ
     const line = `${ex}: рабочий вес ${displayMaxWeight} кг (1ПМ ${displayMax1RM} кг)`;
     
     if (item.split === 'Б' || item.split === 'B') {
@@ -409,7 +408,7 @@ ${catalogList || 'Нет размеченных упражнений в ката
 
 [ПРИОРИТЕТ 3: ЦЕЛЕВАЯ ФАЗА ЦИКЛА]
 Сгенерируй план СТРОГО на Неделю ${phase.nextWeek} (Режим: ${phase.nextMode}).
-- Если Объем: 12-16 повторов, RIR 2-3. ВЕС: 60-65% от указанного рабочего веса (не от 1ПМ!).
+- Если Объем: 12-16 повторов, RIR 2-3. ВЕС: 75-80% от указанного рабочего веса силовой недели (это 65-70% от 1ПМ!). Не занижай вес!
 - Если Сила: 4-6 повторов, RIR 1-2. ВЕС: 100% от указанного рабочего веса.
 
 [СТРОГИЕ ПРАВИЛА]
@@ -480,25 +479,23 @@ ${catalogList || 'Нет размеченных упражнений в ката
       throw new Error('ИИ забыл сгенерировать День Б. Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
 
-    // V5.9.6: ВАЛИДАЦИЯ (Предохранитель от переоценки)
-    // Проходим по всем упражнениям, сверяем с историей и срезаем завышенные веса
+    // V5.9.7: ВАЛИДАЦИЯ (Предохранитель от переоценки) с обновленными лимитами
     ['A', 'B'].forEach(splitKey => {
       parsedPlan.splits[splitKey].exercises.forEach(ex => {
         const hist = exerciseStatsMap[ex.name];
         if (hist && hist.maxWeight > 0) {
           const mult = getExerciseMultiplier(ex.name);
-          const displayMaxWeight = hist.maxWeight / mult; // Исторический силовой вес в display
+          const displayMaxWeight = hist.maxWeight / mult;
           
           let maxAllowed = 0;
           if (phase.nextMode === 'Объем') {
-            maxAllowed = displayMaxWeight * 0.75; 
+            maxAllowed = displayMaxWeight * 0.82; 
           } else if (phase.nextMode === 'Сила') {
             maxAllowed = displayMaxWeight * 1.05;
           } else if (phase.nextMode === 'Делоад') {
             maxAllowed = displayMaxWeight * 0.65;
           }
 
-          // Если ИИ поставил больше лимита, принудительно срезаем
           if (ex.weight > maxAllowed && maxAllowed > 0) {
             ex.weight = Math.round(maxAllowed / 2.5) * 2.5;
             ex.notes = (ex.notes || '') + ' (Вес скорректирован физиологическим лимитом)';
@@ -507,7 +504,6 @@ ${catalogList || 'Нет размеченных упражнений в ката
       });
     });
 
-    // Конвертация Display -> Effective перед сохранением
     const effectivePlan = convertPlanToEffective(parsedPlan);
 
     effectivePlan.cycleId = phase.cycleId;
