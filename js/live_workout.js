@@ -1,12 +1,13 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.3 MEV ASSISTANT & DOTS)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.4 SMART MEV BARS & HELP)
  * =========================================================================
- * V2.8.3:
- * - Исправлен баг с undefined в истории (фоллбек на weight при отсутствии weightDisplay).
- * - Добавлена отрисовка точек подходов по RIR.
- * - Добавлена карточка MEV/MAV с анализом недельного объема.
- * - MEV-Ассистент на экране завершения упражнения.
+ * V2.8.4:
+ * - Заменены точки на полоски (Bars) с цветовой индикацией RIR.
+ * - Добавлена кнопка справки (?) для виджета MEV.
+ * - Исправлен баг с обновлением дашборда после записи сета.
+ * - Возвращен зеленый цвет весу в карточке плана.
+ * - Исправлена сетка (Flex-grow), чтобы карточки были прижаты к низу.
  */
 
 import {
@@ -509,11 +510,8 @@ function resetIdleTimer() {
 function analyzeMuscleVolume(muscleName) {
   const thr = (MUSCLE_THRESHOLDS && MUSCLE_THRESHOLDS[muscleName]) || { mev: 8, mavMin: 12, mavMax: 20, mrv: 22 };
   
-  // 1. Считаем выполненное за неделю
   let weeklyDone = 0;
   if (state.dbData && Array.isArray(state.dbData.sets)) {
-    // Для простоты берем все сеты за текущий цикл. В идеале нужно фильтровать по неделе (cycleWeek).
-    // Но пока считаем общий объем по текущей мышце.
     const currentCycleSets = state.dbData.sets.filter(s => 
       s.cycleId === activeSession.cycleId && 
       s.targetMuscle === muscleName && 
@@ -522,7 +520,6 @@ function analyzeMuscleVolume(muscleName) {
     weeklyDone += currentCycleSets.length;
   }
 
-  // 2. Считаем выполненное в текущей сессии (если не учтено в базе)
   let sessionDone = 0;
   activeSession.exercises.forEach(ex => {
     if (ex.targetMuscle === muscleName) {
@@ -530,16 +527,8 @@ function analyzeMuscleVolume(muscleName) {
     }
   });
   
-  // Защита от двойного счета: если сеты текущей сессии еще не в базе
-  // (предполагаем, что они не в базе, так как мы в процессе)
   const totalDone = weeklyDone + sessionDone;
-
-  // 3. Остаток и статус
   const mevDiff = thr.mev - totalDone;
-  
-  // 4. Есть ли будущие тренировки на эту мышцу на этой неделе?
-  // Упрощенная логика: если сегодня День А, то считаем, что День Б еще будет.
-  // Если сегодня День Б, считаем, что это последняя.
   const hasFutureSessions = (activeSession.splitDay === 'А' || activeSession.splitDay === 'A');
 
   let statusText = '';
@@ -556,7 +545,6 @@ function analyzeMuscleVolume(muscleName) {
     barColorClass = 'is-high';
   }
 
-  // Процент заполнения берем относительно MAV max (или MRV для наглядности)
   const barPercent = Math.min(100, Math.round((totalDone / thr.mrv) * 100));
 
   return {
@@ -591,40 +579,38 @@ function renderBigClockWidgets() {
     topTimeEl.innerHTML = `<div>Сейчас <b>${nowStr}</b></div><div>Финиш ~<b>${etaStr}</b></div>`;
   }
 
-  // 2. Точки подходов (Dots)
-  const dotsContainer = document.getElementById('liveClockDots');
-  if (dotsContainer) {
+  // 2. Полоски подходов (Bars)
+  const barsContainer = document.getElementById('liveClockBars');
+  if (barsContainer) {
     const totalSets = currentEx.targetSets;
     const workSets = currentEx.completedSets.filter(s => s.category === 'Рабочий');
-    let dotsHtml = '';
+    let barsHtml = '';
     
     for (let i = 0; i < totalSets; i++) {
-      let dotClass = 'clock-dot';
+      let barClass = 'clock-bar';
       const isLast = (i === totalSets - 1);
-      const set = workSets[i]; // i-й выполненный сет
+      const set = workSets[i];
 
       if (set) {
-        // Сет выполнен - красим по RIR
-        dotClass += ' is-done';
+        barClass += ' is-done';
         const rir = String(set.reserve || '').replace('+', '');
-        if (rir === '0') dotClass += ' is-rir-0';
-        else if (rir === '1') dotClass += ' is-rir-1';
-        else if (rir === '2') dotClass += ' is-rir-2';
-        else dotClass += ' is-rir-3';
+        if (rir === '0') barClass += ' is-rir-0';
+        else if (rir === '1') barClass += ' is-rir-1';
+        else if (rir === '2') barClass += ' is-rir-2';
+        else barClass += ' is-rir-3';
       } else {
-        // Сет не выполнен
         if (isLast && (currentEx.isDrop || currentEx.isCluster)) {
-          dotClass += ' is-special';
+          barClass += ' is-special';
         }
       }
-      dotsHtml += `<div class="${dotClass}"></div>`;
+      barsHtml += `<div class="${barClass}"></div>`;
     }
-    dotsContainer.innerHTML = dotsHtml;
+    barsContainer.innerHTML = barsHtml;
   }
 
   // 3. План на подход (Next Set)
   const nextSetNum = currentEx.completedSets.filter(s => s.category === 'Рабочий').length + 1;
-  const isFinal = nextSetNum >= currentEx.targetSets; // Если следующий последний или это бонус
+  const isFinal = nextSetNum >= currentEx.targetSets;
   const labelEl = document.getElementById('liveClockNextSetLabel');
   if (labelEl) {
     labelEl.innerText = `СЕТ ${Math.min(nextSetNum, currentEx.targetSets)} ИЗ ${currentEx.targetSets}`;
@@ -656,7 +642,6 @@ function renderBigClockWidgets() {
   const deltaEl = document.getElementById('liveClockWidgetDelta');
   
   if (histTextEl && deltaEl) {
-    // Ищем последний подход в базе
     let lastSet = null;
     if (state.dbData && Array.isArray(state.dbData.sets)) {
       const validSets = state.dbData.sets.filter(s => s.exercise === currentEx.name && s.category === 'Рабочий');
@@ -666,14 +651,12 @@ function renderBigClockWidgets() {
     }
 
     if (lastSet) {
-      // ФИКС БАГА: если нет weightDisplay, берем weight и делим на множитель
       const histMult = lastSet.multiplier || getExerciseMultiplier(currentEx.name) || 1;
       const histW = lastSet.weightDisplay !== undefined ? lastSet.weightDisplay : (lastSet.weight ? Math.round((lastSet.weight / histMult) * 2) / 2 : 0);
       const histRir = lastSet.reserve ? lastSet.reserve.replace('+','') : '?';
       
       histTextEl.innerText = `${histW} (×2) кг × ${lastSet.reps} • RIR ${histRir}`;
       
-      // Считаем дельту
       const currentW = activeSession.draftSet.weight;
       const diff = currentW - histW;
       if (diff > 0) {
@@ -705,7 +688,10 @@ function renderBigClockWidgets() {
   if (currentEx.targetMuscle) {
     const volData = analyzeMuscleVolume(currentEx.targetMuscle);
     
-    if (volTitleEl) volTitleEl.innerText = `ОБЪЕМ: ${currentEx.targetMuscle.toUpperCase()}`;
+    if (volTitleEl) {
+      // Вставляем кнопку справки прямо в заголовок (или оставляем как есть, если кнопка уже в HTML)
+      volTitleEl.innerHTML = `ОБЪЕМ: ${currentEx.targetMuscle.toUpperCase()}`;
+    }
     if (volTextEl) volTextEl.innerText = `${volData.weeklyDone} / ${volData.thr.mavMax} (MAV)`;
     if (volFillEl) {
       volFillEl.style.width = `${volData.barPercent}%`;
@@ -1653,7 +1639,12 @@ function commitRecordedSet(partialSet) {
   
   startRestTimer(restSeconds);
   persistActiveSession();
-  renderLiveWorkoutScreen();
+  renderLiveWorkoutScreen(); // Вызываем рендер экрана
+  
+  // ФИКС БАГА: Если дашборд открыт, принудительно перерисовываем его виджеты
+  if (isModalOpen('liveBigClockOverlay')) {
+    renderBigClockWidgets();
+  }
 }
 
 /* =========================================================
@@ -2430,6 +2421,21 @@ function bindLiveWorkoutDomEvents() {
   const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
   if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
   if (discardSessionBtn) discardSessionBtn.onclick = () => discardLiveWorkoutSession();
+
+  // Привязка кнопки справки MEV
+  const mevHelpBtn = document.getElementById('liveClockVolumeHelpBtn');
+  if (mevHelpBtn) {
+    mevHelpBtn.onclick = (e) => {
+      e.stopPropagation();
+      const helpTitle = document.getElementById('helpModalTitle');
+      const helpContent = document.getElementById('helpModalContent');
+      if (helpTitle && helpContent) {
+        helpTitle.innerText = 'Спортивный объем (MEV / MAV / MRV)';
+        helpContent.innerText = `MEV (Minimum Effective Volume) — минимальный эффективный объем. Это порог, при котором мышца начинает расти. Если сделать меньше сетов, вы просто поддерживаете тонус.\n\nMAV (Maximum Adaptive Volume) — зона максимального роста. Самый эффективный диапазон для гипертрофии.\n\nMRV (Maximum Recoverable Volume) — максимальный восстанавливаемый объем. Если его превысить, начнется перетренированность и разрушение мышц.`;
+      }
+      openModal('metricHelpModal');
+    };
+  }
 }
 
 function toggleHeaderCollapse(forceCollapsed) {
