@@ -9,6 +9,7 @@ import { registerModal, openModal, closeModal } from './modal_manager.js';
 let tonnageChartInstance = null;
 let exerciseChartInstance = null;
 let rirChartInstance = null;
+let repRangeChartInstance = null;
 let isHelpModalInitialized = false;
 
 const METRIC_HELP_DICTIONARY = {
@@ -27,6 +28,10 @@ const METRIC_HELP_DICTIONARY = {
   'help-deload': {
     title: 'Адаптация и Deload Detector',
     text: 'Автоматический индикатор накопленного утомления ЦНС и связочного аппарата.\n\nАнализирует текущую неделю мезоцикла и средний запас сил (RIR), подсказывая, когда пора провести разгрузочную неделю (Делоад).'
+  },
+  'help-density': {
+    title: 'Плотность и Средний вес',
+    text: 'Плотность показывает, сколько килограммов вы поднимаете в минуту тренировки (кг/мин).\n\nСредний вес сета показывает общий уровень вашей силы без учета количества подходов. Если тоннаж растет, а средний вес падает — вы просто набиваете объем легкими весами.'
   },
   'help-volume': {
     title: 'Нагрузка на мышцы (Muscle Load Analyzer)',
@@ -50,6 +55,8 @@ export function renderAnalyticsModule() {
   renderPushPullBalance(filteredSets);
   renderMuscleVolumeLandmarks(filteredSets);
   renderTonnageChart(filteredSets);
+  renderRepRangeSpread(filteredSets);
+  renderDropOff(filteredSets);
   renderFatigueControl(filteredSets);
   populateExerciseSelector(filteredSets);
 }
@@ -121,6 +128,8 @@ function populateCycleSelector() {
     renderPushPullBalance(filtered);
     renderMuscleVolumeLandmarks(filtered);
     renderTonnageChart(filtered);
+    renderRepRangeSpread(filtered);
+    renderDropOff(filtered);
     renderFatigueControl(filtered);
     populateExerciseSelector(filtered);
   };
@@ -152,6 +161,8 @@ function renderKpiCards(sets) {
   const pushPullSubEl = document.getElementById('kpiPushPullSub');
   const adaptEl = document.getElementById('kpiAdaptationStatus');
   const adaptSubEl = document.getElementById('kpiAdaptationSub');
+  const densityEl = document.getElementById('kpiDensity');
+  const avgLoadEl = document.getElementById('kpiAvgLoad');
 
   const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
   const activeWeeks = calculateActiveTrainingWeeks(workSets);
@@ -201,6 +212,27 @@ function renderKpiCards(sets) {
       adaptSubEl.innerText = `Режим: ${mode}`;
     }
   }
+
+  // V5.9.10: Плотность и Средний вес
+  const workouts = state.dbData.workouts || [];
+  let totalTonnage = 0;
+  let totalDuration = 0;
+
+  const validWorkouts = workouts.filter(w => {
+    if (state.selectedCycleId === 'ALL') return true;
+    return (w.cycleId || 'C-1') === state.selectedCycleId;
+  });
+
+  validWorkouts.forEach(w => {
+    totalTonnage += (parseFloat(w.workTonnage) || 0);
+    totalDuration += (parseFloat(w.durationMin) || 0);
+  });
+
+  const avgDensity = totalDuration > 0 ? Math.round(totalTonnage / totalDuration) : 0;
+  const avgLoad = workSets.length > 0 ? Math.round(totalTonnage / workSets.length) : 0;
+
+  if (densityEl) densityEl.innerText = `${avgDensity} кг/мин`;
+  if (avgLoadEl) avgLoadEl.innerText = `Ср. сет: ${avgLoad} кг`;
 }
 
 function computePushPullTotals(workSets) {
@@ -663,18 +695,173 @@ function renderTonnageChart(sets) {
   });
 }
 
+function renderRepRangeSpread(sets) {
+  const canvas = document.getElementById('repRangeChart');
+  const verdictEl = document.getElementById('repRangeVerdict');
+  if (!canvas || typeof Chart === 'undefined') return;
+
+  if (repRangeChartInstance) {
+    repRangeChartInstance.destroy();
+    repRangeChartInstance = null;
+  }
+
+  const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
+  
+  let force = 0, hyper = 0, vol = 0;
+  
+  workSets.forEach(s => {
+    const reps = parseInt(s.reps, 10) || 0;
+    if (reps <= 5) force++;
+    else if (reps <= 12) hyper++;
+    else vol++;
+  });
+
+  const total = force + hyper + vol;
+  
+  if (total === 0) {
+    if (verdictEl) verdictEl.innerText = '';
+    return;
+  }
+
+  const forcePct = Math.round((force / total) * 100);
+  const hyperPct = Math.round((hyper / total) * 100);
+  const volPct = 100 - forcePct - hyperPct;
+
+  if (verdictEl) {
+    if (forcePct < 15 && volPct < 15) {
+      verdictEl.innerText = '⚠️ Вы застряли в гипертрофии (6-12). Добавьте силовые сеты для роста 1ПМ.';
+      verdictEl.style.color = 'var(--app-color-warning)';
+    } else if (forcePct < 15) {
+      verdictEl.innerText = '⚠️ Мало силовых сетов (1-5 повт). Риск потери силы.';
+      verdictEl.style.color = 'var(--app-color-warning)';
+    } else if (hyperPct < 50) {
+      verdictEl.innerText = '💡 Много крайностей. Для гипертрофии нужно больше сетов в 6-12.';
+      verdictEl.style.color = 'var(--md-sys-color-primary)';
+    } else {
+      verdictEl.innerText = '✅ Идеальный DUP-баланс (Сила + Гипертрофия + Объем).';
+      verdictEl.style.color = 'var(--app-color-success)';
+    }
+  }
+
+  repRangeChartInstance = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: ['Зоны повторений'],
+      datasets: [
+        { label: 'Сила (1-5)', data: [force], backgroundColor: '#ff6b6b', borderRadius: { topLeft: 6, bottomLeft: 6 } },
+        { label: 'Гипертрофия (6-12)', data: [hyper], backgroundColor: '#78dc9c' },
+        { label: 'Объем (13+)', data: [vol], backgroundColor: '#a8c8ff', borderRadius: { topRight: 6, bottomRight: 6 } }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#c4c6d0', boxWidth: 12, font: {size: 10} } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw} сетов (${Math.round((ctx.raw/total)*100)}%)`
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, display: false, max: total },
+        y: { stacked: true, display: false }
+      }
+    }
+  });
+}
+
+function renderDropOff(sets) {
+  const container = document.getElementById('dropOffContainer');
+  if (!container) return;
+
+  const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
+  if (workSets.length === 0) {
+    container.innerHTML = `<div style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); text-align: center; padding: 8px 0;">Нет данных</div>`;
+    return;
+  }
+
+  const sortedByDate = [...workSets].sort((a, b) => {
+    const da = normalizeDate(a.date);
+    const db = normalizeDate(b.date);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+  });
+  
+  const latestDate = sortedByDate[0] ? sortedByDate[0].date : null;
+  if (!latestDate) return;
+  
+  const latestSets = workSets.filter(s => s.date === latestDate);
+  
+  const byExercise = {};
+  latestSets.forEach(s => {
+    const ex = (s.exercise || '').trim();
+    if (!ex) return;
+    
+    const method = String(s.method || '').toLowerCase();
+    if (method.includes('дроп') || method.includes('кластер')) return;
+    
+    if (!byExercise[ex]) byExercise[ex] = [];
+    byExercise[ex].push(s);
+  });
+
+  const drops = [];
+  Object.keys(byExercise).forEach(ex => {
+    const exSets = byExercise[ex].sort((a,b) => parseInt(a.setNum) - parseInt(b.setNum));
+    if (exSets.length < 2) return;
+    
+    const first = exSets[0];
+    const last = exSets[exSets.length - 1];
+    
+    const firstTonnage = (parseFloat(first.weight) || 0) * (parseInt(first.reps, 10) || 0);
+    const lastTonnage = (parseFloat(last.weight) || 0) * (parseInt(last.reps, 10) || 0);
+    
+    if (firstTonnage > 0 && lastTonnage > 0 && firstTonnage > lastTonnage) {
+      const pct = Math.round(((firstTonnage - lastTonnage) / firstTonnage) * 100);
+      if (pct >= 10) {
+        drops.push({ ex, pct });
+      }
+    }
+  });
+
+  drops.sort((a, b) => b.pct - a.pct);
+  
+  if (drops.length === 0) {
+    container.innerHTML = `<div class="foster-indicator good">🟢 Отличная выносливость. Падения веса нет или оно < 10%</div>`;
+    return;
+  }
+
+  container.innerHTML = drops.slice(0, 3).map(d => {
+    let colorClass = 'foster-indicator good';
+    if (d.pct > 30) colorClass = 'foster-indicator bad';
+    else if (d.pct > 20) colorClass = 'foster-indicator warn';
+
+    return `
+      <div class="${colorClass}" style="margin-bottom: 6px; padding: 10px;">
+        <div style="display: flex; justify-content: space-between; width: 100%;">
+          <span style="font-weight: 700;">${escapeHtml(d.ex)}</span>
+          <span>Падение: -${d.pct}%</span>
+        </div>
+        <div style="font-size: 0.75rem; opacity: 0.85; font-weight: 400; margin-top: 4px;">
+          ${d.pct > 30 ? 'Слишком много подходов или мало отдыха.' : 'Нормальное утомление.'}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderFatigueControl(sets) {
   const fosterContainer = document.getElementById('fosterStatusContainer');
   const rirCanvas = document.getElementById('rirChart');
 
   if (!fosterContainer || !rirCanvas) return;
 
-  // --- 1. Индекс Фостера (Monotony & Strain) — V5.9.9 (учет 7 дней) ---
   const workouts = state.dbData.workouts || [];
   const dailyLoads = [];
   
   const today = new Date();
-  today.setHours(12, 0, 0, 0); // Нормализация на полдень
+  today.setHours(12, 0, 0, 0);
 
   for (let i = 0; i < 7; i++) {
     const d = new Date(today);
@@ -730,7 +917,6 @@ function renderFatigueControl(sets) {
   }
   fosterContainer.innerHTML = fosterHtml;
 
-  // --- 2. График среднего RIR по неделям ---
   if (rirChartInstance) {
     rirChartInstance.destroy();
     rirChartInstance = null;
@@ -856,7 +1042,6 @@ function renderExercise1RMChart(sets, exerciseName) {
     exerciseChartInstance = null;
   }
 
-  // V5.9.9: Множитель веса для корректного отображения графика (вес одной руки/гантели)
   const mult = getExerciseMultiplier(exerciseName);
 
   const workSets = sets.filter(
@@ -866,7 +1051,6 @@ function renderExercise1RMChart(sets, exerciseName) {
   const byDateMax = {};
   let allTimePr = 0;
 
-  // V5.9.9: Рекорды в диапазонах (5ПМ, 8ПМ, 12ПМ) — в Display-весах
   let max5 = 0, max8 = 0, max12 = 0;
 
   workSets.forEach(s => {
@@ -879,7 +1063,6 @@ function renderExercise1RMChart(sets, exerciseName) {
 
     const displayW = w / mult;
     
-    // Расчет Rep-Max (берем реальный поднятый вес, не расчетный)
     if (r >= 4 && r <= 6 && displayW > max5) max5 = displayW;
     if (r >= 7 && r <= 9 && displayW > max8) max8 = displayW;
     if (r >= 10 && r <= 14 && displayW > max12) max12 = displayW;
@@ -905,7 +1088,6 @@ function renderExercise1RMChart(sets, exerciseName) {
     }
   });
 
-  // Отрисовка Rep-Max
   if (repMaxContainer) {
     if (max5 > 0 || max8 > 0 || max12 > 0) {
       repMaxContainer.style.display = 'grid';
@@ -928,7 +1110,6 @@ function renderExercise1RMChart(sets, exerciseName) {
 
   const points = Object.values(byDateMax).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
 
-  // Расчет линии тренда (линейная регрессия)
   let trendData = [];
   if (points.length >= 2) {
     const yData = points.map(p => p.e1rm);
