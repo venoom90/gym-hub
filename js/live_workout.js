@@ -1,19 +1,10 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.5 SMART BARS & MANUAL METHODS)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.6 SMART BARS & INLINE INPUTS)
  * =========================================================================
- * V2.8.5:
- * - Добавлены кнопки ручного включения Дроп/Кластер в шапку упражнения.
- * - Полоски в дашборде теперь отображают и разминку (серые), и рабочие (цвета RIR).
- * - Текущий сет подсвечивается пульсацией (is-current).
- * - Финальный сет с дропом/кластером помечается желтым пунктиром (is-special).
- * - Заголовок сета в дашборде динамический: РАЗМИНКА или РАБОЧИЙ СЕТ.
- * - Блок "В ПРОШЛЫЙ РАЗ" фильтруется по текущей категории (Разминка к Разминке, Рабочий к Рабочему).
- * - Дельта веса пересчитывается по эффективному весу, цвет изменен на нейтральный синий.
- * - ФИКС: Удаление сета сбрасывает бонусный режим и корректно обновляет дашборд.
- * - ФИКС: Каскадный RIR по умолчанию для кластеров (2 -> 1 -> 0).
- * - ФИКС: Ручной ввод веса (prompt) в шторке дроп-сетов.
- * - ФИКС: Бейдж метода (Кластер/Дроп) в дашборде над планом.
+ * V2.8.6:
+ * - Заменен prompt() на нативные инлайн-инпуты в шторке дроп-сетов.
+ * - Метка метода (Кластер/Дроп) в дашборде поднята НАД текстом сета.
  * =========================================================================
  */
 
@@ -633,7 +624,7 @@ function renderBigClockWidgets() {
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const nextSetNum = workDone + 1;
   
-  // ФИКС (Пункт 5): Бейдж метода над заголовком
+  // ФИКС (Пункт 2): Бейдж метода над заголовком
   const methodBadgeEl = document.getElementById('liveClockMethodBadge');
   if (methodBadgeEl) {
     if (!isWarmupMode && activeSession.draftSet.useSpecialMethod) {
@@ -1861,20 +1852,20 @@ function renderDropSheet() {
   const multBadge = sheetState.multiplier === 2 ? ' (×2)' : '';
 
   if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.mainWeightDisplay} кг${multBadge} · основной + ${sheetState.drops.length} дроп${sheetState.drops.length > 1 ? 'а' : ''}`;
+  
   if (mainWeightEl) {
-    mainWeightEl.innerText = sheetState.mainWeightDisplay;
-    mainWeightEl.style.cursor = 'pointer'; // ФИКС (Пункт 3): Визуальный отклик на клик
-    mainWeightEl.onclick = () => {
-      const newVal = prompt('Введите вес основного подхода (кг):', sheetState.mainWeightDisplay);
-      if (newVal !== null) {
-        const parsed = parseFloat(newVal.replace(',', '.'));
-        if (!isNaN(parsed) && parsed > 0) {
-          sheetState.mainWeightDisplay = Math.round(parsed * 100) / 100;
-          renderDropSheet();
-        }
+    mainWeightEl.value = sheetState.mainWeightDisplay;
+    mainWeightEl.onchange = (e) => {
+      const parsed = parseFloat(e.target.value.replace(',', '.'));
+      if (!isNaN(parsed) && parsed > 0) {
+        sheetState.mainWeightDisplay = Math.round(parsed * 100) / 100;
+      } else {
+        e.target.value = sheetState.mainWeightDisplay;
       }
+      renderDropSheet();
     };
   }
+
   if (mainRepsEl) mainRepsEl.innerText = sheetState.mainReps;
 
   if (mainRirEl) {
@@ -1895,7 +1886,7 @@ function renderDropSheet() {
       </div>
       <div class="live-sheet-row-2-bottom">
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="-2.5" type="button">−</button>
-        <span class="live-sheet-value" data-drop-edit-weight="${idx}" style="cursor:pointer; text-decoration: underline;">${drop.weightDisplay}</span>
+        <input type="text" inputmode="decimal" class="live-sheet-input-value" data-drop-input-weight="${idx}" value="${drop.weightDisplay}" aria-label="Вес дропа ${idx + 1}">
         <button class="live-sheet-mini-btn" data-drop-adjust="weight" data-drop-idx="${idx}" data-delta="+2.5" type="button">+</button>
         <span class="live-sheet-unit">кг ×</span>
         <button class="live-sheet-mini-btn" data-drop-adjust="reps" data-drop-idx="${idx}" data-delta="-1" type="button">−</button>
@@ -1914,19 +1905,17 @@ function renderDropSheet() {
     summaryEl.innerHTML = `Тоннаж: <b>${totalTonnage.toFixed(1)} кг</b> · e1RM по основному: <b>~${e1rm} кг</b>`;
   }
 
-  // ФИКС (Пункт 3): Обработчик клика на цифры веса дропов для ручного ввода
-  dropsContainer.querySelectorAll('[data-drop-edit-weight]').forEach(el => {
-    el.onclick = () => {
-      const idx = parseInt(el.getAttribute('data-drop-edit-weight'), 10);
-      const currentW = sheetState.drops[idx].weightDisplay;
-      const newVal = prompt('Введите вес дропа (кг):', currentW);
-      if (newVal !== null) {
-        const parsed = parseFloat(newVal.replace(',', '.'));
-        if (!isNaN(parsed) && parsed > 0) {
-          sheetState.drops[idx].weightDisplay = Math.round(parsed * 100) / 100;
-          renderDropSheet();
-        }
+  // Инлайн-редактирование веса дропов
+  dropsContainer.querySelectorAll('[data-drop-input-weight]').forEach(input => {
+    input.onchange = (e) => {
+      const idx = parseInt(e.target.getAttribute('data-drop-input-weight'), 10);
+      const parsed = parseFloat(e.target.value.replace(',', '.'));
+      if (!isNaN(parsed) && parsed > 0) {
+        sheetState.drops[idx].weightDisplay = Math.round(parsed * 100) / 100;
+      } else {
+        e.target.value = sheetState.drops[idx].weightDisplay;
       }
+      renderDropSheet();
     };
   });
 
