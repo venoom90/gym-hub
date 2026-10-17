@@ -219,8 +219,6 @@ async function syncCachedPlanToSheets() {
 
 /**
  * V5.2.0: Формирует текстовый блок [ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА] для промпта Gemini.
- * Считает RIR-взвешенный недельный объём по мышцам, определяет лагающие
- * (ниже MEV) и возвращает готовую инструкцию для усиления их в плане.
  */
 function buildAthleteSituationPromptBlock() {
   const allSets = (state.dbData.sets || []).filter(s =>
@@ -320,7 +318,6 @@ async function generateMesocyclePlan() {
       exerciseStatsMap[ex].maxWeight = w;
     }
 
-    // V5.1.3: единый контракт computeE1RM. Порог 8 повторов.
     const validE1 = (!isNaN(serverE1) && serverE1 > 0)
       ? serverE1
       : computeE1RM(w, r);
@@ -364,12 +361,13 @@ ${exSummaryB}
 ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
 ПРАВИЛА И ПРИОРИТЕТЫ:
 1. ПРИОРИТЕТ УКАЗАНИЙ АТЛЕТА: Если в [ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА] запрошены кластеры, дроп-сеты или специфические методы прямо со старта цикла — ОБЯЗАТЕЛЬНО внедрить их в план! В поле "method" указать точный метод ("Кластер 4+3+2", "Дроп-сет -25%" или "Стандарт").
-2. ПОРЯДОК УПРАЖНЕНИЙ:
+2. ОБЯЗАТЕЛЬНО СГЕНЕРИРУЙ ОБА ДНЯ (A и B). В каждом дне должно быть по 6-8 упражнений. НЕ ОСТАВЛЯЙ День Б пустым и не пихай все упражнения в День А.
+3. ПОРЯДОК УПРАЖНЕНИЙ:
    - Базовый компаунд верха на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
    - Прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
    - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR +2..+3, без отказа, в notes указать "Поддерживающий объем").
    - Икры выполняются в финале (3–4 сета).
-3. ВЕСА И ПОВТОРЕНИЯ:
+4. ВЕСА И ПОВТОРЕНИЯ:
    - Все веса СТРОГО кратны шагу 2.5 кг.
    - Опирайся на реальные рабочие веса атлета из архива, не завышая теоретическим 1ПМ.
    - Базовый план пишется под фазу "Сила" (компаунды 4-6 повт., изоляция 8-12 повт., икры 10-15 повт.).
@@ -398,7 +396,19 @@ ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
     },
     "B": {
       "title": "Тренировка Б1 (Тяга + Дроп-сеты)",
-      "exercises": []
+      "exercises": [
+        {
+          "order": 1,
+          "name": "Тяга верхнего блока",
+          "target": "Широчайшие",
+          "weight": 60,
+          "sets": 4,
+          "reps": "4-6",
+          "rir": "+1..+2",
+          "method": "Стандарт",
+          "notes": ""
+        }
+      ]
     }
   },
   "rationale": "Краткое обоснование учета пожеланий атлета и порядка упражнений."
@@ -424,8 +434,13 @@ ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
     if (!jsonMatch) throw new Error('Модель не вернула валидную JSON-структуру.');
 
     const parsedPlan = JSON.parse(jsonMatch[0]);
-    if (!parsedPlan.splits || !parsedPlan.splits.A) {
-      throw new Error('Структура сгенерированного плана некорректна.');
+    
+    // Строгая валидация: ИИ ОБЯЗАН вернуть оба дня с упражнениями
+    if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length === 0) {
+      throw new Error('ИИ сгенерировал пустой День А. Пожалуйста, нажмите «Рассчитать» еще раз.');
+    }
+    if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length === 0) {
+      throw new Error('ИИ забыл сгенерировать День Б (или оставил его пустым). Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
 
     parsedPlan.generatedAt = Date.now();
@@ -434,7 +449,6 @@ ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
     cachedPlanData = parsedPlan;
     localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
 
-    // Защита от падения UI рендеринга
     try {
       renderStructuredCards();
     } catch (renderErr) {
