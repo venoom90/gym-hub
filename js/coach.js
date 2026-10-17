@@ -206,7 +206,7 @@ async function syncCachedPlanToSheets() {
       cachedPlanData = cleanPlan;
       localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
       renderStructuredCards();
-      alert(`✅ Оба тренировочных дня (День А + День Б, всего ${res.savedRows || 14} упр.) успешно сохранены на лист AI_Plan в Google Таблице!`);
+      alert(`✅ План успешно сохранен на лист AI_Plan! (Записано строк: ${res.savedRows})`);
     } else {
       alert('Ошибка сохранения плана: ' + (res?.error || 'Неизвестная ошибка на сервере'));
     }
@@ -218,7 +218,45 @@ async function syncCachedPlanToSheets() {
 }
 
 /**
- * V5.2.0: Формирует текстовый блок [ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА] для промпта Gemini.
+ * V5.3.0: Определяет следующую фазу цикла на основе последних тренировок.
+ */
+function detectNextCyclePhase() {
+  const sets = state.dbData.sets || [];
+  if (sets.length === 0) {
+    return { nextWeek: 1, nextMode: 'Сила', nextWave: '1', nextSplit: 'А', cycleId: state.dbData.currentCycleId || 'C-1' };
+  }
+
+  const sorted = [...sets].sort((a, b) => {
+    const da = normalizeDate(a.date);
+    const db = normalizeDate(b.date);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+  });
+
+  const latest = sorted[0];
+  const currentWeek = parseInt(latest.cycleWeek, 10) || 1;
+  const currentSplit = (latest.splitDay || 'А').toUpperCase();
+  const currentCycleId = latest.cycleId || state.dbData.currentCycleId || 'C-1';
+
+  let nextWeek = currentWeek;
+  let nextMode = latest.cycleMode || 'Сила';
+  let nextWave = String(latest.waveIndex || '1');
+  let nextSplit = (currentSplit === 'А' || currentSplit === 'A') ? 'Б' : 'А';
+  let cycleId = currentCycleId;
+
+  // Если последняя тренировка была День Б, переходим на новую неделю
+  if (nextSplit === 'А') {
+    nextWeek += 1;
+    if (nextWeek === 2) { nextMode = 'Объем'; nextWave = '1'; }
+    else if (nextWeek === 3) { nextMode = 'Сила'; nextWave = '2'; }
+    else if (nextWeek === 4) { nextMode = 'Объем'; nextWave = '2'; }
+    else if (nextWeek >= 5) { nextMode = 'Делоад'; nextWave = 'Делоад'; nextWeek = 5; }
+  }
+
+  return { nextWeek, nextMode, nextWave, nextSplit, cycleId };
+}
+
+/**
+ * V5.3.0: Формирует текстовый блок [ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА] для промпта Gemini.
  */
 function buildAthleteSituationPromptBlock() {
   const allSets = (state.dbData.sets || []).filter(s =>
@@ -285,10 +323,7 @@ function buildAthleteSituationPromptBlock() {
   if (lagging.length === 0) return '';
 
   return `[ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (по данным за ${activeWeeks} активных недель цикла ${cycleId})]:
-${lagging.join('\n')}
-
-ПРИОРИТЕТ: Обязательно включи в план дополнительные подходы для лагающих мышц.
-Их суммарный недельный объём в плане должен быть НЕ НИЖЕ указанного MEV.`;
+${lagging.join('\n')}`;
 }
 
 async function generateMesocyclePlan() {
@@ -297,6 +332,7 @@ async function generateMesocyclePlan() {
   const intentInput = document.getElementById('coachBlockIntent');
 
   const userIntent = intentInput ? intentInput.value.trim() : '';
+  const phase = detectNextCyclePhase();
 
   const sets = state.dbData.sets || [];
   const exerciseStatsMap = {};
@@ -343,75 +379,66 @@ async function generateMesocyclePlan() {
 
   const exSummaryA = dayAExercises.join('\n') || 'Нет данных';
   const exSummaryB = dayBExercises.join('\n') || 'Нет данных';
-
-  const currentCid = state.dbData.currentCycleId || 'C-2';
   const athleteSituation = buildAthleteSituationPromptBlock();
 
   const prompt = `Ты — ведущий эксперт силовой подготовки и DUP-периодизации (Mike Israetel, Eric Helms).
-Составь тренировочный план на мезоцикл ${currentCid}.
+Составь тренировочный план на мезоцикл ${phase.cycleId}.
 
-[ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА]:
-${userIntent || 'Full-Body, верх в приоритете, ноги в конце в поддержке (Maintenance), акцент на икры, паритет трицепса.'}
+[ПРИОРИТЕТ 1: ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА (АБСОЛЮТНЫЙ ЗАКОН)]
+${userIntent || 'Нет специфических указаний, следуй фазе цикла и аналитике.'}
+Если в этом блоке запрошены конкретные упражнения, методы, подходы или веса — они ОБЯЗАТЕЛЬНЫ к исполнению, даже если противоречат фазе или аналитике ниже.
+
+[ПРИОРИТЕТ 2: ТЕКУЩАЯ СИТУАЦИЯ АТЛЕТА (ЛАГАЮЩИЕ МЫШЦЫ)]
+${athleteSituation ? athleteSituation + '\nЭти мышцы нужно добрать до MEV. Если атлет не запретил в Приоритете 1, добавь им объем.' : 'Все мышцы в норме.'}
+
+[ПРИОРИТЕТ 3: ЦЕЛЕВАЯ ФАЗА ЦИКЛА]
+Сгенерируй план СТРОГО на Неделю ${phase.nextWeek} (Режим: ${phase.nextMode}).
+- Если Объем: 12-16 повторов, RIR 2-3, вес ~75% от силового.
+- Если Сила: 4-6 повторов, RIR 1-2, вес ~100% от силового.
 
 [АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ А]:
 ${exSummaryA}
 
 [АРХИВ УПРАЖНЕНИЙ АТЛЕТА В ДНЕ Б]:
 ${exSummaryB}
-${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
+
 ПРАВИЛА И ПРИОРИТЕТЫ:
-1. ПРИОРИТЕТ УКАЗАНИЙ АТЛЕТА: Если в [ЦЕЛИ И ПРЯМЫЕ УКАЗАНИЯ АТЛЕТА] запрошены кластеры, дроп-сеты или специфические методы прямо со старта цикла — ОБЯЗАТЕЛЬНО внедрить их в план! В поле "method" указать точный метод ("Кластер 4+3+2", "Дроп-сет -25%" или "Стандарт").
-2. ОБЯЗАТЕЛЬНО СГЕНЕРИРУЙ ОБА ДНЯ (A и B). В каждом дне должно быть по 6-8 упражнений. НЕ ОСТАВЛЯЙ День Б пустым и не пихай все упражнения в День А.
-3. ПОРЯДОК УПРАЖНЕНИЙ:
-   - Базовый компаунд верха на свежую ЦНС (День А: жим груди + тяга; День Б: вертикальная тяга + бабочка).
-   - Прямая изоляция верха и рук (в Дне Б обязательно тяжелый трицепс и бицепс).
-   - НОГИ (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (поддержка: 2–3 сета, RIR +2..+3, без отказа, в notes указать "Поддерживающий объем").
-   - Икры выполняются в финале (3–4 сета).
-4. ВЕСА И ПОВТОРЕНИЯ:
-   - Все веса СТРОГО кратны шагу 2.5 кг.
-   - Опирайся на реальные рабочие веса атлета из архива, не завышая теоретическим 1ПМ.
-   - Базовый план пишется под фазу "Сила" (компаунды 4-6 повт., изоляция 8-12 повт., икры 10-15 повт.).
+1. В каждом дне должно быть по 6-8 упражнений. НЕ ОСТАВЛЯЙ День Б пустым.
+2. Для лагающих мышц (Средняя дельта, Задняя дельта, Икры, Трицепс) на объемной неделе делай по 5 подходов, последний — RIR 0 с дроп-сетом.
+3. Ноги (жим ногами, сгибания/разгибания) ставятся СТРОГО В КОНЦЕ СЕССИИ в режиме Maintenance (2–3 сета).
+4. Все веса СТРОГО кратны шагу 2.5 кг.
+5. Для КАЖДОГО упражнения напиши краткое обоснование (justification): почему именно это упражнение, почему столько подходов и почему такой метод.
 
 ФОРМАТ ОТВЕТА:
 Верни СТРОГО валидный компактный JSON БЕЗ какого-либо внешнего текста или Markdown-тегов:
 {
-  "cycleId": "${currentCid}",
-  "mode": "Сила / Объем",
+  "cycleId": "${phase.cycleId}",
+  "cycleWeek": ${phase.nextWeek},
+  "cycleMode": "${phase.nextMode}",
   "splits": {
     "A": {
-      "title": "Тренировка А1 (Сила + Кластеры)",
+      "title": "Тренировка А${phase.nextWave} (${phase.nextMode})",
       "exercises": [
         {
           "order": 1,
           "name": "Жим в тренажере",
           "target": "Грудь",
-          "weight": 132.5,
+          "weight": 100,
           "sets": 4,
-          "reps": "4-6",
-          "rir": "+1..+2",
-          "method": "Кластер 4+3+2",
-          "notes": "Кластерная схема в последнем сете"
+          "reps": "12-16",
+          "rir": "+2..+3",
+          "method": "Стандарт",
+          "notes": "",
+          "justification": "Базовое движение на грудь, выполняется первым на свежую ЦНС. 4 подхода для закрытия MEV."
         }
       ]
     },
     "B": {
-      "title": "Тренировка Б1 (Тяга + Дроп-сеты)",
-      "exercises": [
-        {
-          "order": 1,
-          "name": "Тяга верхнего блока",
-          "target": "Широчайшие",
-          "weight": 60,
-          "sets": 4,
-          "reps": "4-6",
-          "rir": "+1..+2",
-          "method": "Стандарт",
-          "notes": ""
-        }
-      ]
+      "title": "Тренировка Б${phase.nextWave} (${phase.nextMode})",
+      "exercises": []
     }
   },
-  "rationale": "Краткое обоснование учета пожеланий атлета и порядка упражнений."
+  "rationale": "Краткое обоснование учета пожеланий атлета, порядка упражнений и выбора фаз."
 }`;
 
   let elapsedSeconds = 0;
@@ -435,13 +462,18 @@ ${athleteSituation ? '\n' + athleteSituation + '\n' : ''}
 
     const parsedPlan = JSON.parse(jsonMatch[0]);
     
-    // Строгая валидация: ИИ ОБЯЗАН вернуть оба дня с упражнениями
-    if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length === 0) {
-      throw new Error('ИИ сгенерировал пустой День А. Пожалуйста, нажмите «Рассчитать» еще раз.');
+    // Строгая валидация
+    if (!parsedPlan.splits || !parsedPlan.splits.A || !parsedPlan.splits.A.exercises || parsedPlan.splits.A.exercises.length < 6) {
+      throw new Error('ИИ сгенерировал неполный День А (менее 6 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
-    if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length === 0) {
-      throw new Error('ИИ забыл сгенерировать День Б (или оставил его пустым). Пожалуйста, нажмите «Рассчитать» еще раз.');
+    if (!parsedPlan.splits.B || !parsedPlan.splits.B.exercises || parsedPlan.splits.B.exercises.length < 6) {
+      throw new Error('ИИ забыл сгенерировать День Б (менее 6 упражнений). Пожалуйста, нажмите «Рассчитать» еще раз.');
     }
+
+    // Принудительно фиксируем фазу
+    parsedPlan.cycleId = phase.cycleId;
+    parsedPlan.cycleWeek = phase.nextWeek;
+    parsedPlan.cycleMode = phase.nextMode;
 
     parsedPlan.generatedAt = Date.now();
     delete parsedPlan._pendingCloudSync;
@@ -577,9 +609,25 @@ function renderStructuredCards() {
     }
   });
 
-  if (rationaleBox && rationaleText && cachedPlanData.rationale) {
-    rationaleBox.style.display = 'block';
-    rationaleText.innerText = cachedPlanData.rationale;
+  // V5.3.0: Отрисовка обоснований по каждому упражнению + общая стратегия
+  if (rationaleBox && rationaleText) {
+    let justHtml = '';
+    currentSplit.exercises.forEach(ex => {
+      if (ex.justification) {
+        justHtml += `<div style="margin-bottom: 8px;"><b>#${ex.order} ${escapeHtml(ex.name)}:</b> ${escapeHtml(ex.justification)}</div>`;
+      }
+    });
+    
+    if (cachedPlanData.rationale) {
+      justHtml += `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant);"><b>Общая стратегия:</b><br>${escapeHtml(cachedPlanData.rationale)}</div>`;
+    }
+
+    if (justHtml) {
+      rationaleBox.style.display = 'block';
+      rationaleText.innerHTML = justHtml;
+    } else {
+      rationaleBox.style.display = 'none';
+    }
   }
 
   if (syncCloudBtn) {

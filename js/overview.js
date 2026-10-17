@@ -418,7 +418,7 @@ function isMaintenanceExercise(ex, muscle) {
   return hasMaintNote || hasMaintRir;
 }
 
-function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode, waveIndex, cycleWeek, catalogMap) {
+function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode, waveIndex, cycleWeek, catalogMap, isAlreadyPhased = false) {
   if (!splitObj || !Array.isArray(splitObj.exercises)) return null;
 
   const preparedExercises = [];
@@ -449,37 +449,48 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
     let finalRir = baseRir;
     let finalMethod = baseMethod;
 
-    if (cycleMode === 'Делоад' || cycleMode === 'Разгрузка') {
-      calculatedWeight = roundToGymStep(baseWeight * 0.65);
-      finalSets = 2;
-      finalReps = '8-10';
-      finalRir = '+3..+4';
-      finalMethod = 'Стандарт';
-    } else if (cycleMode === 'Объем') {
-      if (isMaint) {
-        calculatedWeight = baseWeight;
-        finalSets = baseSets;
-        finalReps = baseReps;
-        finalRir = baseRir;
-        finalMethod = 'Стандарт';
-      } else {
-        calculatedWeight = roundToGymStep(baseWeight * 0.75);
-        finalReps = '12-16';
-        finalRir = '+2..+3';
-        if (baseMethod.toLowerCase().includes('кластер')) {
-          finalMethod = 'Стандарт';
-        }
-      }
-    } else {
-      if (String(waveIndex) === '2' && !isMaint && baseWeight >= 50) {
-        calculatedWeight = roundToGymStep(baseWeight + 2.5);
-      } else {
-        calculatedWeight = roundToGymStep(baseWeight);
-      }
+    // V5.3.0: Защита от двойного пересчета. Если ИИ уже сгенерировал план под текущую фазу,
+    // мы берем веса как есть.
+    if (isAlreadyPhased) {
+      calculatedWeight = roundToGymStep(baseWeight);
       finalSets = baseSets;
       finalReps = baseReps;
       finalRir = baseRir;
       finalMethod = baseMethod;
+    } else {
+      // Старая логика для планов-баз (Сила)
+      if (cycleMode === 'Делоад' || cycleMode === 'Разгрузка') {
+        calculatedWeight = roundToGymStep(baseWeight * 0.65);
+        finalSets = 2;
+        finalReps = '8-10';
+        finalRir = '+3..+4';
+        finalMethod = 'Стандарт';
+      } else if (cycleMode === 'Объем') {
+        if (isMaint) {
+          calculatedWeight = baseWeight;
+          finalSets = baseSets;
+          finalReps = baseReps;
+          finalRir = baseRir;
+          finalMethod = 'Стандарт';
+        } else {
+          calculatedWeight = roundToGymStep(baseWeight * 0.75);
+          finalReps = '12-16';
+          finalRir = '+2..+3';
+          if (baseMethod.toLowerCase().includes('кластер')) {
+            finalMethod = 'Стандарт';
+          }
+        }
+      } else {
+        if (String(waveIndex) === '2' && !isMaint && baseWeight >= 50) {
+          calculatedWeight = roundToGymStep(baseWeight + 2.5);
+        } else {
+          calculatedWeight = roundToGymStep(baseWeight);
+        }
+        finalSets = baseSets;
+        finalReps = baseReps;
+        finalRir = baseRir;
+        finalMethod = baseMethod;
+      }
     }
 
     const warmupRampText = calculateWarmupRamp(orderNum, calculatedWeight, cycleMode);
@@ -597,14 +608,21 @@ function renderAiRecipeCard() {
     if (rawAiPlan) {
       const parsedPlan = JSON.parse(rawAiPlan);
       if (parsedPlan && parsedPlan.splits) {
+        
+        // V5.3.0: Проверяем, сгенерировал ли ИИ план именно под нашу текущую фазу
+        const isPlanAlreadyPhased = (
+          parseInt(parsedPlan.cycleWeek, 10) === nextWeek && 
+          parsedPlan.cycleMode === nextMode
+        );
+
         if (parsedPlan.splits.A) {
           cachedBothSplitsPayloads.A = prepareSplitPayloadFromAiPlan(
-            parsedPlan.splits.A, 'А', nextCycleId, nextMode, nextWave, nextWeek, catalogMap
+            parsedPlan.splits.A, 'А', nextCycleId, nextMode, nextWave, nextWeek, catalogMap, isPlanAlreadyPhased
           );
         }
         if (parsedPlan.splits.B) {
           cachedBothSplitsPayloads.B = prepareSplitPayloadFromAiPlan(
-            parsedPlan.splits.B, 'Б', nextCycleId, nextMode, nextWave, nextWeek, catalogMap
+            parsedPlan.splits.B, 'Б', nextCycleId, nextMode, nextWave, nextWeek, catalogMap, isPlanAlreadyPhased
           );
         }
       }
