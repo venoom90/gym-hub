@@ -1765,7 +1765,7 @@
     .muscle-card-details b { color: var(--md-sys-color-on-surface); }
 
     /* KPI GRID */
-    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .kpi-card {
       background: var(--md-sys-color-surface-container-high);
       padding: 12px 10px;
@@ -2502,6 +2502,16 @@
           <span class="kpi-value" id="kpiAdaptationStatus" style="font-size: 1.05rem;">Свеж</span>
           <span class="kpi-subtext" id="kpiAdaptationSub">Сигнал к разгрузке</span>
         </div>
+        <div class="kpi-card">
+          <div class="kpi-top-row">
+            <span class="kpi-label">Плотность</span>
+            <button type="button" class="help-trigger-btn" data-help-id="help-density" aria-label="Что такое плотность?" title="Что такое плотность?">
+              <span class="material-symbols-outlined" aria-hidden="true">help_outline</span>
+            </button>
+          </div>
+          <span class="kpi-value" id="kpiDensity" style="font-size: 1.1rem;">0 кг/мин</span>
+          <span class="kpi-subtext" id="kpiAvgLoad">Ср. сет: 0 кг</span>
+        </div>
       </div>
 
       <div class="m3-card">
@@ -2564,6 +2574,31 @@
         </div>
         <div class="chart-container">
           <canvas id="tonnageChart" role="img" aria-label="График динамики тоннажа"></canvas>
+        </div>
+      </div>
+
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" aria-hidden="true">donut_large</span>
+            DUP-Баланс (Зоны повторений)
+          </span>
+        </div>
+        <div id="repRangeVerdict" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); margin-bottom: 4px;"></div>
+        <div class="chart-container" style="height: 100px;">
+          <canvas id="repRangeChart" role="img" aria-label="Распределение зон повторений"></canvas>
+        </div>
+      </div>
+
+      <div class="m3-card">
+        <div class="card-title">
+          <span style="display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-outlined" aria-hidden="true">trending_down</span>
+            Эффективность подходов (Drop-off)
+          </span>
+        </div>
+        <div id="dropOffContainer" style="display: flex; flex-direction: column; gap: 6px;">
+           <div style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); text-align: center;">Загрузка...</div>
         </div>
       </div>
 
