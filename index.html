@@ -3463,6 +3463,34 @@
     </div>
   </div>
 
+  <!-- BOTTOM SHEET: УПРАВЛЕНИЕ ТРЕНИРОВКОЙ -->
+  <div id="liveFinishSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveFinishSheetTitle">
+    <div class="live-sheet">
+      <div class="live-sheet-handle" aria-hidden="true"></div>
+      <div class="live-sheet-title" id="liveFinishSheetTitle">Управление тренировкой</div>
+      <div class="live-sheet-subtitle" id="liveFinishSheetSubtitle">Выполнено: 0 сетов</div>
+      
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+        <md-filled-button id="liveFinishWorkoutBtn">
+          <span class="material-symbols-outlined" slot="icon">flag</span>
+          Завершить тренировку
+        </md-filled-button>
+        <md-outlined-button id="liveEndExerciseBtn">
+          <span class="material-symbols-outlined" slot="icon">skip_next</span>
+          Завершить упражнение
+        </md-outlined-button>
+        <md-outlined-button id="liveCancelBonusBtn" style="--md-outlined-button-label-text-color: var(--app-color-warning);">
+          <span class="material-symbols-outlined" slot="icon">undo</span>
+          Отменить бонусный подход
+        </md-outlined-button>
+        <md-outlined-button id="liveDiscardFromSheetBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
+          <span class="material-symbols-outlined" slot="icon">delete_forever</span>
+          Удалить тренировку (без сохранения)
+        </md-outlined-button>
+      </div>
+    </div>
+  </div>
+
   <!-- CLOSEOUT MODAL V2.3 -->
   <div id="liveCloseoutModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveCloseoutTitle">
     <div class="modal-card live-closeout-modal-card">
