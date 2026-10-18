@@ -1,13 +1,27 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.9 FINISH SHEET FIXES)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.10 FINISH SHEET HARDENING)
  * =========================================================================
- * V2.8.9:
- * - Фикс 1: openFinishSheet() теперь корректно считает разминочные сеты.
- * - Фикс 2: Устранен Race Condition в History API при переходе из шторки в Closeout
- *   (используется отложенный вызов через onClose в ModalManager).
- * - Фикс 3: Удаление теперь требует двойного тапа вместо нативного confirm().
- * - Фикс 4: Шторка "Управление тренировкой" выезжает сверху (live-top-sheet).
+ * V2.8.10:
+ * - Фикс 1 / BUG-1: discard confirm state теперь хранится в dataset кнопки
+ *   и сбрасывается через resetConfirmableAction при каждом openFinishSheet
+ *   и onOpen closeout. Устраняет мгновенное удаление без подтверждения
+ *   при повторном открытии шторки после «зависшего» confirm.
+ * - Фикс 2: «Завершить упражнение» теперь требует double-tap confirm.
+ * - Фикс 3 / 4: единый предикат isExerciseDone(); ветка «УПРАЖНЕНИЕ ЗАВЕРШЕНО»
+ *   в renderPAB проверяется ДО rest timer — таймер не «переезжает» на
+ *   завершённое упражнение при возврате стрелками.
+ * - EDGE-1: при 0 записанных сетов в Top Sheet появляется ghost-кнопка
+ *   «Продолжить тренировку» (динамически создаётся, index.html не тронут).
+ * - EDGE-2: единые предикаты isWorkSet / isWarmupSet применены в
+ *   openFinishSheet и calculateWorkoutSummaryMetrics.
+ * - NOTE-1: backdrop Top Sheet больше не обнуляет pendingActionAfterFinishSheet,
+ *   если пользователь уже принял решение (closeout/discard).
+ * - Фикс 3 (приоритет перехода): findNextIncompleteExerciseIndex сначала ищет
+ *   in-progress упражнения (0 < workDone < targetSets) и только потом —
+ *   нетронутые forward/wrap.
+ * - handleCompleteCurrentAndMoveNext не стартует rest timer, если мы просто
+ *   вернулись на уже завершённое упражнение.
  * =========================================================================
  */
 
@@ -63,6 +77,90 @@ export function initLiveWorkoutModule(onComplete) {
 }
 
 /* =========================================================
+ * V2.8.10: UNIFIED PREDICATES
+ * ========================================================= */
+
+function isWorkSet(s) {
+  return Boolean(s) && s.category === 'Рабочий';
+}
+
+function isWarmupSet(s) {
+  return Boolean(s) && s.category === 'Разминка';
+}
+
+/**
+ * Единая точка правды «упражнение завершено».
+ * true если:
+ *   - помечено isCompleted (вручную через Top Sheet),
+ *   - ИЛИ добит таргет рабочих сетов,
+ *   И не выставлен allowBonusSet.
+ */
+function isExerciseDone(ex) {
+  if (!ex) return false;
+  if (ex.allowBonusSet) return false;
+  if (ex.isCompleted) return true;
+  const workDone = ex.completedSets.filter(isWorkSet).length;
+  return workDone >= ex.targetSets;
+}
+
+/* =========================================================
+ * V2.8.10: DOUBLE-TAP CONFIRM (unit-wide)
+ * ========================================================= */
+
+/**
+ * Привязывает к кнопке логику «первый тап → confirm, второй тап → действие».
+ * Состояние хранится в btn.dataset.confirmState — переживает повторные открытия
+ * шторки; сбрасывается через resetConfirmableAction при каждом показе.
+ *
+ * opts = {
+ *   labelSelector: '.some-span',   // если label вложен в span
+ *   idleLabel: 'строка',
+ *   confirmLabel: 'Точно?',
+ *   onConfirm: () => {}
+ * }
+ */
+function bindConfirmableAction(btn, opts) {
+  if (!btn) return;
+  btn.dataset.confirmState = 'idle';
+  if (opts.idleLabel) btn.dataset.idleLabel = opts.idleLabel;
+
+  const getLabelEl = () => (opts.labelSelector ? btn.querySelector(opts.labelSelector) : null);
+
+  const reset = () => {
+    btn.dataset.confirmState = 'idle';
+    btn.style.removeProperty('--md-outlined-button-label-text-color');
+    btn.style.backgroundColor = '';
+    btn.style.borderColor = '';
+    const el = getLabelEl();
+    if (el) el.innerText = btn.dataset.idleLabel || opts.idleLabel || '';
+    if (btn._confirmTimer) { clearTimeout(btn._confirmTimer); btn._confirmTimer = null; }
+  };
+
+  btn._confirmReset = reset;
+
+  btn.onclick = () => {
+    if (btn.dataset.confirmState !== 'confirm') {
+      btn.dataset.confirmState = 'confirm';
+      btn.style.setProperty('--md-outlined-button-label-text-color', '#ffffff');
+      btn.style.backgroundColor = 'var(--md-sys-color-error-container)';
+      btn.style.borderColor = 'var(--md-sys-color-error)';
+      const el = getLabelEl();
+      if (el) el.innerText = opts.confirmLabel || 'Точно?';
+      if (btn._confirmTimer) clearTimeout(btn._confirmTimer);
+      btn._confirmTimer = setTimeout(reset, 3000);
+    } else {
+      if (btn._confirmTimer) { clearTimeout(btn._confirmTimer); btn._confirmTimer = null; }
+      reset();
+      if (typeof opts.onConfirm === 'function') opts.onConfirm();
+    }
+  };
+}
+
+function resetConfirmableAction(btn) {
+  if (btn && typeof btn._confirmReset === 'function') btn._confirmReset();
+}
+
+/* =========================================================
  * MODAL MANAGER
  * ========================================================= */
 
@@ -94,10 +192,10 @@ function registerLiveModals() {
     registerModal('liveBigClockOverlay', {
       el: bigClock,
       displayStyle: 'flex',
-      onOpen: () => { 
+      onOpen: () => {
         if (idleTimer) clearTimeout(idleTimer);
         renderBigClockWidgets();
-        startBigClockEngine(); 
+        startBigClockEngine();
       },
       onClose: () => { stopBigClock(); }
     });
@@ -131,16 +229,16 @@ function registerLiveModals() {
       onClose: () => {
         if (pendingActionAfterFinishSheet === 'closeout') {
           pendingActionAfterFinishSheet = null;
-          setTimeout(() => openCloseoutModal(), 150); // Задержка для стабильности History API
+          setTimeout(() => openCloseoutModal(), 150);
         } else if (pendingActionAfterFinishSheet === 'discard') {
           pendingActionAfterFinishSheet = null;
           setTimeout(() => executeDiscardLiveWorkoutSession(), 150);
         }
       }
     });
-    finishSheet.onclick = (e) => { 
-      if (e.target === finishSheet) {
-        pendingActionAfterFinishSheet = null; // Сбрасываем при клике вне окна
+    // NOTE-1: не обнуляем pendingAction при клике по backdrop, если решение уже принято
+    finishSheet.onclick = (e) => {
+      if (e.target === finishSheet && !pendingActionAfterFinishSheet) {
         closeModal('liveFinishSheet');
       }
     };
@@ -151,7 +249,10 @@ function registerLiveModals() {
     registerModal('liveCloseoutModal', {
       el: closeoutModal,
       displayStyle: 'flex',
-      onOpen: () => renderCloseoutSummaryBox()
+      onOpen: () => {
+        renderCloseoutSummaryBox();
+        resetConfirmableAction(document.getElementById('liveDiscardWorkoutBtn'));
+      }
     });
     const closeCloseoutBtn = document.getElementById('closeLiveCloseoutModalBtn');
     if (closeCloseoutBtn) closeCloseoutBtn.onclick = () => closeModal('liveCloseoutModal');
@@ -274,7 +375,7 @@ function computeSmartDraftSetForExercise(ex) {
   const warmupDoneCount = ex.completedSets.filter(s => s.category === 'Разминка').length;
   const workDoneCount = ex.completedSets.filter(s => s.category === 'Рабочий').length;
   const warmupSteps = Array.isArray(ex.warmupSteps) && ex.warmupSteps.length > 0 ? ex.warmupSteps : [];
-  
+
   const displayWarmupSteps = warmupSteps.map(s => ({ ...s, weight: roundToGymStep(s.weight / ex.multiplier) }));
 
   if (workDoneCount === 0 && warmupDoneCount < displayWarmupSteps.length) {
@@ -429,7 +530,7 @@ function checkCrashRecoverySession() {
       if (typeof parsed.headerManuallyToggled !== 'boolean') parsed.headerManuallyToggled = false;
       if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') parsed.historyUiState = { warmupCollapsed: false, workCollapsed: false };
       if (typeof parsed.lastRestEndMs !== 'number') parsed.lastRestEndMs = 0;
-      
+
       parsed.exercises.forEach(ex => {
         if (!ex.multiplier) ex.multiplier = getExerciseMultiplier(ex.name);
         if (!ex.targetWeightDisplay) ex.targetWeightDisplay = roundToGymStep(ex.targetWeight / ex.multiplier);
@@ -521,9 +622,9 @@ function startDurationTicker() {
  * BIG CLOCK / AMBIENT DASHBOARD & IDLE TIMER
  * ========================================================= */
 
-function openBigClockOverlay() { 
-  registerLiveModals(); 
-  openModal('liveBigClockOverlay'); 
+function openBigClockOverlay() {
+  registerLiveModals();
+  openModal('liveBigClockOverlay');
 }
 
 function resetIdleTimer() {
@@ -540,12 +641,12 @@ function resetIdleTimer() {
 
 function analyzeMuscleVolume(muscleName) {
   const thr = (MUSCLE_THRESHOLDS && MUSCLE_THRESHOLDS[muscleName]) || { mev: 8, mavMin: 12, mavMax: 20, mrv: 22 };
-  
+
   let weeklyDone = 0;
   if (state.dbData && Array.isArray(state.dbData.sets)) {
-    const currentCycleSets = state.dbData.sets.filter(s => 
-      s.cycleId === activeSession.cycleId && 
-      s.targetMuscle === muscleName && 
+    const currentCycleSets = state.dbData.sets.filter(s =>
+      s.cycleId === activeSession.cycleId &&
+      s.targetMuscle === muscleName &&
       s.category === 'Рабочий'
     );
     weeklyDone += currentCycleSets.length;
@@ -557,14 +658,14 @@ function analyzeMuscleVolume(muscleName) {
       sessionDone += ex.completedSets.filter(s => s.category === 'Рабочий').length;
     }
   });
-  
+
   const totalDone = weeklyDone + sessionDone;
   const mevDiff = thr.mev - totalDone;
   const hasFutureSessions = (activeSession.splitDay === 'А' || activeSession.splitDay === 'A');
 
   let statusText = '';
   let barColorClass = '';
-  
+
   if (totalDone < thr.mev) {
     statusText = `До MEV: ${mevDiff} сет.`;
     barColorClass = '';
@@ -594,10 +695,9 @@ function renderBigClockWidgets() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
 
-  // 1. Верхнее время
   const now = new Date();
   const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  
+
   const eta = computeSessionEta();
   let etaStr = '--:--';
   if (eta) {
@@ -610,7 +710,6 @@ function renderBigClockWidgets() {
     topTimeEl.innerHTML = `<div>Сейчас <b>${nowStr}</b></div><div>Финиш ~<b>${etaStr}</b></div>`;
   }
 
-  // 2. Полоски подходов (Bars)
   const barsContainer = document.getElementById('liveClockBars');
   if (barsContainer) {
     const totalWarmups = (currentEx.warmupSteps || []).length;
@@ -620,14 +719,12 @@ function renderBigClockWidgets() {
     const isWarmupMode = activeSession.draftSet.category === 'Разминка';
 
     let barsHtml = '';
-    // Полоски разминки
     for (let i = 0; i < totalWarmups; i++) {
       let barClass = 'clock-bar';
       if (i < warmupDone) barClass += ' is-done is-warmup';
       else if (i === warmupDone && isWarmupMode) barClass += ' is-current';
       barsHtml += `<div class="${barClass}"></div>`;
     }
-    // Полоски рабочих
     for (let i = 0; i < totalWork; i++) {
       let barClass = 'clock-bar';
       const isLast = (i === totalWork - 1);
@@ -649,14 +746,12 @@ function renderBigClockWidgets() {
     barsContainer.innerHTML = barsHtml;
   }
 
-  // 3. План на подход (Next Set)
   const isWarmupMode = activeSession.draftSet.category === 'Разминка';
   const totalWarmups = (currentEx.warmupSteps || []).length;
   const warmupDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const nextSetNum = workDone + 1;
-  
-  // Бейдж метода справа над RIR
+
   const methodBadgeEl = document.getElementById('liveClockMethodBadge');
   if (methodBadgeEl) {
     if (!isWarmupMode && activeSession.draftSet.useSpecialMethod) {
@@ -707,10 +802,9 @@ function renderBigClockWidgets() {
     }
   }
 
-  // 4. История (Last time)
   const histTextEl = document.getElementById('liveClockWidgetHistoryText');
   const deltaEl = document.getElementById('liveClockWidgetDelta');
-  
+
   if (histTextEl && deltaEl) {
     const targetCat = activeSession.draftSet.category;
     let lastSet = null;
@@ -726,9 +820,9 @@ function renderBigClockWidgets() {
       const histMultBadge = histMult === 2 ? '(×2)' : '';
       const histW = lastSet.weightDisplay !== undefined ? lastSet.weightDisplay : (lastSet.weight ? Math.round((lastSet.weight / histMult) * 2) / 2 : 0);
       const histRir = lastSet.reserve ? lastSet.reserve.replace('+','') : '?';
-      
+
       histTextEl.innerText = `${histW} ${histMultBadge} кг × ${lastSet.reps} • RIR ${histRir}`;
-      
+
       const currentW = activeSession.draftSet.weight;
       const diff = currentW - histW;
 
@@ -752,7 +846,6 @@ function renderBigClockWidgets() {
     }
   }
 
-  // 5. Объем (MEV)
   const volTitleEl = document.getElementById('liveClockWidgetMuscle');
   const volTextEl = document.getElementById('liveClockWidgetVolumeText');
   const volFillEl = document.getElementById('liveClockVolumeFill');
@@ -760,7 +853,7 @@ function renderBigClockWidgets() {
 
   if (currentEx.targetMuscle) {
     const volData = analyzeMuscleVolume(currentEx.targetMuscle);
-    
+
     if (volTitleEl) {
       volTitleEl.innerHTML = `ОБЪЕМ: ${currentEx.targetMuscle.toUpperCase()}`;
     }
@@ -786,15 +879,15 @@ function renderBigClockWidgets() {
 
 function startBigClockEngine() {
   if (!activeSession) return;
-  
+
   const overlay = document.getElementById('liveBigClockOverlay');
   const titleEl = document.getElementById('liveBigClockTitle');
   const digitsEl = document.getElementById('liveBigClockDigits');
-  
+
   if (!overlay || !digitsEl) return;
 
   const isResting = activeSession.restState && activeSession.restState.isActive;
-  
+
   overlay.classList.toggle('is-resting', isResting);
   overlay.classList.remove('is-warning');
 
@@ -840,13 +933,13 @@ function startBigClockEngine() {
   bigClockInterval = setInterval(update, 250);
 }
 
-function stopBigClock() { 
-  if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; } 
-  bigClockStartedAtMs = 0; 
+function stopBigClock() {
+  if (bigClockInterval) { clearInterval(bigClockInterval); bigClockInterval = null; }
+  bigClockStartedAtMs = 0;
 }
 
-function syncBigClockWithWallClock() { 
-  if (bigClockStartedAtMs && !bigClockInterval) startBigClockEngine(); 
+function syncBigClockWithWallClock() {
+  if (bigClockStartedAtMs && !bigClockInterval) startBigClockEngine();
 }
 
 function computeSessionEta() {
@@ -922,7 +1015,6 @@ function renderExerciseHeader() {
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const totalSets = currentEx.targetSets;
 
-  // Кнопки ручного включения методов
   const clusterBtn = document.getElementById('liveManualClusterBtn');
   const dropBtn = document.getElementById('liveManualDropBtn');
   if (clusterBtn) clusterBtn.classList.toggle('is-active', currentEx.isCluster);
@@ -1082,10 +1174,16 @@ function renderRirChips() {
 
 function renderIntensifierBanner() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
-  const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
   const el = document.getElementById('liveIntensifierBanner');
   if (!el) return;
+
+  if (isExerciseDone(currentEx)) {
+    el.style.display = 'none';
+    return;
+  }
+
+  const isWarmupMode = activeSession.draftSet.category === 'Разминка';
+  const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
   const mult = currentEx.multiplier || 1;
   const dropDisplay = roundToGymStep((activeSession.draftSet.weight * 0.75) / mult);
   const multBadge = mult === 2 ? ' (×2)' : '';
@@ -1104,35 +1202,37 @@ function renderIntensifierBanner() {
 
 function renderControlsVisibility() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
   const controls = document.getElementById('liveActiveSetControlsCard');
-  if (controls) controls.style.display = isTargetReached ? 'none' : 'flex';
+  if (!controls) return;
+  controls.style.display = isExerciseDone(currentEx) ? 'none' : 'flex';
 }
 
 function renderCompletedCard() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+  const isDone = isExerciseDone(currentEx);
   const card = document.getElementById('liveExCompletedCard');
   const title = document.getElementById('liveExCompletedTitle');
   const volText = document.getElementById('liveCompletedVolumeText');
   const bonusBtn = document.getElementById('liveAddBonusSetBtn');
-  
+
   if (!card) return;
-  
-  if (isTargetReached) {
+
+  if (isDone) {
     card.style.display = 'flex';
     if (title) {
-      const bonusTag = workDone > currentEx.targetSets ? ` (+${workDone - currentEx.targetSets} бонус)` : '';
-      title.innerText = `✅ Упражнение выполнено (${Math.min(workDone, currentEx.targetSets)} из ${currentEx.targetSets}${bonusTag})`;
+      if (currentEx.isCompleted && workDone < currentEx.targetSets) {
+        title.innerText = `✅ Упражнение завершено досрочно (${workDone} из ${currentEx.targetSets})`;
+      } else {
+        const bonusTag = workDone > currentEx.targetSets ? ` (+${workDone - currentEx.targetSets} бонус)` : '';
+        title.innerText = `✅ Упражнение выполнено (${Math.min(workDone, currentEx.targetSets)} из ${currentEx.targetSets}${bonusTag})`;
+      }
     }
 
-    // --- MEV Ассистент ---
     if (volText && bonusBtn) {
       if (currentEx.targetMuscle) {
         const volData = analyzeMuscleVolume(currentEx.targetMuscle);
-        
+
         if (volData.mevDiff > 0) {
           if (volData.hasFutureSessions) {
             volText.innerText = `До MEV (${volData.thr.mev}) не хватает ${volData.mevDiff} сетов. Добьем в День Б?`;
@@ -1290,7 +1390,7 @@ function attachHistoryRowHandlers(container, sets, currentEx) {
         if (globalIdx === -1) return;
         currentEx.completedSets.splice(globalIdx, 1);
         currentEx.completedSets.forEach((item, i) => { item.setNum = i + 1; });
-        
+
         currentEx.isCompleted = false;
         currentEx.allowBonusSet = false;
         activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
@@ -1312,42 +1412,27 @@ function renderPAB() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
   pab.classList.remove('is-warning');
-  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-  const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
   const multBadge = currentEx.multiplier === 2 ? '(×2)' : '';
 
-  if (isTargetReached) {
+  // Фикс 3 / 4: ветка "завершено" проверяется ПЕРВОЙ — таймер отдыха
+  // не должен показываться на завершённом упражнении при возврате стрелками.
+  if (isExerciseDone(currentEx)) {
     const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
-    let primaryLabel = 'ЗАВЕРШИТЬ УПРАЖНЕНИЕ';
     let secondaryLabel = 'Все упражнения → финиш тренировки';
     if (nextExIdx !== -1) {
       const nextName = activeSession.exercises[nextExIdx].name;
-      primaryLabel = `ЗАВЕРШИТЬ → УПР. #${nextExIdx + 1}`;
-      secondaryLabel = nextName;
-    }
-    let restInlineHtml = '';
-    if (activeSession.restState && activeSession.restState.isActive) {
-      const remainingSec = Math.max(0, Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000));
-      const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
-      const s = String(remainingSec % 60).padStart(2, '0');
-      restInlineHtml = `<div class="live-pab-rest-info" style="margin-bottom:6px;"><span class="live-pab-rest-label">⏱ Отдых (можно подождать)</span><span class="live-pab-rest-countdown" id="livePabRestCountdownInline">${m}:${s}</span></div>`;
-      if (remainingSec <= 15 && remainingSec > 0) pab.classList.add('is-warning');
+      secondaryLabel = `→ Упр. #${nextExIdx + 1}: ${nextName}`;
     }
     pab.innerHTML = `
       <div class="live-pab-content">
-        ${restInlineHtml}
         <button class="live-pab-completed-btn" id="livePabCompleteNext" type="button">
-          <span class="live-pab-primary-label">${escapeHtml(primaryLabel)}</span>
+          <span class="live-pab-primary-label">✅ УПРАЖНЕНИЕ ЗАВЕРШЕНО</span>
           <span class="live-pab-secondary-label">${escapeHtml(secondaryLabel)}</span>
         </button>
       </div>
     `;
     const nextBtn = document.getElementById('livePabCompleteNext');
     if (nextBtn) nextBtn.onclick = () => handleCompleteCurrentAndMoveNext();
-    
-    const inlineTimer = document.getElementById('livePabRestCountdownInline');
-    if (inlineTimer) inlineTimer.onclick = (e) => { e.stopPropagation(); openBigClockOverlay(); };
-
     return;
   }
 
@@ -1387,6 +1472,7 @@ function renderPAB() {
   const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const currentWarmupStepNum = Math.min(warmupSetsDone + 1, Math.max(1, (currentEx.warmupSteps || []).length));
+  const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
 
   if (isSpecialActive && currentEx.isCluster) {
     const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
@@ -1723,7 +1809,7 @@ function recordSimpleSet() {
     btn.classList.add('is-success');
     btn.innerHTML = `<span class="live-pab-primary-label">✓ ЗАПИСАНО</span>`;
     controlsCard.classList.add('is-flashing');
-    
+
     triggerHaptic([40, 60, 40]);
 
     setTimeout(() => {
@@ -1733,9 +1819,9 @@ function recordSimpleSet() {
     setTimeout(() => {
       btn.classList.remove('is-success', 'is-fading-out');
       controlsCard.classList.remove('is-flashing');
-      
+
       commitRecordedSet(recordedSet);
-      
+
       const kind = isWarmup ? 'Разминка' : 'Рабочий';
       logToTerminal('LIVE_SET', `${currentEx.name} • ${kind} #${setNum}: ${weightDisplay}${currentEx.multiplier === 2 ? '(×2)' : ''} кг × ${reps}${reserve ? ' (RIR ' + reserve + ')' : ''}`, 'success');
     }, 400);
@@ -1795,11 +1881,11 @@ function commitRecordedSet(partialSet) {
   let restSeconds = prefs.compound;
   if (recordedSet.category === 'Разминка') restSeconds = prefs.warmup;
   else if (currentEx.order > 2) restSeconds = prefs.isolation;
-  
+
   startRestTimer(restSeconds);
   persistActiveSession();
   renderLiveWorkoutScreen();
-  
+
   if (isModalOpen('liveBigClockOverlay')) {
     renderBigClockWidgets();
   }
@@ -1963,7 +2049,7 @@ function renderDropSheet() {
   const multBadge = sheetState.multiplier === 2 ? ' (×2)' : '';
 
   if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.mainWeightDisplay} кг${multBadge} · основной + ${sheetState.drops.length} дроп${sheetState.drops.length > 1 ? 'а' : ''}`;
-  
+
   if (mainWeightEl) {
     mainWeightEl.innerText = sheetState.mainWeightDisplay;
     mainWeightEl.onclick = () => {
@@ -2013,7 +2099,6 @@ function renderDropSheet() {
     summaryEl.innerHTML = `Тоннаж: <b>${totalTonnage.toFixed(1)} кг</b> · e1RM по основному: <b>~${e1rm} кг</b>`;
   }
 
-  // Обработчик ручного ввода веса дропов
   dropsContainer.querySelectorAll('[data-drop-input-weight]').forEach(el => {
     el.onclick = () => {
       const idx = parseInt(el.getAttribute('data-drop-input-weight'), 10);
@@ -2024,7 +2109,6 @@ function renderDropSheet() {
     };
   });
 
-  // Обработчик кнопок +/-
   dropsContainer.querySelectorAll('[data-drop-adjust]').forEach(btn => {
     btn.onclick = () => {
       const field = btn.getAttribute('data-drop-adjust');
@@ -2036,8 +2120,7 @@ function renderDropSheet() {
       renderDropSheet();
     };
   });
-  
-  // Обработчик RIR дропов
+
   dropsContainer.querySelectorAll('[data-drop-rir]').forEach(btn => {
     btn.onclick = () => {
       const idx = parseInt(btn.getAttribute('data-drop-rir'), 10);
@@ -2047,7 +2130,6 @@ function renderDropSheet() {
     };
   });
 
-  // Основной подход (обработчики кнопок +/-, RIR)
   const mainRow = document.getElementById('liveDropMainRow');
   if (mainRow) {
     mainRow.querySelectorAll('[data-drop-adjust]').forEach(btn => {
@@ -2086,7 +2168,7 @@ function saveDropSet() {
   const sheetState = activeDropSheetState;
   if (!sheetState || !activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
-  
+
   const mainWeightDisplay = sheetState.mainWeightDisplay;
   const mainWeightEffective = mainWeightDisplay * sheetState.multiplier;
   const mainReps = sheetState.mainReps;
@@ -2096,7 +2178,7 @@ function saveDropSet() {
   const firstDropDisplay = drops[0] ? drops[0].weightDisplay : 0;
   const firstDropEffective = firstDropDisplay * sheetState.multiplier;
   const firstDropReps = drops[0] ? drops[0].reps : 0;
-  
+
   const totalTonnage = mainWeightEffective * mainReps + drops.reduce((a, d) => a + (d.weightDisplay * sheetState.multiplier) * d.reps, 0);
   const e1rm = computeE1RM(mainWeightEffective, mainReps);
 
@@ -2140,13 +2222,35 @@ function saveDropSet() {
 function findNextIncompleteExerciseIndex(fromIndex) {
   if (!activeSession) return -1;
   const total = activeSession.exercises.length;
+
+  // Приоритет 1: in-progress (начатые, но не завершённые) — не пропускаем их
+  const inProgress = [];
+  for (let i = 0; i < total; i++) {
+    if (i === fromIndex) continue;
+    const ex = activeSession.exercises[i];
+    if (ex.isCompleted || ex.allowBonusSet) continue;
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (workDone > 0 && workDone < ex.targetSets) {
+      inProgress.push(i);
+    }
+  }
+  if (inProgress.length > 0) {
+    const forward = inProgress.find(i => i > fromIndex);
+    return forward !== undefined ? forward : inProgress[0];
+  }
+
+  // Приоритет 2: не начатые — forward, затем wrap
   for (let i = fromIndex + 1; i < total; i++) {
     const ex = activeSession.exercises[i];
-    if (!ex.isCompleted && ex.completedSets.filter(s => s.category === 'Рабочий').length < ex.targetSets) return i;
+    if (ex.isCompleted) continue;
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (workDone < ex.targetSets) return i;
   }
   for (let i = 0; i < fromIndex; i++) {
     const ex = activeSession.exercises[i];
-    if (!ex.isCompleted && ex.completedSets.filter(s => s.category === 'Рабочий').length < ex.targetSets) return i;
+    if (ex.isCompleted) continue;
+    const workDone = ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    if (workDone < ex.targetSets) return i;
   }
   return -1;
 }
@@ -2155,11 +2259,14 @@ function handleCompleteCurrentAndMoveNext() {
   if (!activeSession) return;
   const curIdx = activeSession.currentExerciseIndex;
   const currentEx = activeSession.exercises[curIdx];
+  // Фикс 4: если мы просто вернулись на уже завершённое упражнение — не стартуем
+  // новый rest timer (он и так идёт для следующего активного).
+  const wasAlreadyCompleted = Boolean(currentEx && currentEx.isCompleted);
   if (currentEx) { currentEx.isCompleted = true; currentEx.allowBonusSet = false; }
   const nextIdx = findNextIncompleteExerciseIndex(curIdx);
   if (nextIdx !== -1) {
     switchActiveExercise(nextIdx);
-    startRestTimer(getTimerPrefs().compound);
+    if (!wasAlreadyCompleted) startRestTimer(getTimerPrefs().compound);
   } else {
     persistActiveSession();
     renderLiveWorkoutScreen();
@@ -2265,12 +2372,14 @@ function calculateWorkoutSummaryMetrics() {
       }
     }
     allSets.forEach(s => {
-      if (s.category === 'Рабочий') {
+      if (isWorkSet(s)) {
         totalWorkSets++;
         workTonnageKg += (s.tonnage || 0);
         const rirClean = parseFloat(String(s.reserve || '').replace('+', ''));
         if (!isNaN(rirClean)) { rirSum += rirClean; rirCount++; }
-      } else { totalWarmupSets++; }
+      } else if (isWarmupSet(s)) {
+        totalWarmupSets++;
+      }
     });
   });
 
@@ -2303,29 +2412,21 @@ function calculateWorkoutSummaryMetrics() {
 
 function openFinishSheet() {
   if (!activeSession) return;
-  
+
   let totalWorkSets = 0;
   let totalWarmupSets = 0;
   activeSession.exercises.forEach(ex => {
-    totalWorkSets += ex.completedSets.filter(s => s.category === 'Рабочий').length;
-    totalWarmupSets += ex.completedSets.filter(s => s.category === 'Разминка').length;
+    totalWorkSets += ex.completedSets.filter(isWorkSet).length;
+    totalWarmupSets += ex.completedSets.filter(isWarmupSet).length;
   });
-  
+
   const totalSets = totalWorkSets + totalWarmupSets;
   const subtitle = document.getElementById('liveFinishSheetSubtitle');
   const btnFinish = document.getElementById('liveFinishWorkoutBtn');
   const btnEndEx = document.getElementById('liveEndExerciseBtn');
   const btnCancelBonus = document.getElementById('liveCancelBonusBtn');
   const btnDiscard = document.getElementById('liveDiscardFromSheetBtn');
-
-  // Сброс состояния кнопки удаления
-  const discardTxt = btnDiscard ? btnDiscard.querySelector('.discard-text') : null;
-  if (btnDiscard) {
-    btnDiscard.style.removeProperty('--md-outlined-button-label-text-color');
-    btnDiscard.style.backgroundColor = '';
-    btnDiscard.style.borderColor = '';
-    if (discardTxt) discardTxt.innerText = 'Удалить тренировку (без сохранения)';
-  }
+  const btnResume = document.getElementById('liveResumeFromSheetBtn');
 
   if (subtitle) {
     const durationMin = Math.max(1, Math.round((Date.now() - activeSession.startedAtMs) / 60000));
@@ -2337,19 +2438,28 @@ function openFinishSheet() {
     if (btnFinish) btnFinish.style.display = 'none';
     if (btnEndEx) btnEndEx.style.display = 'none';
     if (btnCancelBonus) btnCancelBonus.style.display = 'none';
-    if (btnDiscard && discardTxt) discardTxt.innerText = 'Удалить и выйти';
+    if (btnResume) btnResume.style.display = 'inline-flex';
+    if (btnDiscard) {
+      btnDiscard.style.display = 'inline-flex';
+      btnDiscard.dataset.idleLabel = 'Удалить и выйти';
+    }
   } else {
     if (btnFinish) btnFinish.style.display = 'inline-flex';
-    if (btnDiscard && discardTxt) discardTxt.innerText = 'Удалить тренировку (без сохранения)';
-    
+    if (btnResume) btnResume.style.display = 'none';
+    if (btnDiscard) {
+      btnDiscard.style.display = 'inline-flex';
+      btnDiscard.dataset.idleLabel = 'Удалить тренировку (без сохранения)';
+    }
+
     const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
     const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
-    const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
+    const isDone = isExerciseDone(currentEx);
 
     if (btnEndEx) {
-      if (!isTargetReached && currentEx.completedSets.length > 0) {
+      if (!isDone && currentEx.completedSets.length > 0) {
         btnEndEx.style.display = 'inline-flex';
-        btnEndEx.innerHTML = `<span class="material-symbols-outlined" slot="icon">skip_next</span> Завершить упражнение (${workDone}/${currentEx.targetSets})`;
+        btnEndEx.innerHTML = `<span class="material-symbols-outlined" slot="icon">skip_next</span><span class="end-ex-label">Завершить упражнение (${workDone}/${currentEx.targetSets})</span>`;
+        btnEndEx.dataset.idleLabel = `Завершить упражнение (${workDone}/${currentEx.targetSets})`;
       } else {
         btnEndEx.style.display = 'none';
       }
@@ -2358,6 +2468,10 @@ function openFinishSheet() {
       btnCancelBonus.style.display = currentEx.allowBonusSet ? 'inline-flex' : 'none';
     }
   }
+
+  // Фикс 1: сбрасываем confirm-state кнопок при каждом показе шторки.
+  resetConfirmableAction(btnDiscard);
+  resetConfirmableAction(btnEndEx);
 
   registerLiveModals();
   openModal('liveFinishSheet');
@@ -2373,7 +2487,7 @@ function handleEndExerciseFromSheet() {
   }
   persistActiveSession();
   renderLiveWorkoutScreen();
-  
+
   const nextIdx = findNextIncompleteExerciseIndex(curIdx);
   if (nextIdx !== -1) {
     switchActiveExercise(nextIdx);
@@ -2389,10 +2503,10 @@ function handleCancelBonusFromSheet() {
   if (!activeSession) return;
   const ex = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!ex) return;
-  
+
   ex.allowBonusSet = false;
   ex.isCompleted = true;
-  
+
   activeSession.draftSet = computeSmartDraftSetForExercise(ex);
   persistActiveSession();
   renderLiveWorkoutScreen();
@@ -2532,7 +2646,6 @@ function bindLiveWorkoutDomEvents() {
   if (equipChip) equipChip.onclick = () => openNotesSheet();
   if (techChip) techChip.onclick = () => openNotesSheet();
 
-  // Кнопки ручного включения Дроп/Кластер
   const clusterBtn = document.getElementById('liveManualClusterBtn');
   const dropBtn = document.getElementById('liveManualDropBtn');
   const handleMethodToggle = (methodType) => {
@@ -2557,16 +2670,21 @@ function bindLiveWorkoutDomEvents() {
   if (clusterBtn) clusterBtn.onclick = () => handleMethodToggle('cluster');
   if (dropBtn) dropBtn.onclick = () => handleMethodToggle('drop');
 
-  // Обработчики кнопок шторки Finish
+  // Фикс 2: «Завершить упражнение» теперь через double-tap.
+  const endExerciseBtn = document.getElementById('liveEndExerciseBtn');
+  if (endExerciseBtn) {
+    bindConfirmableAction(endExerciseBtn, {
+      labelSelector: '.end-ex-label',
+      idleLabel: 'Завершить упражнение',
+      confirmLabel: 'Точно завершить?',
+      onConfirm: () => handleEndExerciseFromSheet()
+    });
+  }
+
   const finishWorkoutBtn = document.getElementById('liveFinishWorkoutBtn');
   if (finishWorkoutBtn) finishWorkoutBtn.onclick = () => {
     pendingActionAfterFinishSheet = 'closeout';
     closeModal('liveFinishSheet');
-  };
-
-  const endExerciseBtn = document.getElementById('liveEndExerciseBtn');
-  if (endExerciseBtn) endExerciseBtn.onclick = () => {
-    handleEndExerciseFromSheet();
   };
 
   const cancelBonusBtn = document.getElementById('liveCancelBonusBtn');
@@ -2574,31 +2692,30 @@ function bindLiveWorkoutDomEvents() {
     handleCancelBonusFromSheet();
   };
 
+  // EDGE-1: динамически создаём ghost-кнопку «Продолжить тренировку» перед
+  // кнопкой удаления. index.html не меняем — контейнер уже flex-column.
   const discardFromSheetBtn = document.getElementById('liveDiscardFromSheetBtn');
-  let discardState = 'idle';
-  let discardTimer = null;
+  if (discardFromSheetBtn && !document.getElementById('liveResumeFromSheetBtn')) {
+    const btnResume = document.createElement('md-outlined-button');
+    btnResume.id = 'liveResumeFromSheetBtn';
+    btnResume.style.display = 'none';
+    btnResume.innerHTML = `<span class="material-symbols-outlined" slot="icon">play_circle</span>Продолжить тренировку`;
+    btnResume.onclick = () => closeModal('liveFinishSheet');
+    discardFromSheetBtn.parentNode.insertBefore(btnResume, discardFromSheetBtn);
+  }
+
+  // Фикс 1: единый double-tap, состояние сбрасывается через resetConfirmableAction
+  // при каждом openFinishSheet → нет "залипшего" confirm при повторном открытии.
   if (discardFromSheetBtn) {
-    discardFromSheetBtn.onclick = () => {
-      const discardTxt = discardFromSheetBtn.querySelector('.discard-text');
-      if (discardState === 'idle') {
-        discardState = 'confirm';
-        discardFromSheetBtn.style.setProperty('--md-outlined-button-label-text-color', '#ffffff');
-        discardFromSheetBtn.style.backgroundColor = 'var(--md-sys-color-error-container)';
-        discardFromSheetBtn.style.borderColor = 'var(--md-sys-color-error)';
-        if (discardTxt) discardTxt.innerText = 'Точно удалить?';
-        discardTimer = setTimeout(() => {
-          discardState = 'idle';
-          discardFromSheetBtn.style.removeProperty('--md-outlined-button-label-text-color');
-          discardFromSheetBtn.style.backgroundColor = '';
-          discardFromSheetBtn.style.borderColor = '';
-          if (discardTxt) discardTxt.innerText = 'Удалить тренировку (без сохранения)';
-        }, 3000);
-      } else {
-        clearTimeout(discardTimer);
+    bindConfirmableAction(discardFromSheetBtn, {
+      labelSelector: '.discard-text',
+      idleLabel: 'Удалить тренировку (без сохранения)',
+      confirmLabel: 'Точно удалить?',
+      onConfirm: () => {
         pendingActionAfterFinishSheet = 'discard';
         closeModal('liveFinishSheet');
       }
-    };
+    });
   }
 
   const notesSaveBtn = document.getElementById('liveNotesSaveBtn');
@@ -2698,10 +2815,10 @@ function bindLiveWorkoutDomEvents() {
   document.querySelectorAll('.live-rir-chip').forEach(chip => {
     chip.onclick = () => { if (!activeSession) return; activeSession.draftSet.rir = chip.getAttribute('data-rir') || '2'; triggerHaptic(20); persistActiveSession(); patchDraftSetDisplay(); };
   });
-  
+
   const bigClockClose = document.getElementById('liveBigClockClose');
   if (bigClockClose) bigClockClose.onclick = () => closeModal('liveBigClockOverlay');
-  
+
   const clockAdd30Btn = document.getElementById('liveClockAdd30Btn');
   const clockSkipBtn = document.getElementById('liveClockSkipBtn');
   if (clockAdd30Btn) clockAdd30Btn.onclick = () => adjustRestTimer(30);
@@ -2774,33 +2891,17 @@ function bindLiveWorkoutDomEvents() {
   const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
   if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
 
+  // Фикс 1 (Closeout): единый double-tap, state сбрасывается в onOpen closeout.
   const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
   if (discardSessionBtn) {
-    let discardConfirmState = 'idle';
-    let discardConfirmTimer = null;
-    discardSessionBtn.onclick = () => {
-      const discardTxt = discardSessionBtn.querySelector('.closeout-discard-text');
-      if (discardConfirmState === 'idle') {
-        discardConfirmState = 'confirm';
-        discardSessionBtn.style.setProperty('--md-outlined-button-label-text-color', '#ffffff');
-        discardSessionBtn.style.backgroundColor = 'var(--md-sys-color-error-container)';
-        discardSessionBtn.style.borderColor = 'var(--md-sys-color-error)';
-        if (discardTxt) discardTxt.innerText = 'Точно удалить?';
-        discardConfirmTimer = setTimeout(() => {
-          discardConfirmState = 'idle';
-          discardSessionBtn.style.removeProperty('--md-outlined-button-label-text-color');
-          discardSessionBtn.style.backgroundColor = '';
-          discardSessionBtn.style.borderColor = '';
-          if (discardTxt) discardTxt.innerText = 'Удалить тренировку без сохранения';
-        }, 3000);
-      } else {
-        clearTimeout(discardConfirmTimer);
-        executeDiscardLiveWorkoutSession();
-      }
-    };
+    bindConfirmableAction(discardSessionBtn, {
+      labelSelector: '.closeout-discard-text',
+      idleLabel: 'Удалить тренировку без сохранения',
+      confirmLabel: 'Точно удалить?',
+      onConfirm: () => executeDiscardLiveWorkoutSession()
+    });
   }
 
-  // Привязка кнопки справки MEV
   const mevHelpBtn = document.getElementById('liveClockVolumeHelpBtn');
   if (mevHelpBtn) {
     mevHelpBtn.onclick = (e) => {
