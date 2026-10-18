@@ -1,6 +1,8 @@
 /**
  * Единый источник правды (Single Source of Truth)
  * Изолированное хранилище состояния приложения, Local-First гидратация и чистые утилиты нормализации
+ *
+ * V49: исправлены isIsolationExercise (порядок + корни) и rirWeight (диапазоны).
  */
 
 function getInitialDbData() {
@@ -205,29 +207,60 @@ export const MUSCLE_THRESHOLDS = {
 export const MAINTENANCE_LOWER_BOUND = 2;
 export const MAINTENANCE_UPPER_BOUND = 5;
 
+/**
+ * V49 FIX: диапазоны вместо строгих равенств.
+ * Парсер допускает RIR "+2.5"; старый код `r === 2 / r === 3` проваливал
+ * такие значения в ветку RIR ≥ 4 и давал коэффициент 0.25–0.3 — МЕНЬШЕ,
+ * чем для RIR 3. Итог: объём дробился вниз, лагающие мышцы маскировались.
+ *
+ * Границы (по возрастанию RIR = убыванию стимула):
+ *   RIR < 2   → 1.0  (отказ / на пределе)
+ *   RIR < 3   → 0.85 (оптимум гипертрофии)
+ *   RIR < 4   → 0.6 (изоляция) / 0.5 (compound) — граница полезного объёма
+ *   RIR ≥ 4   → 0.3 (изоляция) / 0.25 (compound) — «мусорные» сеты
+ */
 export function rirWeight(reserve, isIsolation) {
   const clean = String(reserve || '').trim().replace(/^\+/, '');
   const r = parseFloat(clean);
   if (isNaN(r)) return 1.0;
-  if (r <= 1) return 1.0;
-  if (r === 2) return 0.85;
-  if (r === 3) return isIsolation ? 0.6 : 0.5;
+  if (r < 2) return 1.0;
+  if (r < 3) return 0.85;
+  if (r < 4) return isIsolation ? 0.6 : 0.5;
   return isIsolation ? 0.3 : 0.25;
 }
 
+/**
+ * V49 FIX: порядок и корни.
+ * 1) Проверка изоляции идёт ПЕРВОЙ — иначе `жим` в «Французский жим»
+ *    перехватывает строку и возвращает false.
+ * 2) `подъ[её]м` — regex, а не точная строка. Покрывает подъём/подъем/
+ *    подъёмы/подъемы. Старые строки 'подъём на носки' / 'подъем на носки'
+ *    не совпадали с «Подъёмы на носки» (между «м» и «на» стоит «ы»).
+ * 3) `молот` покрывает «молот» и «молотки» — раньше не было вообще.
+ * 4) Compound-паттерны — fallback. Значения по умолчанию — compound
+ *    (консервативно для rirWeight: не завышает стимул).
+ */
 export function isIsolationExercise(exerciseName) {
-  const n = String(exerciseName || '').toLowerCase();
-  const compoundPatterns = ['жим', 'тяга', 'присед', 'становая', 'подтягиван', 'отжиман', 'брусь'];
-  for (let i = 0; i < compoundPatterns.length; i++) {
-    if (n.includes(compoundPatterns[i])) return false;
-  }
-  const isolationPatterns = [
+  const n = String(exerciseName || '').toLowerCase().trim();
+  if (!n) return false;
+
+  // Priority 1: явные корни изоляции (проверяются первыми!)
+  const isolationRoots = [
     'разведен', 'махи', 'сгибан', 'разгибан', 'концентрирован',
-    'молитв', 'кикбэк', 'француз', 'пуловер', 'подъём на носки', 'подъем на носки'
+    'молитв', 'кикбэк', 'француз', 'пуловер', 'молот'
   ];
-  for (let i = 0; i < isolationPatterns.length; i++) {
-    if (n.includes(isolationPatterns[i])) return true;
+  for (let i = 0; i < isolationRoots.length; i++) {
+    if (n.includes(isolationRoots[i])) return true;
   }
+  // Calf raise: подъём / подъем / подъёмы / подъемы (ё/е-альтернация)
+  if (/подъ[её]м/.test(n)) return true;
+
+  // Priority 2: compound-корни (fallback)
+  const compoundRoots = ['жим', 'тяга', 'присед', 'становая', 'подтягиван', 'отжиман', 'брусь'];
+  for (let i = 0; i < compoundRoots.length; i++) {
+    if (n.includes(compoundRoots[i])) return false;
+  }
+
   return false;
 }
 
@@ -311,7 +344,7 @@ export function isMaintenanceRir(rirStr) {
 }
 
 /* =========================================================================
- * V5.5.0: Множитель веса (1/2) для гантелей и раздельных рукоятей
+ * Множитель веса (1/2) для гантелей и раздельных рукоятей
  * ========================================================================= */
 export function getExerciseMultiplier(exerciseName) {
   const name = String(exerciseName || '').trim();
@@ -323,7 +356,7 @@ export function getExerciseMultiplier(exerciseName) {
 }
 
 /* =========================================================================
- * V5.4.0: Lookup последнего значения поля для упражнения
+ * Lookup последнего значения поля для упражнения
  * -------------------------------------------------------------------------
  * Используется для автоподстановки equipment / positioning из истории.
  * Возвращает последнее НЕПУСТОЕ значение поля для данного упражнения.
