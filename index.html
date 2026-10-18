@@ -1900,6 +1900,55 @@
     }
 
     /* =========================================================
+     * TOP SHEET (V2.8.9)
+     * ========================================================= */
+    .live-top-sheet-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 1100;
+      align-items: flex-start;
+      justify-content: center;
+      animation: fadeIn var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    }
+    
+    .live-top-sheet {
+      background: rgba(29, 32, 36, 0.95);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-top: none;
+      width: 100%;
+      max-width: 600px;
+      border-radius: 0 0 var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large);
+      padding: 16px 16px 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      animation: slideDown var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
+      max-height: calc(88vh - env(safe-area-inset-top, 0px));
+      overflow-y: auto;
+      margin-top: 0;
+    }
+    
+    @keyframes slideDown {
+      from { transform: translateY(-100%); }
+      to { transform: translateY(0); }
+    }
+    
+    .live-top-sheet-handle {
+      width: 40px;
+      height: 4px;
+      border-radius: var(--md-sys-shape-corner-full);
+      background: var(--md-sys-color-outline-variant);
+      align-self: center;
+      margin-bottom: 12px;
+      margin-top: 8px;
+    }
+
+    /* =========================================================
      * HELPERS
      * ========================================================= */
     .mannequin-container { display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -3463,12 +3512,11 @@
     </div>
   </div>
 
-  <!-- BOTTOM SHEET: УПРАВЛЕНИЕ ТРЕНИРОВКОЙ -->
-  <div id="liveFinishSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveFinishSheetTitle">
-    <div class="live-sheet">
-      <div class="live-sheet-handle" aria-hidden="true"></div>
-      <div class="live-sheet-title" id="liveFinishSheetTitle">Управление тренировкой</div>
-      <div class="live-sheet-subtitle" id="liveFinishSheetSubtitle">Выполнено: 0 сетов</div>
+  <!-- TOP SHEET: УПРАВЛЕНИЕ ТРЕНИРОВКОЙ -->
+  <div id="liveFinishSheet" class="live-top-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveFinishSheetTitle">
+    <div class="live-top-sheet">
+      <div class="live-sheet-title" id="liveFinishSheetTitle" style="text-align: center;">Управление тренировкой</div>
+      <div class="live-sheet-subtitle" id="liveFinishSheetSubtitle" style="text-align: center; margin-top: 0;">Выполнено: 0 сетов</div>
       
       <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
         <md-filled-button id="liveFinishWorkoutBtn">
@@ -3483,11 +3531,12 @@
           <span class="material-symbols-outlined" slot="icon">undo</span>
           Отменить бонусный подход
         </md-outlined-button>
-        <md-outlined-button id="liveDiscardFromSheetBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
+        <md-outlined-button id="liveDiscardFromSheetBtn" class="btn-discard" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
           <span class="material-symbols-outlined" slot="icon">delete_forever</span>
-          Удалить тренировку (без сохранения)
+          <span class="discard-text">Удалить тренировку (без сохранения)</span>
         </md-outlined-button>
       </div>
+      <div class="live-top-sheet-handle"></div>
     </div>
   </div>
 
@@ -3530,7 +3579,8 @@
           Сохранить в базу Google Таблиц
         </md-filled-button>
         <md-outlined-button id="liveDiscardWorkoutBtn" style="--md-outlined-button-label-text-color: var(--md-sys-color-error);">
-          Удалить тренировку без сохранения
+          <span class="material-symbols-outlined" slot="icon" aria-hidden="true">delete_forever</span>
+          <span class="closeout-discard-text">Удалить тренировку без сохранения</span>
         </md-outlined-button>
       </div>
     </div>
