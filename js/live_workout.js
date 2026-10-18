@@ -1,12 +1,13 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.8 FINISH SHEET & EARLY EXIT)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.9 FINISH SHEET FIXES)
  * =========================================================================
- * V2.8.8:
- * - Кнопка "Финиш" теперь вызывает Bottom Sheet "Управление тренировкой".
- * - В шторке реализован умный UX: если нет сетов — предлагает только "Удалить и выйти"
- *   (исправлен баг с alert). Если есть — дает выбор: Завершить всё, Завершить
- *   текущее упражнение досрочно, Отменить бонусный подход, Удалить сессию.
+ * V2.8.9:
+ * - Фикс 1: openFinishSheet() теперь корректно считает разминочные сеты.
+ * - Фикс 2: Устранен Race Condition в History API при переходе из шторки в Closeout
+ *   (используется отложенный вызов через onClose в ModalManager).
+ * - Фикс 3: Удаление теперь требует двойного тапа вместо нативного confirm().
+ * - Фикс 4: Шторка "Управление тренировкой" выезжает сверху (live-top-sheet).
  * =========================================================================
  */
 
@@ -34,6 +35,7 @@ let idleTimer = null;
 
 let activeClusterSheetState = null;
 let activeDropSheetState = null;
+let pendingActionAfterFinishSheet = null; // Действие после закрытия шторки Финиш
 
 const DEFAULT_TIMERS = {
   compound: 150,
@@ -125,9 +127,23 @@ function registerLiveModals() {
   if (finishSheet) {
     registerModal('liveFinishSheet', {
       el: finishSheet,
-      displayStyle: 'flex'
+      displayStyle: 'flex',
+      onClose: () => {
+        if (pendingActionAfterFinishSheet === 'closeout') {
+          pendingActionAfterFinishSheet = null;
+          setTimeout(() => openCloseoutModal(), 150); // Задержка для стабильности History API
+        } else if (pendingActionAfterFinishSheet === 'discard') {
+          pendingActionAfterFinishSheet = null;
+          setTimeout(() => executeDiscardLiveWorkoutSession(), 150);
+        }
+      }
     });
-    finishSheet.onclick = (e) => { if (e.target === finishSheet) closeModal('liveFinishSheet'); };
+    finishSheet.onclick = (e) => { 
+      if (e.target === finishSheet) {
+        pendingActionAfterFinishSheet = null; // Сбрасываем при клике вне окна
+        closeModal('liveFinishSheet');
+      }
+    };
   }
 
   const closeoutModal = document.getElementById('liveCloseoutModal');
@@ -468,9 +484,7 @@ function minimizeLiveWorkoutOverlay() {
   else { const overlay = document.getElementById('liveWorkoutOverlay'); if (overlay) overlay.style.display = 'none'; document.body.style.overflow = ''; showRecoveryBanner(); }
 }
 
-function discardLiveWorkoutSession() {
-  const confirmAbort = confirm('Отменить и удалить текущую тренировку без сохранения?');
-  if (!confirmAbort) return;
+function executeDiscardLiveWorkoutSession() {
   logToTerminal('LIVE_DISCARD', `Тренировка удалена без сохранения: ${activeSession ? activeSession.title : '—'}`, 'info');
   stopAllTimers();
   stopBigClock();
@@ -515,7 +529,7 @@ function openBigClockOverlay() {
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) return;
-  if (isModalOpen('liveBigClockOverlay') || isModalOpen('liveClusterSheet') || isModalOpen('liveDropSheet')) return;
+  if (isModalOpen('liveBigClockOverlay') || isModalOpen('liveClusterSheet') || isModalOpen('liveDropSheet') || isModalOpen('liveFinishSheet')) return;
 
   idleTimer = setTimeout(() => {
     if (activeSession && activeSession.restState.isActive && !isModalOpen('liveBigClockOverlay')) {
@@ -2290,20 +2304,32 @@ function calculateWorkoutSummaryMetrics() {
 function openFinishSheet() {
   if (!activeSession) return;
   
-  let totalSets = 0;
+  let totalWorkSets = 0;
+  let totalWarmupSets = 0;
   activeSession.exercises.forEach(ex => {
-    totalSets += ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    totalWorkSets += ex.completedSets.filter(s => s.category === 'Рабочий').length;
+    totalWarmupSets += ex.completedSets.filter(s => s.category === 'Разминка').length;
   });
   
+  const totalSets = totalWorkSets + totalWarmupSets;
   const subtitle = document.getElementById('liveFinishSheetSubtitle');
   const btnFinish = document.getElementById('liveFinishWorkoutBtn');
   const btnEndEx = document.getElementById('liveEndExerciseBtn');
   const btnCancelBonus = document.getElementById('liveCancelBonusBtn');
   const btnDiscard = document.getElementById('liveDiscardFromSheetBtn');
 
+  // Сброс состояния кнопки удаления
+  const discardTxt = btnDiscard ? btnDiscard.querySelector('.discard-text') : null;
+  if (btnDiscard) {
+    btnDiscard.style.removeProperty('--md-outlined-button-label-text-color');
+    btnDiscard.style.backgroundColor = '';
+    btnDiscard.style.borderColor = '';
+    if (discardTxt) discardTxt.innerText = 'Удалить тренировку (без сохранения)';
+  }
+
   if (subtitle) {
     const durationMin = Math.max(1, Math.round((Date.now() - activeSession.startedAtMs) / 60000));
-    subtitle.innerText = `Выполнено: ${totalSets} раб. сетов • Время: ${durationMin} мин`;
+    subtitle.innerText = `Выполнено: ${totalWorkSets} раб. / ${totalWarmupSets} разм. • Время: ${durationMin} мин`;
   }
 
   if (totalSets === 0) {
@@ -2311,17 +2337,17 @@ function openFinishSheet() {
     if (btnFinish) btnFinish.style.display = 'none';
     if (btnEndEx) btnEndEx.style.display = 'none';
     if (btnCancelBonus) btnCancelBonus.style.display = 'none';
-    if (btnDiscard) btnDiscard.innerHTML = '<span class="material-symbols-outlined" slot="icon">delete_forever</span> Удалить и выйти';
+    if (btnDiscard && discardTxt) discardTxt.innerText = 'Удалить и выйти';
   } else {
     if (btnFinish) btnFinish.style.display = 'inline-flex';
-    if (btnDiscard) btnDiscard.innerHTML = '<span class="material-symbols-outlined" slot="icon">delete_forever</span> Удалить тренировку (без сохранения)';
+    if (btnDiscard && discardTxt) discardTxt.innerText = 'Удалить тренировку (без сохранения)';
     
     const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
     const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
     const isTargetReached = (workDone >= currentEx.targetSets) && !currentEx.allowBonusSet;
 
     if (btnEndEx) {
-      if (!isTargetReached && workDone > 0) {
+      if (!isTargetReached && currentEx.completedSets.length > 0) {
         btnEndEx.style.display = 'inline-flex';
         btnEndEx.innerHTML = `<span class="material-symbols-outlined" slot="icon">skip_next</span> Завершить упражнение (${workDone}/${currentEx.targetSets})`;
       } else {
@@ -2352,8 +2378,10 @@ function handleEndExerciseFromSheet() {
   if (nextIdx !== -1) {
     switchActiveExercise(nextIdx);
     startRestTimer(getTimerPrefs().compound);
+    closeModal('liveFinishSheet');
   } else {
-    openCloseoutModal();
+    pendingActionAfterFinishSheet = 'closeout';
+    closeModal('liveFinishSheet');
   }
 }
 
@@ -2368,6 +2396,7 @@ function handleCancelBonusFromSheet() {
   activeSession.draftSet = computeSmartDraftSetForExercise(ex);
   persistActiveSession();
   renderLiveWorkoutScreen();
+  closeModal('liveFinishSheet');
 }
 
 function openCloseoutModal() {
@@ -2531,27 +2560,46 @@ function bindLiveWorkoutDomEvents() {
   // Обработчики кнопок шторки Finish
   const finishWorkoutBtn = document.getElementById('liveFinishWorkoutBtn');
   if (finishWorkoutBtn) finishWorkoutBtn.onclick = () => {
+    pendingActionAfterFinishSheet = 'closeout';
     closeModal('liveFinishSheet');
-    openCloseoutModal();
   };
 
   const endExerciseBtn = document.getElementById('liveEndExerciseBtn');
   if (endExerciseBtn) endExerciseBtn.onclick = () => {
-    closeModal('liveFinishSheet');
     handleEndExerciseFromSheet();
   };
 
   const cancelBonusBtn = document.getElementById('liveCancelBonusBtn');
   if (cancelBonusBtn) cancelBonusBtn.onclick = () => {
-    closeModal('liveFinishSheet');
     handleCancelBonusFromSheet();
   };
 
   const discardFromSheetBtn = document.getElementById('liveDiscardFromSheetBtn');
-  if (discardFromSheetBtn) discardFromSheetBtn.onclick = () => {
-    closeModal('liveFinishSheet');
-    discardLiveWorkoutSession();
-  };
+  let discardState = 'idle';
+  let discardTimer = null;
+  if (discardFromSheetBtn) {
+    discardFromSheetBtn.onclick = () => {
+      const discardTxt = discardFromSheetBtn.querySelector('.discard-text');
+      if (discardState === 'idle') {
+        discardState = 'confirm';
+        discardFromSheetBtn.style.setProperty('--md-outlined-button-label-text-color', '#ffffff');
+        discardFromSheetBtn.style.backgroundColor = 'var(--md-sys-color-error-container)';
+        discardFromSheetBtn.style.borderColor = 'var(--md-sys-color-error)';
+        if (discardTxt) discardTxt.innerText = 'Точно удалить?';
+        discardTimer = setTimeout(() => {
+          discardState = 'idle';
+          discardFromSheetBtn.style.removeProperty('--md-outlined-button-label-text-color');
+          discardFromSheetBtn.style.backgroundColor = '';
+          discardFromSheetBtn.style.borderColor = '';
+          if (discardTxt) discardTxt.innerText = 'Удалить тренировку (без сохранения)';
+        }, 3000);
+      } else {
+        clearTimeout(discardTimer);
+        pendingActionAfterFinishSheet = 'discard';
+        closeModal('liveFinishSheet');
+      }
+    };
+  }
 
   const notesSaveBtn = document.getElementById('liveNotesSaveBtn');
   const notesCancelBtn = document.getElementById('liveNotesCancelBtn');
@@ -2724,9 +2772,33 @@ function bindLiveWorkoutDomEvents() {
     };
   });
   const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
-  const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
   if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
-  if (discardSessionBtn) discardSessionBtn.onclick = () => discardLiveWorkoutSession();
+
+  const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
+  if (discardSessionBtn) {
+    let discardConfirmState = 'idle';
+    let discardConfirmTimer = null;
+    discardSessionBtn.onclick = () => {
+      const discardTxt = discardSessionBtn.querySelector('.closeout-discard-text');
+      if (discardConfirmState === 'idle') {
+        discardConfirmState = 'confirm';
+        discardSessionBtn.style.setProperty('--md-outlined-button-label-text-color', '#ffffff');
+        discardSessionBtn.style.backgroundColor = 'var(--md-sys-color-error-container)';
+        discardSessionBtn.style.borderColor = 'var(--md-sys-color-error)';
+        if (discardTxt) discardTxt.innerText = 'Точно удалить?';
+        discardConfirmTimer = setTimeout(() => {
+          discardConfirmState = 'idle';
+          discardSessionBtn.style.removeProperty('--md-outlined-button-label-text-color');
+          discardSessionBtn.style.backgroundColor = '';
+          discardSessionBtn.style.borderColor = '';
+          if (discardTxt) discardTxt.innerText = 'Удалить тренировку без сохранения';
+        }, 3000);
+      } else {
+        clearTimeout(discardConfirmTimer);
+        executeDiscardLiveWorkoutSession();
+      }
+    };
+  }
 
   // Привязка кнопки справки MEV
   const mevHelpBtn = document.getElementById('liveClockVolumeHelpBtn');
