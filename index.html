@@ -103,7 +103,24 @@
       }
     }
 
-    html { -webkit-text-size-adjust: 100%; }
+    html {
+      -webkit-text-size-adjust: 100%;
+      overscroll-behavior-y: contain;
+    }
+    body {
+      overscroll-behavior-y: contain;
+      overscroll-behavior-x: contain;
+    }
+
+    /* Android UX: блокирует pull-to-refresh и edge-back конфликты внутри overlay-элементов. */
+    .live-workout-overlay,
+    .modal-card,
+    .live-sheet,
+    .bottom-sheet,
+    .live-top-sheet,
+    .live-big-clock-overlay {
+      overscroll-behavior: contain;
+    }
 
     body {
       background: radial-gradient(circle at 50% 0%, #1a1e26 0%, var(--md-sys-color-background) 70%);
@@ -132,13 +149,129 @@
     }
 
     /* =========================================================
+     * SKELETON (Android UX)
+     * ========================================================= */
+    .skeleton {
+      background: linear-gradient(90deg,
+        var(--md-sys-color-surface-container-high) 25%,
+        var(--md-sys-color-surface-container-highest) 50%,
+        var(--md-sys-color-surface-container-high) 75%);
+      background-size: 200% 100%;
+      animation: skeletonShimmer 1.4s infinite linear;
+      border-radius: var(--md-sys-shape-corner-small);
+      color: transparent !important;
+      user-select: none;
+      pointer-events: none;
+    }
+    @keyframes skeletonShimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* =========================================================
+     * SYNC SPIN (Android UX)
+     * ========================================================= */
+    @keyframes syncSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    #refreshDataBtn[aria-busy="true"] .material-symbols-outlined {
+      animation: syncSpin 1s linear infinite;
+    }
+
+    /* =========================================================
+     * RIPPLE (Android Material)
+     * ========================================================= */
+    .live-pab-record-btn,
+    .live-pab-completed-btn,
+    .live-pab-method-btn,
+    .live-pab-rest-btn,
+    .live-step-btn,
+    .live-cat-btn,
+    .live-rir-chip,
+    .live-note-chip,
+    .live-delete-set-btn,
+    .live-icon-btn,
+    .calendar-day-card,
+    .coach-split-chip,
+    .live-sheet-mini-btn,
+    .live-sheet-rir-chip,
+    .live-readiness-chip,
+    .live-srpe-chip,
+    .live-pab-clock-round,
+    .file-drop-zone,
+    .start-live-workout-btn,
+    .plan-preview-trigger-card {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .live-pab-record-btn::after,
+    .live-pab-completed-btn::after,
+    .live-pab-method-btn::after,
+    .live-pab-rest-btn::after,
+    .live-step-btn::after,
+    .live-cat-btn::after,
+    .live-rir-chip::after,
+    .live-note-chip::after,
+    .live-delete-set-btn::after,
+    .live-icon-btn::after,
+    .calendar-day-card::after,
+    .coach-split-chip::after,
+    .live-sheet-mini-btn::after,
+    .live-sheet-rir-chip::after,
+    .live-readiness-chip::after,
+    .live-srpe-chip::after,
+    .live-pab-clock-round::after,
+    .file-drop-zone::after,
+    .start-live-workout-btn::after,
+    .plan-preview-trigger-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.22);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 150ms ease;
+      border-radius: inherit;
+      z-index: 1;
+    }
+
+    .live-pab-record-btn:active::after,
+    .live-pab-completed-btn:active::after,
+    .live-pab-method-btn:active::after,
+    .live-pab-rest-btn:active::after,
+    .live-step-btn:active::after,
+    .live-cat-btn:active::after,
+    .live-rir-chip:active::after,
+    .live-note-chip:active::after,
+    .live-delete-set-btn:active::after,
+    .live-icon-btn:active::after,
+    .calendar-day-card:active::after,
+    .coach-split-chip:active::after,
+    .live-sheet-mini-btn:active::after,
+    .live-sheet-rir-chip:active::after,
+    .live-readiness-chip:active::after,
+    .live-srpe-chip:active::after,
+    .live-pab-clock-round:active::after,
+    .file-drop-zone:active::after,
+    .start-live-workout-btn:active::after,
+    .plan-preview-trigger-card:active::after {
+      opacity: 1;
+    }
+
+    /* Отключить ripple на "успешном" состоянии — оно отключено pointer-events. */
+    .live-pab-record-btn.is-success::after { display: none; }
+
+    /* =========================================================
      * GLOBAL HEADER / CONTAINER / CARDS
      * ========================================================= */
     .top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 10px 12px;
+      padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px 12px;
       min-height: 56px;
       background: var(--md-sys-color-surface);
       border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -579,7 +712,7 @@
     }
 
     /* =========================================================
-     * LIVE WORKOUT OVERLAY (V2.8)
+     * LIVE WORKOUT OVERLAY
      * ========================================================= */
     .live-workout-overlay {
       display: none;
@@ -598,7 +731,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 4px 10px;
+      padding: calc(4px + env(safe-area-inset-top, 0px)) 10px 4px 10px;
       min-height: 48px;
       background: rgba(29, 32, 36, 0.85);
       backdrop-filter: blur(16px) saturate(140%);
@@ -1098,7 +1231,6 @@
       border-width: 2px;
     }
 
-    /* V2.3: компактный closeout-модал */
     .live-closeout-modal-card {
       gap: 10px !important;
       padding: 16px !important;
@@ -1247,6 +1379,8 @@
       gap: 8px;
       transition: background-color var(--md-sys-motion-duration-short4);
     }
+
+    /* Android UX: расширенные tap-зоны через ::before (визуально 40×40, физически 48×48). */
     .live-delete-set-btn {
       min-width: 40px;
       height: 40px;
@@ -1265,6 +1399,11 @@
       letter-spacing: 0.3px;
       transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard),
                   min-width var(--md-sys-motion-duration-short3);
+    }
+    .live-delete-set-btn::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
     }
     .live-delete-set-btn:hover { background: rgba(255, 180, 171, 0.12); }
     .live-delete-set-btn.is-confirm {
@@ -1295,7 +1434,7 @@
                   border-color var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard),
                   box-shadow var(--md-sys-motion-duration-short4);
     }
-    
+
     .live-pab.is-warning {
       background: rgba(46, 16, 16, 0.95);
       border-color: rgba(255, 107, 107, 0.8);
@@ -1468,7 +1607,7 @@
     }
 
     /* =========================================================
-     * BIG CLOCK OVERLAY / AMBIENT DASHBOARD (V3.2)
+     * BIG CLOCK OVERLAY
      * ========================================================= */
     .live-big-clock-overlay {
       display: none;
@@ -1479,7 +1618,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: flex-start;
-      padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
+      padding: calc(24px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
     }
 
     .live-clock-top-bar {
@@ -1526,8 +1665,7 @@
       height: 12px;
       align-items: center;
     }
-    
-    /* Заменили точки на полоски */
+
     .clock-bar {
       width: 24px;
       height: 8px;
@@ -1542,23 +1680,23 @@
     .clock-bar.is-rir-1 { background: #facc15; box-shadow: 0 0 10px rgba(250,204,21,0.5); }
     .clock-bar.is-rir-2 { background: #4ade80; box-shadow: 0 0 10px rgba(74,222,128,0.5); }
     .clock-bar.is-rir-3 { background: #60a5fa; box-shadow: 0 0 10px rgba(96,165,250,0.5); }
-    
+
     .clock-bar.is-warmup {
       background: #64748b;
       box-shadow: none;
       border-color: transparent;
     }
-    
+
     .clock-bar.is-current {
       animation: barPulse 1.5s infinite;
       border: 1.5px solid #ffffff;
     }
-    
+
     @keyframes barPulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.4; }
     }
-    
+
     .clock-bar.is-special {
       border-color: var(--app-color-warning);
       border-style: dashed;
@@ -1570,7 +1708,7 @@
       align-items: center;
       justify-content: center;
       width: 100%;
-      flex: 1; /* Раздвигает верх и низ */
+      flex: 1;
       margin-bottom: 24px;
     }
 
@@ -1582,7 +1720,7 @@
       margin-bottom: 12px;
       text-align: center;
     }
-    
+
     .live-big-clock-digits {
       font-family: 'Roboto Mono', ui-monospace, monospace;
       font-size: clamp(6rem, 28vw, 15rem);
@@ -1628,7 +1766,7 @@
       flex-direction: column;
       gap: 6px;
     }
-    
+
     .live-clock-widget-header {
       font: 700 0.75rem/1.2 'Roboto';
       text-transform: uppercase;
@@ -1638,7 +1776,7 @@
       justify-content: space-between;
       align-items: flex-start;
     }
-    
+
     .live-clock-widget-body {
       font: 600 0.95rem/1.3 'Roboto';
       color: #ffffff;
@@ -1646,7 +1784,7 @@
     .live-clock-widget-body b {
       color: var(--app-color-success);
     }
-    
+
     .live-clock-plan-val {
       color: var(--app-color-success);
       font-weight: 700;
@@ -1681,7 +1819,7 @@
     .live-big-clock-overlay.is-resting .live-clock-actions {
       display: grid;
     }
-    
+
     .live-clock-action-btn {
       min-height: 56px;
       border-radius: var(--md-sys-shape-corner-medium);
@@ -1705,7 +1843,7 @@
     }
 
     /* =========================================================
-     * BOTTOM SHEETS (V2.3 — двухстрочные карточки)
+     * BOTTOM SHEETS
      * ========================================================= */
     .live-sheet-overlay {
       display: none;
@@ -1786,6 +1924,7 @@
       margin: 0 4px;
     }
 
+    /* Android UX: расширенные tap-зоны 32→40dp через ::before. */
     .live-sheet-mini-btn {
       width: 32px;
       height: 32px;
@@ -1803,6 +1942,11 @@
       transition: background-color var(--md-sys-motion-duration-short2),
                   transform var(--md-sys-motion-duration-short2);
     }
+    .live-sheet-mini-btn::before {
+      content: '';
+      position: absolute;
+      inset: -6px -4px;
+    }
     .live-sheet-mini-btn:active {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
@@ -1816,7 +1960,7 @@
       text-align: center;
       letter-spacing: -0.3px;
     }
-    
+
     .live-sheet-input-value {
       width: 50px;
       background: transparent;
@@ -1840,6 +1984,7 @@
       gap: 3px;
       flex-shrink: 0;
     }
+    /* Android UX: расширенные tap-зоны 30×28→44dp через ::before. */
     .live-sheet-rir-chip {
       min-width: 30px;
       height: 28px;
@@ -1855,6 +2000,11 @@
       transition: background-color var(--md-sys-motion-duration-short2),
                   transform var(--md-sys-motion-duration-short2);
       padding: 0;
+    }
+    .live-sheet-rir-chip::before {
+      content: '';
+      position: absolute;
+      inset: -8px -7px;
     }
     .live-sheet-rir-chip:active { transform: scale(0.9); }
     .live-sheet-rir-chip.active {
@@ -1900,7 +2050,7 @@
     }
 
     /* =========================================================
-     * TOP SHEET (V2.8.9)
+     * TOP SHEET
      * ========================================================= */
     .live-top-sheet-overlay {
       display: none;
@@ -1912,7 +2062,7 @@
       justify-content: center;
       animation: fadeIn var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
     }
-    
+
     .live-top-sheet {
       background: rgba(29, 32, 36, 0.95);
       backdrop-filter: blur(20px) saturate(140%);
@@ -1922,7 +2072,7 @@
       width: 100%;
       max-width: 600px;
       border-radius: 0 0 var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large);
-      padding: 16px 16px 20px 16px;
+      padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 20px 16px;
       display: flex;
       flex-direction: column;
       gap: 12px;
@@ -1932,12 +2082,12 @@
       overflow-y: auto;
       margin-top: 0;
     }
-    
+
     @keyframes slideDown {
       from { transform: translateY(-100%); }
       to { transform: translateY(0); }
     }
-    
+
     .live-top-sheet-handle {
       width: 40px;
       height: 4px;
@@ -2486,7 +2636,7 @@
       padding: 6px 0;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     }
-    
+
     .nav-item {
       display: flex;
       flex-direction: column;
@@ -2504,7 +2654,7 @@
                   transform var(--md-sys-motion-duration-short3);
     }
     .nav-item:active { transform: scale(0.92); }
-    
+
     .nav-pill {
       display: flex;
       align-items: center;
@@ -2534,7 +2684,7 @@
       padding: 16px;
       animation: fadeIn var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
     }
-    
+
     .modal-card {
       background: rgba(29, 32, 36, 0.9);
       backdrop-filter: blur(20px) saturate(140%);
@@ -2563,7 +2713,7 @@
       justify-content: center;
       animation: fadeIn var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
     }
-    
+
     .bottom-sheet {
       background: rgba(29, 32, 36, 0.9);
       backdrop-filter: blur(20px) saturate(140%);
@@ -2582,12 +2732,12 @@
       max-height: calc(80vh - env(safe-area-inset-bottom, 0px));
       overflow-y: auto;
     }
-    
+
     @keyframes slideUp {
       from { transform: translateY(100%); }
       to { transform: translateY(0); }
     }
-    
+
     .bottom-sheet-handle {
       width: 40px;
       height: 4px;
@@ -2637,6 +2787,9 @@
     <div class="top-bar-actions">
       <span id="lastSyncLabel" class="last-sync-label" aria-live="polite"></span>
       <span id="networkStatusDot" class="status-dot" role="status" aria-live="polite" title="Сетевой статус: Онлайн"></span>
+      <md-icon-button id="installPwaBtn" aria-label="Установить приложение" title="Установить приложение" style="display:none;">
+        <span class="material-symbols-outlined" aria-hidden="true">install_mobile</span>
+      </md-icon-button>
       <md-icon-button id="openSettingsBtn" aria-label="Настройки API" title="Настройки API">
         <span class="material-symbols-outlined" aria-hidden="true">settings</span>
       </md-icon-button>
@@ -2655,10 +2808,10 @@
       </div>
       <md-filled-button id="liveResumeBannerBtn">Вернуться</md-filled-button>
     </div>
-    
+
     <!-- МОДУЛЬ 1: ОБЗОР -->
     <div id="tab-overview" class="tab-content active">
-      
+
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -2785,7 +2938,7 @@
 
     <!-- МОДУЛЬ 2: АНАЛИТИКА -->
     <div id="tab-analytics" class="tab-content">
-      
+
       <div class="m3-card">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -2988,7 +3141,7 @@
 
     <!-- МОДУЛЬ 3: ТРЕНЕР -->
     <div id="tab-coach" class="tab-content">
-      
+
       <div class="m3-card" style="border: 1px solid rgba(168, 200, 255, 0.2);">
         <div class="card-title">
           <span style="display: flex; align-items: center; gap: 8px;">
@@ -3007,17 +3160,17 @@
           <div class="coach-sos-grid">
             <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
               <label for="coachSosTargetWeight" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);">Вес снаряда (кг):</label>
-              <input type="number" id="coachSosTargetWeight" class="m3-input" placeholder="130" step="2.5">
+              <input type="number" id="coachSosTargetWeight" class="m3-input" placeholder="130" step="2.5" min="0" max="999.99" inputmode="decimal">
             </div>
             <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
               <label for="coachSosTargetReps" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-on-surface-variant);">План повторений:</label>
-              <input type="number" id="coachSosTargetReps" class="m3-input" placeholder="6">
+              <input type="number" id="coachSosTargetReps" class="m3-input" placeholder="6" min="1" max="100" inputmode="numeric">
             </div>
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label for="coachSosActualReps" style="font: var(--md-sys-typescale-label-medium); color: var(--md-sys-color-error);">Сделано до отказа (Факт повторений):</label>
-            <input type="number" id="coachSosActualReps" class="m3-input" placeholder="2">
+            <input type="number" id="coachSosActualReps" class="m3-input" placeholder="2" min="0" max="100" inputmode="numeric">
           </div>
 
           <md-filled-button id="calculateSosBtn" style="margin-top: 4px;">
@@ -3219,8 +3372,11 @@
     </div>
   </div>
 
-  <!-- LIVE WORKOUT OVERLAY V2.8.6 -->
+  <!-- LIVE WORKOUT OVERLAY V2.9.0 -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
+
+    <!-- TalkBack announcer (visually hidden, aria-live) -->
+    <div id="liveAriaAnnouncer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div class="live-top-bar">
       <button id="liveMinimizeBtn" class="live-icon-btn" aria-label="Свернуть тренировку" title="Свернуть">
@@ -3289,7 +3445,7 @@
 
       <div id="liveActiveSetControlsCard" class="live-controls-card">
         <div class="live-current-set-row">
-          <span id="liveCurrentSetLabel" class="live-current-set-label">РАЗМИНКА: ШАГ 1</span>
+          <span id="liveCurrentSetLabel" class="live-current-set-label" aria-live="polite">РАЗМИНКА: ШАГ 1</span>
           <button id="liveMethodToggleBtn" class="live-method-chip" type="button" hidden>
             <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
             <span id="liveMethodChipText">Кластер</span>
@@ -3376,7 +3532,7 @@
 
   </div>
 
-  <!-- BIG CLOCK OVERLAY / AMBIENT DASHBOARD V3.2 -->
+  <!-- BIG CLOCK OVERLAY / AMBIENT DASHBOARD -->
   <div id="liveBigClockOverlay" class="live-big-clock-overlay" role="dialog" aria-modal="true" aria-label="Дашборд отдыха">
     
     <div class="live-clock-top-bar">
@@ -3389,7 +3545,6 @@
       </button>
     </div>
 
-    <!-- Заменили точки на полоски -->
     <div class="live-clock-dots-row" id="liveClockBars"></div>
 
     <div class="live-clock-center">
@@ -3398,7 +3553,6 @@
     </div>
 
     <div class="live-clock-analytics-grid">
-      <!-- План на подход -->
       <div class="live-clock-widget" style="border-color: rgba(168, 200, 255, 0.3);">
         <div class="live-clock-widget-header">
           <span id="liveClockNextSetLabel">СЕТ 2 ИЗ 4</span>
@@ -3408,12 +3562,10 @@
           </div>
         </div>
         <div class="live-clock-widget-body" style="display: flex; align-items: center;">
-          <!-- Вернули зеленый цвет -->
           <span id="liveClockWidgetNextPlan" class="live-clock-plan-val">52.5 (×2) кг × 12</span>
         </div>
       </div>
 
-      <!-- История -->
       <div class="live-clock-widget" style="padding: 10px 16px;">
         <div class="live-clock-widget-header" style="color: var(--md-sys-color-on-surface-variant); font-size: 0.7rem;">В ПРОШЛЫЙ РАЗ</div>
         <div class="live-clock-widget-body" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: var(--md-sys-color-on-surface-variant);">
@@ -3422,7 +3574,6 @@
         </div>
       </div>
 
-      <!-- Объем -->
       <div class="live-clock-widget">
         <div class="live-clock-widget-header">
           <span id="liveClockWidgetMuscle" style="display: flex; align-items: center; gap: 4px;">
@@ -3448,7 +3599,7 @@
     </div>
   </div>
 
-  <!-- BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА V2.3 (двухстрочные карточки) -->
+  <!-- BOTTOM SHEET: ЗАПИСЬ КЛАСТЕРА -->
   <div id="liveClusterSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveClusterSheetTitle">
     <div class="live-sheet">
       <div class="live-sheet-handle" aria-hidden="true"></div>
@@ -3469,7 +3620,7 @@
     </div>
   </div>
 
-  <!-- BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА V2.3 -->
+  <!-- BOTTOM SHEET: ЗАПИСЬ ДРОП-СЕТА -->
   <div id="liveDropSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveDropSheetTitle">
     <div class="live-sheet">
       <div class="live-sheet-handle" aria-hidden="true"></div>
@@ -3517,7 +3668,7 @@
     <div class="live-top-sheet">
       <div class="live-sheet-title" id="liveFinishSheetTitle" style="text-align: center;">Управление тренировкой</div>
       <div class="live-sheet-subtitle" id="liveFinishSheetSubtitle" style="text-align: center; margin-top: 0;">Выполнено: 0 сетов</div>
-      
+
       <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
         <md-filled-button id="liveFinishWorkoutBtn">
           <span class="material-symbols-outlined" slot="icon">flag</span>
@@ -3540,7 +3691,7 @@
     </div>
   </div>
 
-  <!-- CLOSEOUT MODAL V2.3 -->
+  <!-- CLOSEOUT MODAL -->
   <div id="liveCloseoutModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveCloseoutTitle">
     <div class="modal-card live-closeout-modal-card">
       <div class="card-title">
@@ -3559,7 +3710,7 @@
           <button class="live-readiness-chip" data-readiness="🔴 Утомлен" role="radio" aria-checked="false">🔴 Утомлен</button>
         </div>
       </div>
-      
+
       <div style="display:flex; flex-direction:column; gap:4px;">
         <span class="live-closeout-label">Оценка тяжести сессии (sRPE 6–10):</span>
         <div class="live-srpe-grid" role="radiogroup">
@@ -3598,19 +3749,19 @@
       <div style="display:flex; flex-direction:column; gap:12px;">
         <div>
           <label for="prefTimerCompound" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Базовые компаунды (#1–#2), сек:</label>
-          <input type="number" id="prefTimerCompound" class="m3-input" value="150" step="10">
+          <input type="number" id="prefTimerCompound" class="m3-input" value="150" step="10" min="10" max="600" inputmode="numeric">
         </div>
         <div>
           <label for="prefTimerIsolation" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Изоляция, руки и ноги (#3+), сек:</label>
-          <input type="number" id="prefTimerIsolation" class="m3-input" value="90" step="10">
+          <input type="number" id="prefTimerIsolation" class="m3-input" value="90" step="10" min="10" max="600" inputmode="numeric">
         </div>
         <div>
           <label for="prefTimerCluster" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Кластерная микропауза (для отсчёта), сек:</label>
-          <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5">
+          <input type="number" id="prefTimerCluster" class="m3-input" value="20" step="5" min="5" max="120" inputmode="numeric">
         </div>
         <div>
           <label for="prefTimerDrop" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Пауза на сброс веса в дроп-сете, сек:</label>
-          <input type="number" id="prefTimerDrop" class="m3-input" value="15" step="5">
+          <input type="number" id="prefTimerDrop" class="m3-input" value="15" step="5" min="5" max="120" inputmode="numeric">
         </div>
       </div>
       <div style="display:flex; justify-content:flex-end; margin-top:8px;">
