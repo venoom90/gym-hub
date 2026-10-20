@@ -1,86 +1,44 @@
+/**
+ * =========================================================================
+ * GYM ANALYTICS HUB — API LAYER (V2.0)
+ * =========================================================================
+ * V2.0 изменения:
+ * - postGas() — единый транспорт. Все 6 функций стали тонкими обёртками.
+ * - res.text() + JSON.parse с защитой: HTML-ответ GAS даёт осмысленную
+ *   ошибку вместо "Unexpected token <" (аудит 3.5).
+ * - Удалён _t: Date.now() — поле не участвовало в ключе кэша SW, только
+ *   раздувало body.
+ * - Контракты ошибок СОХРАНЕНЫ:
+ *   * fetchAnalyticsData        → {success, data} / {success:false, error}
+ *   * fetchServerDebugLogs      → logs[]              / throws
+ *   * syncSetsToSheets          → data                / throws
+ *   * saveAiPlanToSheets        → {success, savedRows} / {success:false}
+ *   * askGasGeminiCoach         → string              / throws
+ * =========================================================================
+ */
+
 export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydM_23SpEHmQyKmveDgw9vc_0_TRASZA-M444YPXcGffdDowR5RWaryrrgNg_YflNv/exec';
 
 /**
- * Получение всех данных БД через POST с токеном в теле (защита от утечки в access-логи)
+ * Единственный транспорт к GAS. НИКОГДА не throws.
+ *
+ * @param {string} action - action в payload
+ * @param {object} payload - тело запроса (без action и token)
+ * @param {object} opts - {timeoutMs, timeoutMessage}
+ * @returns {Promise<{ok:boolean, data:any, error:string|null}>}
  */
-export async function fetchAnalyticsData() {
+async function postGas(action, payload, opts) {
+  const options = opts || {};
+  const timeoutMs = (typeof options.timeoutMs === 'number') ? options.timeoutMs : 15000;
+  const timeoutMessage = options.timeoutMessage ||
+    `Превышено время ожидания ответа сервера (${Math.round(timeoutMs / 1000)} секунд). Проверьте интернет-соединение.`;
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const token = localStorage.getItem('gym_api_token') || '';
-    const payload = {
-      action: 'get_all_data',
-      token: token,
-      _t: Date.now()
-    };
-
-    const res = await fetch(GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    if (data && data.success === false) {
-      throw new Error(data.error || 'Ошибка сервера при получении данных');
-    }
-    return { success: true, data };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    console.warn('[API] Ошибка сети при получении данных:', err);
-    return { success: false, error: err.message };
-  }
-}
-
-/**
- * Получение серверных логов отладки с листа Debug_Log
- */
-export async function fetchServerDebugLogs() {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-  try {
-    const token = localStorage.getItem('gym_api_token') || '';
-    const payload = {
-      action: 'get_debug_log',
-      token: token,
-      _t: Date.now()
-    };
-
-    const res = await fetch(GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const json = await res.json();
-    if (json && json.success === false) {
-      throw new Error(json.error || 'Ошибка сервера при получении логов');
-    }
-    return json.logs || [];
-  } catch (err) {
-    clearTimeout(timeoutId);
-    throw new Error(`Ошибка чтения логов с сервера: ${err.message}`);
-  }
-}
-
-/**
- * Отправка сетов и макро-сводки тренировки в Google Sheets
- */
-export async function syncSetsToSheets(payload) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const token = localStorage.getItem('gym_api_token') || '';
-    const fullPayload = { ...payload, token };
+    const fullPayload = Object.assign({}, payload || {}, { action: action, token: token });
 
     const res = await fetch(GAS_API_URL, {
       method: 'POST',
@@ -91,107 +49,109 @@ export async function syncSetsToSheets(payload) {
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      throw new Error(`Сервер вернул статус HTTP ${res.status}`);
+      return { ok: false, data: null, error: `HTTP Error ${res.status}` };
     }
 
-    const data = await res.json().catch(() => {
-      throw new Error('Сервер вернул невалидный JSON ответ');
-    });
-
-    if (!data.success) {
-      throw new Error(data.error || 'Неизвестная ошибка синхронизации на сервере');
+    let text;
+    try {
+      text = await res.text();
+    } catch (e) {
+      return { ok: false, data: null, error: 'Не удалось прочитать тело ответа сервера' };
     }
 
-    return data;
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      const preview = text ? text.substring(0, 100).replace(/\s+/g, ' ').trim() : '';
+      return { ok: false, data: null, error: `Сервер вернул невалидный JSON: ${preview || '(пусто)'}` };
+    }
+
+    if (!data || typeof data !== 'object') {
+      return { ok: false, data: null, error: 'Сервер вернул пустой ответ' };
+    }
+
+    if (data.success === false) {
+      return { ok: false, data: data, error: data.error || 'Неизвестная ошибка сервера' };
+    }
+
+    return { ok: true, data: data, error: null };
   } catch (err) {
     clearTimeout(timeoutId);
-    throw new Error(`Сетевой сбой при отправке: ${err.message}`);
+    if (err && err.name === 'AbortError') {
+      return { ok: false, data: null, error: timeoutMessage };
+    }
+    return { ok: false, data: null, error: (err && err.message) || 'Сетевая ошибка' };
   }
 }
 
 /**
- * Облачное сохранение сгенерированного плана мезоцикла на лист AI_Plan (TODO-07)
+ * Получение всех данных БД.
+ * Контракт: {success:true, data} / {success:false, error}. Не throws.
+ */
+export async function fetchAnalyticsData() {
+  const r = await postGas('get_all_data', {}, { timeoutMs: 15000 });
+  if (!r.ok) {
+    console.warn('[API] Ошибка сети при получении данных:', r.error);
+    return { success: false, error: r.error };
+  }
+  return { success: true, data: r.data };
+}
+
+/**
+ * Получение серверных логов отладки.
+ * Контракт: logs[] / throws.
+ */
+export async function fetchServerDebugLogs() {
+  const r = await postGas('get_debug_log', {}, { timeoutMs: 10000 });
+  if (!r.ok) {
+    throw new Error(`Ошибка чтения логов с сервера: ${r.error}`);
+  }
+  return (r.data && r.data.logs) || [];
+}
+
+/**
+ * Отправка сетов и макро-сводки тренировки.
+ * Контракт: data / throws.
+ */
+export async function syncSetsToSheets(payload) {
+  const r = await postGas('sync_sets', payload, { timeoutMs: 20000 });
+  if (!r.ok) {
+    throw new Error(`Сетевой сбой при отправке: ${r.error}`);
+  }
+  return r.data;
+}
+
+/**
+ * Облачное сохранение сгенерированного плана мезоцикла.
+ * Контракт: {success:true, savedRows} / {success:false, error}. Не throws.
  */
 export async function saveAiPlanToSheets(planData) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-  try {
-    const token = localStorage.getItem('gym_api_token') || '';
-    const payload = {
-      action: 'save_ai_plan',
-      plan: planData,
-      token: token
-    };
-
-    const res = await fetch(GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const data = await res.json();
-    if (!data.success) {
-      throw new Error(data.error || 'Ошибка сохранения плана на сервере');
-    }
-    return data;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    console.warn('[API] Не удалось сохранить план на лист AI_Plan:', err.message);
-    return { success: false, error: err.message };
+  const r = await postGas('save_ai_plan', { plan: planData }, { timeoutMs: 15000 });
+  if (!r.ok) {
+    console.warn('[API] Не удалось сохранить план на лист AI_Plan:', r.error);
+    return { success: false, error: r.error };
   }
+  return r.data;
 }
 
 /**
- * Универсальный шлюз к Gemini через бессерверный Google Apps Script Relay (работает без VPN)
+ * Шлюз к Gemini через GAS Relay.
+ * Контракт: answer (string) / throws.
  */
 export async function askGasGeminiCoach(promptText) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 85000);
-
-  try {
-    const token = localStorage.getItem('gym_api_token') || '';
-    const payload = {
-      action: 'ask_gemini_coach',
-      prompt: promptText,
-      token: token
-    };
-
-    const res = await fetch(GAS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      throw new Error(`Сервер вернул статус HTTP ${res.status}`);
-    }
-
-    const data = await res.json().catch(() => {
-      throw new Error('Сервер вернул невалидный JSON ответ');
-    });
-
-    if (!data.success) {
-      throw new Error(data.error || 'Неизвестная ошибка на стороне GAS AI Relay');
-    }
-
-    return data.answer;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error('Превышено время ожидания ответа ИИ-тренера (85 секунд). Проверьте интернет-соединение.');
-    }
-    throw new Error(`Сбой связи с ИИ-тренером: ${err.message}`);
+  const r = await postGas('ask_gemini_coach', { prompt: promptText }, {
+    timeoutMs: 85000,
+    timeoutMessage: 'Превышено время ожидания ответа ИИ-тренера (85 секунд). Проверьте интернет-соединение.'
+  });
+  if (!r.ok) {
+    throw new Error(`Сбой связи с ИИ-тренером: ${r.error}`);
   }
+  return r.data.answer;
 }
 
 /**
- * Обратная совместимость для аудита
+ * Обратная совместимость для аудита.
  */
 export async function requestGeminiAudit(promptText) {
   return askGasGeminiCoach(promptText);

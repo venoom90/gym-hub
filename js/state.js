@@ -2,38 +2,57 @@
  * Единый источник правды (Single Source of Truth)
  * Изолированное хранилище состояния приложения, Local-First гидратация и чистые утилиты нормализации
  *
- * V49: исправлены isIsolationExercise (порядок + корни) и rirWeight (диапазоны).
+ * V50:
+ * - normalizeDb() — единая функция формы БД. getInitialDbData() и setDbData()
+ *   стали тонкими обёртками. Устраняет дублирование 8 полей.
+ * - showStorageWarningOnce() — user-facing toast при quota error (аудит 2.6).
+ *   Раньше ошибка setItem глоталась в catch → кэш молча переставал обновляться.
+ * - V49-фиксы isIsolationExercise / rirWeight сохранены.
  */
 
-function getInitialDbData() {
-  const fallback = {
-    sets: [],
-    catalog: [],
-    cycles: [],
-    exercises: [],
-    workouts: [],
-    aiPlan: null,
-    currentCycleId: 'C-1',
-    suggestedNextCycleId: null
-  };
+import { showWarningToast } from './ui.js';
 
+const STORAGE_KEY_DB = 'gym_cached_db_data';
+const STORAGE_KEY_AI_PLAN = 'gym_ai_coach_plan';
+
+let quotaWarningShown = false;
+
+function showStorageWarningOnce(message) {
+  if (quotaWarningShown) return;
+  quotaWarningShown = true;
   try {
-    const raw = localStorage.getItem('gym_cached_db_data');
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return {
-      sets: Array.isArray(parsed.sets) ? parsed.sets : [],
-      catalog: Array.isArray(parsed.catalog) ? parsed.catalog : [],
-      cycles: Array.isArray(parsed.cycles) ? parsed.cycles : [],
-      exercises: Array.isArray(parsed.exercises) ? parsed.exercises : [],
-      workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
-      aiPlan: parsed.aiPlan || null,
-      currentCycleId: parsed.currentCycleId || parsed.suggestedNextCycleId || 'C-1',
-      suggestedNextCycleId: parsed.suggestedNextCycleId || null
-    };
+    showWarningToast(message);
+  } catch (e) {
+    console.warn('[State] Toast-helper недоступен:', e);
+  }
+}
+
+/**
+ * Единая функция формы БД.
+ * Защищает от null/undefined/невалидных типов во всех 8 полях.
+ */
+function normalizeDb(data) {
+  const src = data || {};
+  return {
+    sets: Array.isArray(src.sets) ? src.sets : [],
+    catalog: Array.isArray(src.catalog) ? src.catalog : [],
+    cycles: Array.isArray(src.cycles) ? src.cycles : [],
+    exercises: Array.isArray(src.exercises) ? src.exercises : [],
+    workouts: Array.isArray(src.workouts) ? src.workouts : [],
+    aiPlan: src.aiPlan || null,
+    currentCycleId: src.currentCycleId || src.suggestedNextCycleId || 'C-1',
+    suggestedNextCycleId: src.suggestedNextCycleId || null
+  };
+}
+
+function getInitialDbData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DB);
+    if (!raw) return normalizeDb(null);
+    return normalizeDb(JSON.parse(raw));
   } catch (e) {
     console.warn('[State] Ошибка гидратации кэша БД:', e);
-    return fallback;
+    return normalizeDb(null);
   }
 }
 
@@ -54,41 +73,41 @@ export function setSelectedCycle(cycleId) {
 }
 
 export function setDbData(data) {
-  const safeData = data || {};
-  state.dbData = {
-    sets: Array.isArray(safeData.sets) ? safeData.sets : [],
-    catalog: Array.isArray(safeData.catalog) ? safeData.catalog : [],
-    cycles: Array.isArray(safeData.cycles) ? safeData.cycles : [],
-    exercises: Array.isArray(safeData.exercises) ? safeData.exercises : [],
-    workouts: Array.isArray(safeData.workouts) ? safeData.workouts : [],
-    aiPlan: safeData.aiPlan || null,
-    currentCycleId: safeData.currentCycleId || safeData.suggestedNextCycleId || 'C-1',
-    suggestedNextCycleId: safeData.suggestedNextCycleId || null
-  };
+  state.dbData = normalizeDb(data);
 
   try {
-    if (safeData.aiPlan && safeData.aiPlan.splits) {
+    const srcAiPlan = state.dbData.aiPlan;
+    if (srcAiPlan && srcAiPlan.splits) {
       let shouldOverwriteLocal = true;
       try {
-        const localRaw = localStorage.getItem('gym_ai_coach_plan');
+        const localRaw = localStorage.getItem(STORAGE_KEY_AI_PLAN);
         if (localRaw) {
           const localPlan = JSON.parse(localRaw);
           if (localPlan._pendingCloudSync) {
             shouldOverwriteLocal = false;
-          } else if (localPlan.generatedAt && safeData.aiPlan.generatedAt && localPlan.generatedAt > safeData.aiPlan.generatedAt) {
+          } else if (localPlan.generatedAt && srcAiPlan.generatedAt && localPlan.generatedAt > srcAiPlan.generatedAt) {
             shouldOverwriteLocal = false;
           }
         }
       } catch (e) {}
 
       if (shouldOverwriteLocal) {
-        localStorage.setItem('gym_ai_coach_plan', JSON.stringify(safeData.aiPlan));
+        localStorage.setItem(STORAGE_KEY_AI_PLAN, JSON.stringify(srcAiPlan));
       }
     }
 
-    localStorage.setItem('gym_cached_db_data', JSON.stringify(state.dbData));
+    localStorage.setItem(STORAGE_KEY_DB, JSON.stringify(state.dbData));
   } catch (e) {
     console.warn('[State] Не удалось сохранить кэш БД в localStorage:', e);
+    const isQuota = e && (
+      e.name === 'QuotaExceededError' ||
+      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      e.code === 22 ||
+      e.code === 1014
+    );
+    if (isQuota) {
+      showStorageWarningOnce('Локальный кэш переполнен. Данные не сохраняются локально — синхронизируйте с сервером.');
+    }
   }
 }
 
@@ -212,12 +231,6 @@ export const MAINTENANCE_UPPER_BOUND = 5;
  * Парсер допускает RIR "+2.5"; старый код `r === 2 / r === 3` проваливал
  * такие значения в ветку RIR ≥ 4 и давал коэффициент 0.25–0.3 — МЕНЬШЕ,
  * чем для RIR 3. Итог: объём дробился вниз, лагающие мышцы маскировались.
- *
- * Границы (по возрастанию RIR = убыванию стимула):
- *   RIR < 2   → 1.0  (отказ / на пределе)
- *   RIR < 3   → 0.85 (оптимум гипертрофии)
- *   RIR < 4   → 0.6 (изоляция) / 0.5 (compound) — граница полезного объёма
- *   RIR ≥ 4   → 0.3 (изоляция) / 0.25 (compound) — «мусорные» сеты
  */
 export function rirWeight(reserve, isIsolation) {
   const clean = String(reserve || '').trim().replace(/^\+/, '');
@@ -234,17 +247,13 @@ export function rirWeight(reserve, isIsolation) {
  * 1) Проверка изоляции идёт ПЕРВОЙ — иначе `жим` в «Французский жим»
  *    перехватывает строку и возвращает false.
  * 2) `подъ[её]м` — regex, а не точная строка. Покрывает подъём/подъем/
- *    подъёмы/подъемы. Старые строки 'подъём на носки' / 'подъем на носки'
- *    не совпадали с «Подъёмы на носки» (между «м» и «на» стоит «ы»).
- * 3) `молот` покрывает «молот» и «молотки» — раньше не было вообще.
- * 4) Compound-паттерны — fallback. Значения по умолчанию — compound
- *    (консервативно для rirWeight: не завышает стимул).
+ *    подъёмы/подъемы.
+ * 3) `молот` покрывает «молот» и «молотки».
  */
 export function isIsolationExercise(exerciseName) {
   const n = String(exerciseName || '').toLowerCase().trim();
   if (!n) return false;
 
-  // Priority 1: явные корни изоляции (проверяются первыми!)
   const isolationRoots = [
     'разведен', 'махи', 'сгибан', 'разгибан', 'концентрирован',
     'молитв', 'кикбэк', 'француз', 'пуловер', 'молот'
@@ -252,10 +261,8 @@ export function isIsolationExercise(exerciseName) {
   for (let i = 0; i < isolationRoots.length; i++) {
     if (n.includes(isolationRoots[i])) return true;
   }
-  // Calf raise: подъём / подъем / подъёмы / подъемы (ё/е-альтернация)
   if (/подъ[её]м/.test(n)) return true;
 
-  // Priority 2: compound-корни (fallback)
   const compoundRoots = ['жим', 'тяга', 'присед', 'становая', 'подтягиван', 'отжиман', 'брусь'];
   for (let i = 0; i < compoundRoots.length; i++) {
     if (n.includes(compoundRoots[i])) return false;
@@ -357,10 +364,6 @@ export function getExerciseMultiplier(exerciseName) {
 
 /* =========================================================================
  * Lookup последнего значения поля для упражнения
- * -------------------------------------------------------------------------
- * Используется для автоподстановки equipment / positioning из истории.
- * Возвращает последнее НЕПУСТОЕ значение поля для данного упражнения.
- * Сортировка — по дате (свежие сверху).
  * ========================================================================= */
 
 export function getLastSetFieldForExercise(exerciseName, field) {
