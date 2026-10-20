@@ -32,6 +32,7 @@ import {
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
 import { logToTerminal } from './sync.js';
+import { showErrorToast, showSuccessToast, openConfirmSheet } from './ui.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
@@ -414,19 +415,31 @@ function computeSmartDraftSetForExercise(ex) {
 
 export function startNewLiveWorkout(recipePayload) {
   if (!recipePayload || !Array.isArray(recipePayload.exercises) || recipePayload.exercises.length === 0) {
-    alert('План тренировки пуст. Сначала загрузите данные или сформируйте план у Тренера.');
+    showErrorToast('План тренировки пуст. Сначала загрузите данные или сформируйте план у Тренера');
     return;
   }
 
   if (activeSession && !activeSession.isFinished) {
-    const confirmOverwrite = confirm('У вас уже есть незавершенная тренировка. Начать новую (текущий прогресс будет сброшен)?');
-    if (!confirmOverwrite) {
-      registerLiveModals();
-      openModal('liveWorkoutOverlay');
-      return;
-    }
+    openConfirmSheet({
+      title: 'Тренировка уже идёт',
+      message: 'У вас уже есть незавершённая тренировка. Начать новую? Текущий прогресс будет сброшен.',
+      confirmLabel: 'Начать новую',
+      cancelLabel: 'Продолжить текущую',
+      danger: true,
+      requireDoubleTap: false,
+      onConfirm: () => beginNewLiveWorkoutSession(recipePayload),
+      onCancel: () => {
+        registerLiveModals();
+        openModal('liveWorkoutOverlay');
+      }
+    });
+    return;
   }
 
+  beginNewLiveWorkoutSession(recipePayload);
+}
+
+function beginNewLiveWorkoutSession(recipePayload) {
   const now = new Date();
   const dateStr = formatDateDisplay(now);
   const startTimeStr = now.toTimeString().slice(0, 5);
@@ -1772,7 +1785,7 @@ function recordSimpleSet() {
   const reps = parseInt(activeSession.draftSet.reps, 10) || 0;
   const rirRaw = String(activeSession.draftSet.rir || '2');
 
-  if (weightDisplay <= 0 || reps <= 0) { alert('Вес и повторения должны быть больше нуля.'); return; }
+  if (weightDisplay <= 0 || reps <= 0) { showErrorToast('Вес и повторения должны быть больше нуля'); return; }
 
   let effort = 'Высокое';
   let reserve = `+${rirRaw.replace('+', '')}`;
@@ -2604,7 +2617,7 @@ async function finalizeAndSyncLiveWorkout() {
     if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
     setTimeout(() => { if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay'); document.body.style.overflow = ''; }, 280);
     if (typeof onWorkoutCompletedCallback === 'function') await onWorkoutCompletedCallback();
-    setTimeout(() => { alert(`Тренировка «${closedTitle}» сохранена в Google Таблицы.`); }, 320);
+    setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена в Google Таблицы`); }, 320);
   } catch (err) {
     logToTerminal('LIVE_SYNC_ERR', `Сбой: ${err.message}`, 'error');
     if (statusEl) { statusEl.style.color = 'var(--md-sys-color-error)'; statusEl.innerText = `❌ Сбой сети: ${err.message}. Данные сохранены в памяти телефона — повторите отправку при появлении связи.`; }
