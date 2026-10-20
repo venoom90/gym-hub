@@ -23,7 +23,7 @@
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v49';
+const CACHE_NAME = 'gym-hub-v50';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const GAS_CACHE_NAME = 'gym-gas-cache-v2';
 const GAS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
