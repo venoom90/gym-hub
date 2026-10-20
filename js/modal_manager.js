@@ -1,18 +1,21 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — MODAL MANAGER (V49 History Integrity)
+ * GYM ANALYTICS HUB — MODAL MANAGER (V50 History + Transient Fixes)
  * =========================================================================
- * V49 изменения:
- * - resetAllModals() корректно откатывает историю через history.go(-depth):
- *   после вызова пользователь не «застревает» на пустых popstate-записях.
- * - handlePopstate реагирует ТОЛЬКО на «свои» события (state содержит
- *   gymModal или __gymBaseline). Hash-navigation и forward на произвольные
- *   записи игнорируются и не закрывают модалы случайно.
- * - Forward на модал восстанавливается: если event.state.gymModal не в стеке
- *   — открываем его без pushState (мы уже в «будущем»). Если в стеке, но не
- *   top — закрываем до него (back-семантика).
- * - В app.js tab-navigation теперь через history.replaceState, а не
- *   location.hash — устраняет конфликт с modal-pushState.
+ * V50 (группа B аудита 20.10.2026):
+ * - Bug 6: baseline-случай (back с любого модала в самый низ) теперь закрывает
+ *   ВСЕ модалы через while (stack.length > 0). Раньше закрывался только top,
+ *   и при накопленной истории из нескольких записей остальные модалы «висели»
+ *   при уже откаченной истории.
+ * - Bug 7: transient-модалы (например, confirm-sheet) НЕ восстанавливаются
+ *   при forward. Их onClose/onOpen не рассчитаны на «оживление» без контекста
+ *   (у confirm-sheet confirmSheetState = null → кнопки мертвы). Флаг
+ *   config.transient = true ставится в registerModal.
+ * - Bug 8: resetAllModals теперь ставит suppressPopstateCount = 1, а не depth.
+ *   history.go(-N) эмитит ОДИН popstate на итоговое состояние. Старое значение
+ *   проглатывало реальные события в окне 400 мс (hardware back, forward).
+ * - V49-фиксы (isOurPopstateState, openModalWithoutHistory, history.go(-depth))
+ *   сохранены.
  * =========================================================================
  */
 
@@ -25,7 +28,6 @@ let suppressPopstateCount = 0;
 function init() {
   if (initialized) return;
   initialized = true;
-  // Baseline: фиксируем стартовое состояние истории, чтобы back имел куда возвращаться.
   history.replaceState({ __gymBaseline: true }, '', location.href);
   window.addEventListener('popstate', handlePopstate);
 }
@@ -35,10 +37,6 @@ function isOurPopstateState(state) {
   return Boolean(state.gymModal) || Boolean(state.__gymBaseline);
 }
 
-/**
- * Закрывает верхний модал стека и вызывает его onClose.
- * Используется и в handlePopstate, и в resetAllModals.
- */
 function closeStackTop() {
   const topId = stack.pop();
   if (!topId) return;
@@ -56,11 +54,6 @@ function closeStackTop() {
   }
 }
 
-/**
- * Открывает модал без pushState. Нужно для forward-восстановления:
- * браузер уже перевёл нас в «будущее» через forward, pushState создал бы
- * новую запись и сломал историю.
- */
 function openModalWithoutHistory(id) {
   const config = registry[id];
   if (!config || !config.el) return;
@@ -77,7 +70,7 @@ function openModalWithoutHistory(id) {
 }
 
 function handlePopstate(event) {
-  // Поглощение popstate'ов от resetAllModals (history.go(-depth)).
+  // Поглощение popstate от resetAllModals (history.go(-depth) — один event).
   if (suppressPopstateCount > 0) {
     suppressPopstateCount--;
     closingInProgress = false;
@@ -85,8 +78,6 @@ function handlePopstate(event) {
   }
 
   if (!isOurPopstateState(event.state)) {
-    // Чужое событие (hash-navigation, forward на произвольную запись).
-    // Модал не трогаем — иначе таб-навигация случайно закроет его.
     closingInProgress = false;
     return;
   }
@@ -96,27 +87,24 @@ function handlePopstate(event) {
   const topId = stack.length > 0 ? stack[stack.length - 1] : null;
   const eventModalId = event.state.gymModal;
 
-  // Случай 1: state = baseline (back с любого модала в самый низ).
+  // Bug 6 fix: baseline — закрываем ВСЕ модалы, а не только top.
   if (event.state.__gymBaseline) {
-    if (topId) closeStackTop();
+    while (stack.length > 0) closeStackTop();
     return;
   }
 
-  // Случай 2: state = gymModal X.
   if (eventModalId) {
     if (eventModalId === topId) {
-      // Back/forward на тот же модал — стек не меняется (no-op).
       return;
     }
     if (stack.includes(eventModalId)) {
-      // Back: X есть в стеке, но не top → закрываем до X.
       while (stack.length > 0 && stack[stack.length - 1] !== eventModalId) {
         closeStackTop();
       }
       return;
     }
-    // Forward: X не в стеке → восстанавливаем без pushState.
-    if (registry[eventModalId] && registry[eventModalId].el) {
+    // Bug 7 fix: transient-модалы не восстанавливаем при forward.
+    if (registry[eventModalId] && registry[eventModalId].el && !registry[eventModalId].transient) {
       openModalWithoutHistory(eventModalId);
     }
     return;
@@ -145,7 +133,6 @@ export function openModal(id, extraData) {
     return;
   }
 
-  // Push в историю ДО отображения, чтобы back работал сразу.
   history.pushState({ gymModal: id }, '');
   stack.push(id);
 
@@ -171,12 +158,9 @@ export function closeModal(id) {
     return;
   }
 
-  // Программное закрытие = history.back().
-  // Это триггернёт popstate, который закроет top-of-stack.
   closingInProgress = true;
   history.back();
 
-  // Защита от «зависшего» флага, если popstate не сработает.
   setTimeout(() => { closingInProgress = false; }, 500);
 }
 
@@ -189,11 +173,10 @@ export function getTopModalId() {
 }
 
 /**
- * Форсированная очистка всех модалов БЕЗ синхронизации с историей.
- * Используется при logout, успешном save, discard session.
+ * Форсированная очистка БЕЗ onClose (не вызывает callbacks).
+ * Используется при logout / save success / discard live session.
  *
- * V49 FIX: откатывает историю на реальную глубину стека через history.go(-N),
- * чтобы пользователь не «застревал» на пустых popstate-записях.
+ * Bug 8 fix: history.go(-N) эмитит ОДИН popstate, не N.
  */
 export function resetAllModals() {
   const depth = stack.length;
@@ -208,11 +191,8 @@ export function resetAllModals() {
   });
 
   if (depth > 0) {
-    suppressPopstateCount = depth;
+    suppressPopstateCount = 1;
     history.go(-depth);
-    // Safety: если popstate по какой-то причине не пришёл (некоторые браузеры
-    // генерируют один popstate на всю операцию history.go(-n)), снимаем
-    // счётчик по таймауту.
     setTimeout(() => { suppressPopstateCount = 0; }, 400);
   }
 }

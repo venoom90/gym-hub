@@ -16,7 +16,6 @@ let refreshSeq = 0;
 let lastDataHash = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // V51: регистрируем quota-warning handler ДО первого setDbData.
   setQuotaWarningHandler(showWarningToast);
 
   initServiceWorker();
@@ -43,19 +42,120 @@ document.addEventListener('DOMContentLoaded', async () => {
   await refreshApplicationData({ force: true });
 });
 
+/* =========================================================
+ * SERVICE WORKER (V53)
+ * ========================================================= */
+
 function initServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => {
-          console.log('[SW] Успешно зарегистрирован, scope:', reg.scope);
-        })
-        .catch(err => {
-          console.warn('[SW] Ошибка регистрации:', err);
-        });
-    });
+  if (!('serviceWorker' in navigator)) return;
+
+  // D2=B: reload при смене controller — только если page уже был под контролем
+  // (иначе первый clients.claim() перезагрузит страницу при первом визите).
+  const wasControlled = Boolean(navigator.serviceWorker.controller);
+  let refreshing = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    if (!wasControlled) return;
+    refreshing = true;
+    location.reload();
+  });
+
+  // D2=B: SW_UPDATED приходит из activate нового SW. Показываем banner
+  // только если page уже под контролем (не первый визит).
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'SW_UPDATED') {
+      if (navigator.serviceWorker.controller) {
+        showSwUpdateBanner(event.data.version || '');
+      }
+    }
+  });
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('[SW] Успешно зарегистрирован, scope:', reg.scope);
+        // Периодическая проверка обновлений (раз в час).
+        try {
+          setInterval(() => { reg.update().catch(() => {}); }, 3600000);
+        } catch (e) {}
+      })
+      .catch(err => {
+        console.warn('[SW] Ошибка регистрации:', err);
+      });
+  });
+}
+
+/**
+ * D2=B: идемпотентный banner «Доступна новая версия» с кнопкой «Обновить».
+ * Кнопка шлёт SKIP_WAITING активному новому SW → controllerchange → reload.
+ */
+function showSwUpdateBanner(version) {
+  if (document.getElementById('swUpdateBanner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'swUpdateBanner';
+  banner.setAttribute('role', 'status');
+  banner.setAttribute('aria-live', 'polite');
+  banner.style.cssText = [
+    'position:fixed',
+    'left:16px',
+    'right:16px',
+    'bottom:calc(88px + env(safe-area-inset-bottom, 0px))',
+    'padding:12px 16px',
+    'border-radius:var(--md-sys-shape-corner-large)',
+    'background:var(--md-sys-color-primary-container)',
+    'color:var(--md-sys-color-on-primary-container)',
+    'border:1px solid var(--md-sys-color-primary)',
+    'font:var(--md-sys-typescale-body-medium)',
+    'font-weight:500',
+    'z-index:4000',
+    'box-shadow:0 4px 16px rgba(0,0,0,0.4)',
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'gap:12px'
+  ].join(';');
+
+  banner.innerHTML = `
+    <span>Доступна новая версия приложения${version ? ' (' + version + ')' : ''}.</span>
+    <button type="button" id="swUpdateBannerBtn" style="
+      padding:8px 14px;
+      border-radius:var(--md-sys-shape-corner-medium);
+      border:none;
+      background:var(--md-sys-color-primary);
+      color:#00325e;
+      font:600 0.85rem/1 'Roboto';
+      cursor:pointer;
+      flex-shrink:0;
+      min-height:36px;
+    ">Обновить</button>
+  `;
+  document.body.appendChild(banner);
+
+  const btn = document.getElementById('swUpdateBannerBtn');
+  if (btn) {
+    btn.onclick = async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          // Дальше — controllerchange → reload (см. выше).
+        } else {
+          // Новый SW уже активен (edge-case), просто reload.
+          location.reload();
+        }
+      } catch (e) {
+        console.warn('[App] SW update failed:', e);
+        location.reload();
+      }
+    };
   }
 }
+
+/* =========================================================
+ * NAVIGATION
+ * ========================================================= */
 
 function navigateToTab(tabName) {
   const targetHash = `tab-${tabName}`;
@@ -110,6 +210,10 @@ function handleRouteHash() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+/* =========================================================
+ * SHARE TARGET
+ * ========================================================= */
+
 async function checkSharedReportCache() {
   if (!('caches' in window)) return false;
   try {
@@ -130,6 +234,10 @@ async function checkSharedReportCache() {
   }
   return false;
 }
+
+/* =========================================================
+ * DATA REFRESH
+ * ========================================================= */
 
 function computeDataHash(data) {
   if (!data) return '';
@@ -189,8 +297,6 @@ async function refreshApplicationData(opts) {
   if (mySeq !== refreshSeq) return;
 
   if (!res.success || !res.data) {
-    // Bug 13b: не спамим ошибкой, если браузер точно знает, что офлайн.
-    // Пользователь уже видит offline-точку в шапке.
     if (navigator.onLine) {
       showErrorToast('Не удалось обновить данные: ' + (res.error || 'нет связи'));
     }
@@ -203,8 +309,6 @@ async function refreshApplicationData(opts) {
 
   setInitialData(res.data);
 
-  // Bug 13: если данные пришли из SW-кэша — фиксируем РЕАЛЬНЫЙ возраст,
-  // а не момент получения. Иначе «Обновлено сейчас» врёт про offline-stale.
   const syncTimestamp = (res.fromCache && res.cacheAgeMs > 0)
     ? (Date.now() - res.cacheAgeMs)
     : Date.now();
@@ -223,13 +327,14 @@ function initRefreshButton() {
   if (btn) {
     btn.onclick = async () => {
       if (btn.disabled) return;
-      // Bug 1 + Bug 2: force: true (перерендер даже при одинаковом hash) +
-      // noCache: true (обход SW-кэша — иначе ручное обновление отдаёт
-      // 5-минутный stale).
       await refreshApplicationData({ force: true, noCache: true });
     };
   }
 }
+
+/* =========================================================
+ * NETWORK / SYNC LABEL
+ * ========================================================= */
 
 function initNetworkStatus() {
   const dot = document.getElementById('networkStatusDot');
@@ -273,6 +378,10 @@ function initLastSyncLabel() {
   setInterval(renderLastSyncLabel, 60000);
 }
 
+/* =========================================================
+ * SETTINGS
+ * ========================================================= */
+
 function initSettingsModal() {
   const modal = document.getElementById('settingsModal');
   const openBtn = document.getElementById('openSettingsBtn');
@@ -305,9 +414,6 @@ function initSettingsModal() {
 
       const tokenChanged = (val !== prevToken);
 
-      // Bug 2b: при смене токена стираем GAS-кэш, иначе первый запрос с
-      // новым токеном может получить закэшированный success:true от старого
-      // (и наоборот — упасть в 401 на «свежих» данных).
       if (tokenChanged) {
         try {
           if ('caches' in window) {
