@@ -170,4 +170,214 @@ function isUserTyping() {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
-function render
+function renderActiveTab(tabName, force) {
+  // force=true — критические источники (startup / sync / live). Всё равно
+  // не сбиваем ввод пользователя: пропустим один тик.
+  if (!force && isUserTyping()) {
+    return;
+  }
+  if (tabName === 'overview') renderOverviewModule();
+  if (tabName === 'analytics') renderAnalyticsModule();
+  if (tabName === 'coach') renderCoachModule();
+  if (tabName === 'sync') renderSyncModule();
+}
+
+/**
+ * Загрузка данных из GAS.
+ *
+ * opts.force:
+ *   true  — startup / sync-callback / live-callback: рендерить даже если хэш
+ *           не изменился (данные только что записаны — нужен свежий вид).
+ *   false — manual refresh: если данные не изменились, не трогать UI
+ *           (сохранить скролл, ввод, открытые дропдауны).
+ *
+ * Race protection: seq-счётчик отбрасывает устаревшие ответы.
+ * Loading/offline разведены: refresh НЕ трогает #networkStatusDot, точкой
+ * владеет initNetworkStatus (navigator.onLine).
+ */
+async function refreshApplicationData(opts) {
+  const options = opts || {};
+  const force = Boolean(options.force);
+
+  const mySeq = ++refreshSeq;
+  const refreshBtn = document.getElementById('refreshDataBtn');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.setAttribute('aria-busy', 'true');
+  }
+
+  let res;
+  try {
+    res = await fetchAnalyticsData();
+  } catch (err) {
+    res = { success: false, error: err.message || 'Network error' };
+  } finally {
+    // Разблокировать кнопку может только последний запрос.
+    if (mySeq === refreshSeq && refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.removeAttribute('aria-busy');
+    }
+  }
+
+  // Устаревший ответ — игнорируем полностью.
+  if (mySeq !== refreshSeq) return;
+
+  if (!res.success || !res.data) {
+    showToast('Не удалось обновить данные: ' + (res.error || 'нет связи'), 'error');
+    return;
+  }
+
+  const newHash = computeDataHash(res.data);
+  const changed = (newHash !== lastDataHash);
+  lastDataHash = newHash;
+
+  setInitialData(res.data);
+  localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+  renderLastSyncLabel();
+
+  if (!changed && !force) {
+    return;
+  }
+
+  const activeNav = document.querySelector('#bottomNav .nav-item.active');
+  const curTab = activeNav ? activeNav.getAttribute('data-tab') : 'overview';
+  renderActiveTab(curTab, force);
+}
+
+/**
+ * Минимальный toast-helper. Inline-стили — не требует правок index.html.
+ * Позже, в пакете H (alert → toast), расширим и переиспользуем.
+ */
+function showToast(message, type) {
+  const existing = document.getElementById('__gym_toast__');
+  if (existing) existing.remove();
+  if (toastTimeout) { clearTimeout(toastTimeout); toastTimeout = null; }
+
+  const toast = document.createElement('div');
+  toast.id = '__gym_toast__';
+  toast.textContent = message;
+
+  const isError = (type === 'error');
+  const bg = isError ? 'var(--md-sys-color-error-container)' : 'var(--md-sys-color-secondary-container)';
+  const fg = isError ? 'var(--md-sys-color-on-error-container)' : 'var(--md-sys-color-on-secondary-container)';
+  const border = isError ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)';
+
+  toast.style.cssText = [
+    'position:fixed',
+    'left:16px',
+    'right:16px',
+    'bottom:calc(88px + env(safe-area-inset-bottom, 0px))',
+    'padding:12px 16px',
+    'border-radius:var(--md-sys-shape-corner-medium)',
+    'background:' + bg,
+    'color:' + fg,
+    'border:1px solid ' + border,
+    'font: var(--md-sys-typescale-body-medium)',
+    'font-weight:500',
+    'z-index:5000',
+    'box-shadow:0 4px 16px rgba(0,0,0,0.4)',
+    'transition:opacity 200ms ease, transform 200ms ease',
+    'opacity:0',
+    'transform:translateY(8px)'
+  ].join(';');
+
+  document.body.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  });
+
+  toastTimeout = setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(8px)';
+    setTimeout(() => {
+      if (toast.parentNode) toast.remove();
+    }, 220);
+  }, 3500);
+}
+
+function initRefreshButton() {
+  const btn = document.getElementById('refreshDataBtn');
+  if (btn) {
+    btn.onclick = async () => {
+      if (btn.disabled) return;
+      await refreshApplicationData({ force: false });
+    };
+  }
+}
+
+function initNetworkStatus() {
+  const dot = document.getElementById('networkStatusDot');
+  const update = () => {
+    if (!dot) return;
+    if (navigator.onLine) {
+      dot.classList.remove('offline');
+      dot.title = 'Сетевой статус: Онлайн';
+    } else {
+      dot.classList.add('offline');
+      dot.title = 'Сетевой статус: Оффлайн';
+    }
+  };
+  window.addEventListener('online', update);
+  window.addEventListener('offline', update);
+  update();
+}
+
+function getLastSyncLabel() {
+  const ts = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0', 10);
+  if (!ts) return 'Нет данных';
+  const diffMin = Math.floor((Date.now() - ts) / 60000);
+  if (diffMin < 1) return 'Обновлено сейчас';
+  if (diffMin < 60) return `Обновлено ${diffMin} мин назад`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `Обновлено ${diffH} ч назад`;
+  return 'Устарело — обновите';
+}
+
+function renderLastSyncLabel() {
+  const el = document.getElementById('lastSyncLabel');
+  if (!el) return;
+  el.innerText = getLastSyncLabel();
+  const ts = parseInt(localStorage.getItem(LAST_SYNC_KEY) || '0', 10);
+  const stale = !ts || (Date.now() - ts > 24 * 3600 * 1000);
+  el.style.color = stale ? 'var(--app-color-warning)' : 'var(--md-sys-color-on-surface-variant)';
+}
+
+function initLastSyncLabel() {
+  renderLastSyncLabel();
+  setInterval(renderLastSyncLabel, 60000);
+}
+
+function initSettingsModal() {
+  const modal = document.getElementById('settingsModal');
+  const openBtn = document.getElementById('openSettingsBtn');
+  const closeBtn = document.getElementById('closeSettingsBtn');
+  const tokenInput = document.getElementById('apiTokenInput');
+  const saveBtn = document.getElementById('saveApiTokenBtn');
+
+  if (!modal || !openBtn || !closeBtn) return;
+
+  registerModal('settingsModal', {
+    el: modal,
+    displayStyle: 'flex',
+    onOpen: () => {
+      if (tokenInput) tokenInput.value = localStorage.getItem('gym_api_token') || '';
+    }
+  });
+
+  openBtn.onclick = () => openModal('settingsModal');
+  closeBtn.onclick = () => closeModal('settingsModal');
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal('settingsModal');
+  };
+
+  if (saveBtn && tokenInput) {
+    saveBtn.onclick = () => {
+      const val = tokenInput.value.trim();
+      localStorage.setItem('gym_api_token', val);
+      closeModal('settingsModal');
+      showToast('Токен авторизации сохранён', 'success');
+    };
+  }
+}
