@@ -7,6 +7,13 @@ import { startNewLiveWorkout } from './live_workout.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
 import { showErrorToast } from './ui.js';
 
+/**
+ * V5.9.22 (Android UX P2 #20):
+ * - openWorkoutPlanDetailsModal: fallback activeModalSplitKey='A' если для 'B'
+ *   нет payload (AI сгенерировал только один день, или splits.B повреждён).
+ *   Устраняет ситуацию "свитчер скрыт, но рендерится день А при activeSplitKey='B'".
+ */
+
 let isOverviewInitialized = false;
 let latestPreparedWorkoutPayload = null;
 let cachedBothSplitsPayloads = { A: null, B: null };
@@ -299,7 +306,7 @@ function renderCalendarStrip() {
         exercisesMap: {}
       };
     }
-    
+
     if (isWork) {
       sessionDatesMap[key].setsCount++;
       sessionDatesMap[key].tonnage += (s.tonnage || 0);
@@ -588,7 +595,7 @@ function renderAiRecipeCard() {
       const parsedPlan = JSON.parse(rawAiPlan);
       if (parsedPlan && parsedPlan.splits) {
         const isPlanAlreadyPhased = (
-          parseInt(parsedPlan.cycleWeek, 10) === nextWeek && 
+          parseInt(parsedPlan.cycleWeek, 10) === nextWeek &&
           parsedPlan.cycleMode === nextMode
         );
 
@@ -703,7 +710,7 @@ function renderAiRecipeCard() {
     }
 
     const finalTargetLoad = roundToGymStep(rawTargetLoad);
-    
+
     const mult = getExerciseMultiplier(ex);
     const weightDisplay = roundToGymStep(finalTargetLoad / mult);
     const warmupTextDisplay = calculateWarmupRamp(idx + 1, weightDisplay, nextMode);
@@ -763,9 +770,16 @@ function updatePlanPreviewCardUI(payload) {
 
 function openWorkoutPlanDetailsModal() {
   if (!latestPreparedWorkoutPayload || !latestPreparedWorkoutPayload.exercises) {
-    // V5.9.21: alert → showErrorToast (UX P1, регламент §2.3 п.28).
     showErrorToast('План тренировки ещё не загружен. Сначала сформируйте его во вкладке «Тренер» или загрузите данные.');
     return;
+  }
+
+  // V5.9.22: fallback — если activeModalSplitKey указывает на день без payload,
+  // переключаемся на тот, что есть. Устраняет "свитчер скрыт, но показан не тот день".
+  if (activeModalSplitKey === 'B' && !cachedBothSplitsPayloads.B) {
+    activeModalSplitKey = 'A';
+  } else if (activeModalSplitKey === 'A' && !cachedBothSplitsPayloads.A && cachedBothSplitsPayloads.B) {
+    activeModalSplitKey = 'B';
   }
 
   const switcher = document.getElementById('modalPlanSplitSwitcher');
@@ -810,7 +824,7 @@ function renderModalSplitExercises(payload) {
 
     const isDropMethod = String(ex.method || '').toLowerCase().includes('дроп');
     const dropWeightVal = isDropMethod ? roundToGymStep(ex.weight * 0.75) : 0;
-    
+
     const mult = ex.multiplier || 1;
     const displayDropWeight = isDropMethod ? roundToGymStep(dropWeightVal / mult) : 0;
     const displayWeight = ex.weightDisplay !== undefined ? ex.weightDisplay : ex.weight;

@@ -1,24 +1,17 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — UI HELPERS (V1.1)
+ * GYM ANALYTICS HUB — UI HELPERS (V1.2 Android Toast+Action)
  * =========================================================================
- * V1.1 (группа B аудита 20.10.2026):
- * - Bug 5 (критический): onConfirm/onCancel теперь вызываются из onClose
- *   модала, а не ДО closeModal. Раньше цепочка «confirm → onConfirm → openModal»
- *   ломалась: closeModal('gymConfirmSheet') видел чужой top и старая шторка
- *   висела под новым модалом. State-machine через confirmSheetState.pendingWhich:
- *     null    → закрытие нативно (backdrop / hardware back) → onCancel
- *     'cancel'→ пользователь нажал Отмена
- *     'confirm'→ пользователь нажал Подтвердить (после double-tap)
- * - Bug 12 (a11y): toast не удаляется (role=status переиспользуется).
- *   Длительность по типу: error 5500, warning 4500, info/success 3500.
- *   aria-atomic="true".
- * - Bug 12 (a11y confirm-sheet): aria-labelledby / aria-describedby,
- *   Escape → cancel, focus trap на двух кнопках, возврат фокуса на
- *   previousActiveElement при закрытии.
- * - Bug 7 (transient): registerModal('gymConfirmSheet', { transient: true }) —
- *   forward не восстанавливает пустую шторку.
- * - V1.0-контракты сохранены: showToast / 4 shortcuts / openConfirmSheet.
+ * V1.2 (Android UX P1 #10, P0 #4, P2 #18, P2 #23):
+ * - showToast(message, type, duration, action?): 4-й аргумент — { label, onClick }.
+ *   Добавляет inline-кнопку действия (например, "Повторить"). Обратная
+ *   совместимость: если action не передан — поведение V1.1 идентично.
+ * - Toast позиционируется выше PAB, если liveWorkoutOverlay открыт
+ *   (bottom 124px вместо 88px) — устраняет перекрытие кнопки "ЗАПИСАТЬ".
+ * - Error-тосты с action получают pointer-events: auto (можно нажать кнопку,
+ *   выделить и скопировать текст ошибки).
+ * - V1.1-фиксы (Bug 5 onClose callbacks, Bug 12 a11y focus trap, Bug 7
+ *   transient) сохранены.
  * =========================================================================
  */
 
@@ -45,7 +38,7 @@ function ensureToastElement() {
   return el;
 }
 
-export function showToast(message, type, duration) {
+export function showToast(message, type, duration, action) {
   const toast = ensureToastElement();
   if (toastTimeout) { clearTimeout(toastTimeout); toastTimeout = null; }
 
@@ -57,12 +50,67 @@ export function showToast(message, type, duration) {
   };
   const p = palette[type] || palette.info;
 
-  toast.textContent = String(message || '');
+  const hasAction = action && typeof action.label === 'string' && typeof action.onClick === 'function';
+
+  // V1.2: контент пересобирается каждый раз (текст + опциональная кнопка).
+  toast.innerHTML = '';
+  toast.textContent = '';
+
+  if (hasAction) {
+    const textSpan = document.createElement('span');
+    textSpan.textContent = String(message || '');
+    textSpan.style.flex = '1 1 auto';
+    textSpan.style.minWidth = '0';
+    textSpan.style.whiteSpace = 'pre-wrap';
+    textSpan.style.wordBreak = 'break-word';
+
+    const actionBtn = document.createElement('button');
+    actionBtn.type = 'button';
+    actionBtn.textContent = action.label;
+    actionBtn.style.cssText = [
+      'flex:0 0 auto',
+      'padding:8px 14px',
+      'border-radius:var(--md-sys-shape-corner-medium)',
+      'border:none',
+      'background:' + p.fg,
+      'color:' + p.bg,
+      'font:600 0.8rem/1 Roboto, sans-serif',
+      'cursor:pointer',
+      'margin-left:8px',
+      'min-height:36px',
+      'white-space:nowrap'
+    ].join(';');
+    actionBtn.onclick = (e) => {
+      e.stopPropagation();
+      try {
+        if (toastTimeout) { clearTimeout(toastTimeout); toastTimeout = null; }
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        toastTimeout = setTimeout(() => {
+          toastTimeout = null;
+          toast.style.display = 'none';
+        }, 220);
+        action.onClick();
+      } catch (err) {
+        console.error('[ui] toast action error:', err);
+      }
+    };
+
+    toast.appendChild(textSpan);
+    toast.appendChild(actionBtn);
+  } else {
+    toast.textContent = String(message || '');
+  }
+
+  // V1.2: toast над PAB в Live Workout.
+  const isLiveOpen = isModalOpen('liveWorkoutOverlay');
+  const bottomPx = isLiveOpen ? 124 : 88;
+
   toast.style.cssText = [
     'position:fixed',
     'left:16px',
     'right:16px',
-    'bottom:calc(88px + env(safe-area-inset-bottom, 0px))',
+    'bottom:calc(' + bottomPx + 'px + env(safe-area-inset-bottom, 0px))',
     'padding:12px 16px',
     'border-radius:var(--md-sys-shape-corner-medium)',
     'background:' + p.bg,
@@ -75,17 +123,23 @@ export function showToast(message, type, duration) {
     'transition:opacity 200ms ease, transform 200ms ease',
     'opacity:0',
     'transform:translateY(8px)',
-    'pointer-events:none',
+    'pointer-events:' + (hasAction ? 'auto' : 'none'),
     'white-space:pre-wrap',
     'word-wrap:break-word',
-    'display:block'
+    'display:flex',
+    'align-items:center',
+    'justify-content:space-between',
+    'gap:8px'
   ].join(';');
+
+  if (!hasAction) {
+    toast.style.display = 'block';
+  }
 
   void toast.offsetHeight;
   toast.style.opacity = '1';
   toast.style.transform = 'translateY(0)';
 
-  // Bug 12: ошибки живут дольше — пользователь успевает прочитать.
   const defaultMs = (type === 'error') ? 5500 : (type === 'warning') ? 4500 : 3500;
   const ms = Math.max(1000, typeof duration === 'number' ? duration : defaultMs);
   toastTimeout = setTimeout(() => {
@@ -93,17 +147,15 @@ export function showToast(message, type, duration) {
     toast.style.transform = 'translateY(8px)';
     toastTimeout = setTimeout(() => {
       toastTimeout = null;
-      // Bug 12: скрываем, а не удаляем — role=status переиспользуется,
-      // скринридер не теряет live-region.
       toast.style.display = 'none';
     }, 220);
   }, ms);
 }
 
-export function showErrorToast(m)   { showToast(m, 'error'); }
-export function showSuccessToast(m) { showToast(m, 'success'); }
-export function showWarningToast(m) { showToast(m, 'warning'); }
-export function showInfoToast(m)    { showToast(m, 'info'); }
+export function showErrorToast(m, action)   { showToast(m, 'error', undefined, action); }
+export function showSuccessToast(m, action) { showToast(m, 'success', undefined, action); }
+export function showWarningToast(m, action) { showToast(m, 'warning', undefined, action); }
+export function showInfoToast(m, action)    { showToast(m, 'info', undefined, action); }
 
 /* =========================================================
  * CONFIRM SHEET
@@ -117,7 +169,6 @@ function ensureConfirmSheetDom() {
   overlay.className = 'live-sheet-overlay';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  // Bug 12: привязка заголовка и описания.
   overlay.setAttribute('aria-labelledby', 'gymConfirmSheetTitle');
   overlay.setAttribute('aria-describedby', 'gymConfirmSheetMessage');
   overlay.innerHTML = `
@@ -162,16 +213,6 @@ function clearConfirmStateAndVisuals() {
   confirmSheetState = null;
 }
 
-/**
- * Bug 5 fix: callback вызывается из onClose модала, ПОСЛЕ закрытия.
- * pendingWhich:
- *   null      → backdrop / hardware back → onCancel
- *   'cancel'  → пользователь нажал Отмена
- *   'confirm' → пользователь нажал Подтвердить (после double-tap, если нужно)
- *
- * confirmSheetState обнуляется ДО вызова cb — чтобы cb мог открыть
- * новый confirm-sheet или другой модал без гонки.
- */
 function dispatchPendingCallback() {
   if (!confirmSheetState) return;
   const state = confirmSheetState;
@@ -185,10 +226,6 @@ function dispatchPendingCallback() {
   }
 }
 
-/**
- * Bug 12: Escape → cancel, Tab-ловушка на двух кнопках.
- * Повешен один раз на document, активен только при открытом confirm-sheet.
- */
 function handleConfirmSheetKeydown(e) {
   if (!isModalOpen('gymConfirmSheet')) return;
 
@@ -300,18 +337,16 @@ export function openConfirmSheet(opts) {
 
   overlay.onclick = (e) => {
     if (e.target === overlay) {
-      // backdrop = cancel (pendingWhich останется null → dispatch вызовет onCancel)
       closeModal('gymConfirmSheet');
     }
   };
 
-  // Bug 12: возврат фокуса на элемент, который был в фокусе до открытия.
   previousActiveElement = document.activeElement;
 
   registerModal('gymConfirmSheet', {
     el: overlay,
     displayStyle: 'flex',
-    transient: true,  // Bug 7: не восстанавливать при forward
+    transient: true,
     onClose: () => {
       dispatchPendingCallback();
       if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
@@ -323,7 +358,6 @@ export function openConfirmSheet(opts) {
 
   openModal('gymConfirmSheet');
 
-  // Bug 12: фокус на безопасной кнопке при открытии.
   setTimeout(() => {
     const cancelBtnEl = document.getElementById('gymConfirmSheetCancelBtn');
     if (cancelBtnEl && typeof cancelBtnEl.focus === 'function') {

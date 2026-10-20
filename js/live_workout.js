@@ -1,16 +1,24 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.12)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.0 Android UX + Bug Fixes)
  * =========================================================================
- * V2.8.12 (группа C):
- * - Bug 14: alert/confirm заменены на toast/confirm-sheet из ui.js.
- *   • startNewLiveWorkout → сплит на публичную (confirm-sheet) +
- *     beginNewLiveWorkoutSession (приватная).
- *   • recordSimpleSet → showErrorToast.
- *   • finalizeAndSyncLiveWorkout → showSuccessToast.
- * - Bug 18b: escapeHtml для targetMuscle в renderBigClockWidgets и
- *   warmupText в renderExerciseHeader.
- * - V2.8.10 Finish Sheet Hardening сохранён.
+ * V2.9.0 (Android UX вариант C + B1/B6/B9):
+ * - B1: Убран setTimeout(250) в startNewLiveWorkout. onConfirm вызывает
+ *   beginNewLiveWorkoutSession напрямую (V1.1 ui.js исправил race).
+ * - B6: finalizeAndSyncLiveWorkout — флаг activeSession._synced=true после
+ *   успешного syncSetsToSheets. При ошибке верификации сессия НЕ сбрасывается,
+ *   но повторный вызов не отправляет данные заново (только верифицирует).
+ * - UX-7: isSavingLiveWorkout блокирует backdrop liveCloseoutModal во время
+ *   сохранения. Защита от случайного закрытия.
+ * - UX-9: checkCrashRecoverySession guard на exercises.length === 0 — сессия
+ *   не восстанавливается, показывается toast.
+ * - UX-14: beforeunload при активной несохранённой тренировке.
+ * - UX-19: recovery-banner показывает остаток таймера отдыха (или «завершён»).
+ * - P2 #14: openWeightManualInput — scrollIntoView({ block: 'center' })
+ *   после фокуса, чтобы клавиатура не перекрывала input.
+ * - A6: announceToTalkBack() через #liveAriaAnnouncer (aria-live="polite",
+ *   visually-hidden). Озвучивает запись сета, смену упражнения, сохранение.
+ * - V2.8.13-фиксы (B1..B14) сохранены.
  * =========================================================================
  */
 
@@ -20,7 +28,7 @@ import {
 } from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
-import { showErrorToast, showSuccessToast, openConfirmSheet } from './ui.js';
+import { showErrorToast, showSuccessToast, showWarningToast, openConfirmSheet } from './ui.js';
 import { logToTerminal } from './sync.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
@@ -32,6 +40,8 @@ let restTimerInterval = null;
 let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
 let isLiveWorkoutInitialized = false;
+let isSavingLiveWorkout = false;   // V2.9.0: UX-7
+let recoveryBannerInterval = null; // V2.9.0: UX-19
 
 let bigClockStartedAtMs = 0;
 let bigClockInterval = null;
@@ -49,6 +59,17 @@ const DEFAULT_TIMERS = {
   warmup: 60
 };
 
+/**
+ * V2.9.0: TalkBack announcement через hidden aria-live region.
+ * Очищаем перед новой записью, чтобы повторный текст озвучивался заново.
+ */
+function announceToTalkBack(text) {
+  const el = document.getElementById('liveAriaAnnouncer');
+  if (!el) return;
+  el.textContent = '';
+  setTimeout(() => { el.textContent = String(text || ''); }, 60);
+}
+
 export function initLiveWorkoutModule(onComplete) {
   onWorkoutCompletedCallback = onComplete;
   bindLiveWorkoutDomEvents();
@@ -63,6 +84,15 @@ export function initLiveWorkoutModule(onComplete) {
       syncRestTimerWithWallClock();
       syncBigClockWithWallClock();
     }
+  });
+
+  // V2.9.0: UX-14 — предупреждение при закрытии вкладки/приложения.
+  window.addEventListener('beforeunload', (e) => {
+    if (!activeSession || activeSession.isFinished) return;
+    if (isSavingLiveWorkout) return;
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
   });
 }
 
@@ -213,8 +243,18 @@ function registerLiveModals() {
       }
     });
     const closeCloseoutBtn = document.getElementById('closeLiveCloseoutModalBtn');
-    if (closeCloseoutBtn) closeCloseoutBtn.onclick = () => closeModal('liveCloseoutModal');
-    closeoutModal.onclick = (e) => { if (e.target === closeoutModal) closeModal('liveCloseoutModal'); };
+    if (closeCloseoutBtn) closeCloseoutBtn.onclick = () => {
+      // V2.9.0 UX-7: не закрываем во время сохранения.
+      if (isSavingLiveWorkout) {
+        showWarningToast('Идёт сохранение. Подождите…');
+        return;
+      }
+      closeModal('liveCloseoutModal');
+    };
+    closeoutModal.onclick = (e) => {
+      // V2.9.0 UX-7: блокируем backdrop во время сохранения.
+      if (e.target === closeoutModal && !isSavingLiveWorkout) closeModal('liveCloseoutModal');
+    };
   }
 
   const timerSettingsModal = document.getElementById('liveTimerSettingsModal');
@@ -359,7 +399,7 @@ function computeSmartDraftSetForExercise(ex) {
 }
 
 /* =========================================================
- * START WORKOUT (публичная + приватная)
+ * START WORKOUT
  * ========================================================= */
 
 export function startNewLiveWorkout(recipePayload) {
@@ -369,16 +409,16 @@ export function startNewLiveWorkout(recipePayload) {
   }
 
   if (activeSession && !activeSession.isFinished) {
-    // V2.8.13 (Bug 5 fix в ui.js V1.1): колбэк теперь вызывается из onClose
-    // модала, ПОСЛЕ закрытия. Костыль setTimeout(beginNewLiveWorkoutSession, 250)
-    // из V2.8.12 убран — цепочка confirm → openModal работает нативно.
+    // V2.9.0 B1: прямой вызов (V1.1 ui.js исправил race condition).
     openConfirmSheet({
       title: 'Начать новую тренировку?',
       message: 'У вас есть незавершённая тренировка. Если начать новую, текущий прогресс будет сброшен без сохранения.',
       confirmLabel: 'Начать новую',
       cancelLabel: 'Отмена',
       danger: true,
-      onConfirm: () => beginNewLiveWorkoutSession(recipePayload)
+      onConfirm: () => {
+        beginNewLiveWorkoutSession(recipePayload);
+      }
     });
     return;
   }
@@ -467,6 +507,7 @@ function beginNewLiveWorkoutSession(recipePayload) {
   logToTerminal('LIVE_START', `Старт: ${activeSession.title} • ${exercisesQueue.length} упр.`, 'success');
   registerLiveModals();
   openModal('liveWorkoutOverlay');
+  announceToTalkBack(`Начата тренировка ${activeSession.title}. ${exercisesQueue.length} упражнений.`);
 }
 
 function persistActiveSession() {
@@ -482,6 +523,14 @@ function checkCrashRecoverySession() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && !parsed.isFinished && Array.isArray(parsed.exercises)) {
+      // V2.9.0 UX-9: защита от пустой/повреждённой сессии.
+      if (parsed.exercises.length === 0) {
+        console.warn('[LiveWorkout] Повреждённая сессия (0 упражнений) — удалена.');
+        localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION);
+        showWarningToast('Восстановленная сессия повреждена и была удалена. Начните новую тренировку.');
+        return;
+      }
+
       if (typeof parsed.headerCollapsed !== 'boolean') parsed.headerCollapsed = false;
       if (typeof parsed.headerManuallyToggled !== 'boolean') parsed.headerManuallyToggled = false;
       if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') parsed.historyUiState = { warmupCollapsed: false, workCollapsed: false };
@@ -495,21 +544,45 @@ function checkCrashRecoverySession() {
       activeSession = parsed;
       showRecoveryBanner();
     }
-  } catch (e) { console.warn('[LiveWorkout] Ошибка чтения сохраненной сессии:', e); }
+  } catch (e) {
+    console.warn('[LiveWorkout] Ошибка чтения сохраненной сессии:', e);
+    try { localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION); } catch (e2) {}
+  }
 }
 
 function showRecoveryBanner() {
   const banner = document.getElementById('liveWorkoutRecoveryBanner');
-  const infoText = document.getElementById('liveWorkoutRecoveryText');
   if (!banner || !activeSession) return;
-  const totalWorkDone = activeSession.exercises.reduce((acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length, 0);
-  if (infoText) infoText.innerText = `${activeSession.title} • Рабочих сетов: ${totalWorkDone}`;
   banner.style.display = 'flex';
+  updateRecoveryBannerText();
+
+  // V2.9.0 UX-19: обновляем текст каждую секунду (для остатка таймера).
+  if (recoveryBannerInterval) clearInterval(recoveryBannerInterval);
+  recoveryBannerInterval = setInterval(updateRecoveryBannerText, 1000);
+}
+
+function updateRecoveryBannerText() {
+  const infoText = document.getElementById('liveWorkoutRecoveryText');
+  if (!infoText || !activeSession) return;
+  const totalWorkDone = activeSession.exercises.reduce((acc, ex) => acc + ex.completedSets.filter(s => s.category === 'Рабочий').length, 0);
+  let timerSuffix = '';
+  if (activeSession.restState && activeSession.restState.isActive) {
+    const remainingSec = Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000);
+    if (remainingSec > 0) {
+      const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+      const s = String(remainingSec % 60).padStart(2, '0');
+      timerSuffix = ` • Отдых ${m}:${s}`;
+    } else {
+      timerSuffix = ' • Отдых завершён';
+    }
+  }
+  infoText.innerText = `${activeSession.title} • Рабочих сетов: ${totalWorkDone}${timerSuffix}`;
 }
 
 function hideRecoveryBanner() {
   const banner = document.getElementById('liveWorkoutRecoveryBanner');
   if (banner) banner.style.display = 'none';
+  if (recoveryBannerInterval) { clearInterval(recoveryBannerInterval); recoveryBannerInterval = null; }
 }
 
 async function requestScreenWakeLock() {
@@ -543,10 +616,12 @@ function executeDiscardLiveWorkoutSession() {
   stopBigClock();
   releaseScreenWakeLock();
   activeSession = null;
+  isSavingLiveWorkout = false;
   persistActiveSession();
   hideRecoveryBanner();
   resetAllModals();
   document.body.style.overflow = '';
+  announceToTalkBack('Тренировка удалена.');
 }
 
 function stopAllTimers() {
@@ -803,7 +878,6 @@ function renderBigClockWidgets() {
     const volData = analyzeMuscleVolume(currentEx.targetMuscle);
 
     if (volTitleEl) {
-      // Bug 18b: escapeHtml для targetMuscle (AI-план может содержать XSS).
       volTitleEl.innerHTML = `ОБЪЕМ: ${escapeHtml(currentEx.targetMuscle.toUpperCase())}`;
     }
     if (volTextEl) volTextEl.innerText = `${volData.weeklyDone} / ${volData.thr.mavMax} (MAV)`;
@@ -1008,7 +1082,6 @@ function renderExerciseHeader() {
     }
     const warmupHintEl = document.getElementById('liveExWarmupHint');
     if (warmupHintEl) {
-      // Bug 18b: escapeHtml для warmupText до вставки в innerHTML.
       const escapedWarmup = currentEx.warmupText ? escapeHtml(String(currentEx.warmupText)) : '';
       const displayWarmupText = escapedWarmup ? escapedWarmup.replace(/(\d+(?:\.\d+)?)\s*кг/g, (m, p1) => {
         const val = parseFloat(p1);
@@ -1040,6 +1113,7 @@ function renderExerciseNoteChips() {
 
 function renderCurrentSetLabel() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
@@ -1060,6 +1134,7 @@ function renderCurrentSetLabel() {
 
 function renderCategoryToggle() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const isWarmupMode = (activeSession.draftSet.category === 'Разминка');
   const warmupSetsDone = currentEx.completedSets.filter(s => s.category === 'Разминка').length;
   const workSetsDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
@@ -1082,6 +1157,7 @@ function renderCategoryToggle() {
 
 function renderMethodToggle() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const isWarmupMode = activeSession.draftSet.category === 'Разминка';
   const isSpecialActive = (!isWarmupMode && activeSession.draftSet.useSpecialMethod);
   const btn = document.getElementById('liveMethodToggleBtn');
@@ -1121,6 +1197,7 @@ function renderRirChips() {
 
 function renderIntensifierBanner() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const el = document.getElementById('liveIntensifierBanner');
   if (!el) return;
 
@@ -1149,6 +1226,7 @@ function renderIntensifierBanner() {
 
 function renderControlsVisibility() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const controls = document.getElementById('liveActiveSetControlsCard');
   if (!controls) return;
   controls.style.display = isExerciseDone(currentEx) ? 'none' : 'flex';
@@ -1156,6 +1234,7 @@ function renderControlsVisibility() {
 
 function renderCompletedCard() {
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const workDone = currentEx.completedSets.filter(s => s.category === 'Рабочий').length;
   const isDone = isExerciseDone(currentEx);
   const card = document.getElementById('liveExCompletedCard');
@@ -1344,6 +1423,7 @@ function attachHistoryRowHandlers(container, sets, currentEx) {
         persistActiveSession();
         triggerHaptic([60]);
         renderLiveWorkoutScreen();
+        announceToTalkBack('Подход удалён.');
       }
     };
   });
@@ -1530,8 +1610,15 @@ function openWeightManualInput() {
   displayEl.style.display = 'none';
   displayEl.parentNode.insertBefore(input, displayEl.nextSibling);
 
+  // V2.9.0 P2 #14: scrollIntoView после раскрытия клавиатуры.
   requestAnimationFrame(function () {
-    try { input.focus(); input.select(); } catch (e) {}
+    try {
+      input.focus();
+      input.select();
+      setTimeout(() => {
+        try { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+      }, 100);
+    } catch (e) {}
   });
 
   let done = false;
@@ -1606,7 +1693,13 @@ function openDropWeightInput(displayEl, currentValue, onCommit) {
   displayEl.parentNode.insertBefore(input, displayEl.nextSibling);
 
   requestAnimationFrame(function () {
-    try { input.focus(); input.select(); } catch (e) {}
+    try {
+      input.focus();
+      input.select();
+      setTimeout(() => {
+        try { input.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+      }, 100);
+    } catch (e) {}
   });
 
   let done = false;
@@ -1698,7 +1791,6 @@ function recordSimpleSet() {
   const rirRaw = String(activeSession.draftSet.rir || '2');
 
   if (weightDisplay <= 0 || reps <= 0) {
-    // Bug 14: alert → showErrorToast.
     showErrorToast('Вес и повторения должны быть больше нуля.');
     return;
   }
@@ -1815,6 +1907,10 @@ function commitRecordedSet(partialSet) {
   persistActiveSession();
   renderLiveWorkoutScreen();
 
+  // V2.9.0 A6: TalkBack announcement.
+  const kindTxt = recordedSet.category === 'Разминка' ? 'Разминка' : 'Подход';
+  announceToTalkBack(`${kindTxt} ${recordedSet.setNum} записан. Отдых ${restSeconds} секунд.`);
+
   if (isModalOpen('liveBigClockOverlay')) {
     renderBigClockWidgets();
   }
@@ -1899,6 +1995,7 @@ function saveClusterSet() {
   const sheetState = activeClusterSheetState;
   if (!sheetState || !activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
   const segments = sheetState.segments;
   const totalReps = segments.reduce((a, s) => a + s.reps, 0);
   const firstSegmentReps = segments[0] ? segments[0].reps : totalReps;
@@ -2089,6 +2186,7 @@ function saveDropSet() {
   const sheetState = activeDropSheetState;
   if (!sheetState || !activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
 
   const mainWeightDisplay = sheetState.mainWeightDisplay;
   const mainWeightEffective = mainWeightDisplay * sheetState.multiplier;
@@ -2197,6 +2295,7 @@ function switchActiveExercise(newIndex) {
   activeSession.historyUiState = { warmupCollapsed: false, workCollapsed: false };
   persistActiveSession();
   renderLiveWorkoutScreen();
+  announceToTalkBack(`Упражнение ${newIndex + 1}: ${ex.name}`);
 }
 
 function startRestTimer(seconds) {
@@ -2443,6 +2542,44 @@ function renderCloseoutSummaryBox() {
 
 async function finalizeAndSyncLiveWorkout() {
   if (!activeSession) return;
+
+  // V2.9.0 B6: повторный вызов после успешной записи — только верификация.
+  if (activeSession._synced === true) {
+    const saveBtn = document.getElementById('liveConfirmFinishBtn');
+    const statusEl = document.getElementById('liveCloseoutSyncStatus');
+    if (saveBtn) saveBtn.disabled = true;
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.color = 'var(--md-sys-color-primary)';
+      statusEl.innerText = '⏳ Верификация записи в Google Таблицах...';
+    }
+    try {
+      const freshData = await fetchAnalyticsData();
+      if (freshData.success && freshData.data) setInitialData(freshData.data);
+      stopAllTimers();
+      stopBigClock();
+      await releaseScreenWakeLock();
+      const closedTitle = activeSession ? activeSession.title : '';
+      activeSession = null;
+      isSavingLiveWorkout = false;
+      persistActiveSession();
+      hideRecoveryBanner();
+      if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
+      setTimeout(() => { if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay'); document.body.style.overflow = ''; }, 280);
+      if (typeof onWorkoutCompletedCallback === 'function') await onWorkoutCompletedCallback();
+      setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена (верификация завершена).`); }, 320);
+      announceToTalkBack('Тренировка сохранена.');
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.color = 'var(--md-sys-color-error)';
+        statusEl.innerText = `❌ Верификация не удалась: ${err.message}. Данные были записаны ранее — можно повторить проверку.`;
+      }
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+    return;
+  }
+
   const saveBtn = document.getElementById('liveConfirmFinishBtn');
   const statusEl = document.getElementById('liveCloseoutSyncStatus');
   const workoutSummary = calculateWorkoutSummaryMetrics();
@@ -2485,15 +2622,22 @@ async function finalizeAndSyncLiveWorkout() {
     });
   });
 
+  isSavingLiveWorkout = true;
   if (saveBtn) saveBtn.disabled = true;
   if (statusEl) { statusEl.style.display = 'block'; statusEl.style.color = 'var(--md-sys-color-primary)'; statusEl.innerText = '⏳ Отправка подходов и сводки в Google Таблицы...'; }
   logToTerminal('LIVE_SYNC_START', `Отправка ${flatSets.length} сетов за ${activeSession.date}...`, 'info');
+  announceToTalkBack('Сохранение тренировки...');
 
   try {
     const payload = { action: 'sync_sets', overwrite: true, date: activeSession.date, startTime: activeSession.startTime, sets: flatSets, allExercises: allExercises, workoutSummary: workoutSummary };
     const t0 = performance.now();
     await syncSetsToSheets(payload);
     const elapsed = Math.round(performance.now() - t0);
+
+    // V2.9.0 B6: фиксируем успешную запись ДО верификации.
+    if (activeSession) activeSession._synced = true;
+    persistActiveSession();
+
     logToTerminal('LIVE_SYNC_OK', `Записано ${flatSets.length} строк за ${elapsed} мс. Верификация...`, 'success');
     const freshData = await fetchAnalyticsData();
     if (freshData.success && freshData.data) setInitialData(freshData.data);
@@ -2503,17 +2647,21 @@ async function finalizeAndSyncLiveWorkout() {
     await releaseScreenWakeLock();
     const closedTitle = activeSession ? activeSession.title : '';
     activeSession = null;
+    isSavingLiveWorkout = false;
     persistActiveSession();
     hideRecoveryBanner();
     if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
     setTimeout(() => { if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay'); document.body.style.overflow = ''; }, 280);
     if (typeof onWorkoutCompletedCallback === 'function') await onWorkoutCompletedCallback();
-    // Bug 14: alert → showSuccessToast.
     setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена в Google Таблицы.`); }, 320);
+    announceToTalkBack('Тренировка сохранена.');
   } catch (err) {
     logToTerminal('LIVE_SYNC_ERR', `Сбой: ${err.message}`, 'error');
     if (statusEl) { statusEl.style.color = 'var(--md-sys-color-error)'; statusEl.innerText = `❌ Сбой сети: ${err.message}. Данные сохранены в памяти телефона — повторите отправку при появлении связи.`; }
+    // V2.9.0 B6: если запись уже была зафиксирована — не сбрасываем сессию.
+    // Если это первая попытка и она упала до syncSetsToSheets — activeSession остаётся для повтора.
   } finally {
+    isSavingLiveWorkout = false;
     if (saveBtn) saveBtn.disabled = false;
   }
 }

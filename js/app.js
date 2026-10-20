@@ -1,3 +1,16 @@
+/**
+ * =========================================================================
+ * GYM ANALYTICS HUB — APP (V55 Android PWA Install + Toast)
+ * =========================================================================
+ * V55 (Android UX P1 #7, P2 #18, P2 #22):
+ * - beforeinstallprompt: перехватываем, показываем иконку install в top-bar.
+ *   Клик → prompt() → userChoice. После appinstalled — кнопка скрывается.
+ * - checkSharedReportCache: showInfoToast при получении отчёта (P2 #18).
+ * - showSwUpdateBanner: banner.remove() сразу в onclick (P2 #22).
+ * - V54-фиксы (isSwFirstInstall, refreshSeq) сохранены.
+ * =========================================================================
+ */
+
 import { state, setInitialData, setQuotaWarningHandler } from './state.js';
 import { fetchAnalyticsData } from './api.js';
 import { renderOverviewModule } from './overview.js';
@@ -6,7 +19,7 @@ import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
 import { initLiveWorkoutModule } from './live_workout.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
-import { showToast, showErrorToast, showWarningToast } from './ui.js';
+import { showToast, showErrorToast, showWarningToast, showInfoToast, showSuccessToast } from './ui.js';
 
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const LAST_SYNC_KEY = 'gym_last_sync_ts';
@@ -14,6 +27,7 @@ const GAS_CACHE_NAME = 'gym-gas-cache-v2';
 
 let refreshSeq = 0;
 let lastDataHash = '';
+let deferredPwaPrompt = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   setQuotaWarningHandler(showWarningToast);
@@ -24,6 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initLastSyncLabel();
   initSettingsModal();
   initRefreshButton();
+  initPwaInstall();
 
   initSyncModule(async () => {
     await refreshApplicationData({ force: true });
@@ -43,7 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* =========================================================
- * SERVICE WORKER (V54)
+ * SERVICE WORKER (V55)
  * ========================================================= */
 
 function initServiceWorker() {
@@ -51,7 +66,6 @@ function initServiceWorker() {
 
   const wasControlled = Boolean(navigator.serviceWorker.controller);
   let refreshing = false;
-  // V54: Флаг для игнорирования первого SW_UPDATED при первичной установке.
   let isSwFirstInstall = !wasControlled;
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -63,11 +77,9 @@ function initServiceWorker() {
 
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SW_UPDATED') {
-      // Показываем баннер только если страница уже была под контролем ДО этого запуска
       if (navigator.serviceWorker.controller && !isSwFirstInstall) {
         showSwUpdateBanner(event.data.version || '');
       }
-      // После обработки первого сообщения сбрасываем флаг
       isSwFirstInstall = false;
     }
   });
@@ -132,6 +144,8 @@ function showSwUpdateBanner(version) {
   const btn = document.getElementById('swUpdateBannerBtn');
   if (btn) {
     btn.onclick = async () => {
+      // V55: скрываем баннер мгновенно (P2 #22).
+      try { banner.remove(); } catch (e) {}
       try {
         const reg = await navigator.serviceWorker.getRegistration();
         if (reg && reg.waiting) {
@@ -142,6 +156,51 @@ function showSwUpdateBanner(version) {
       } catch (e) {
         console.warn('[App] SW update failed:', e);
         location.reload();
+      }
+    };
+  }
+}
+
+/* =========================================================
+ * PWA INSTALL (V55 NEW)
+ * ========================================================= */
+
+function initPwaInstall() {
+  const installBtn = document.getElementById('installPwaBtn');
+
+  if (window.matchMedia('(display-mode: standalone)').matches) {
+    if (installBtn) installBtn.style.display = 'none';
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPwaPrompt = e;
+    if (installBtn) installBtn.style.display = 'inline-flex';
+  });
+
+  window.addEventListener('appinstalled', () => {
+    deferredPwaPrompt = null;
+    if (installBtn) installBtn.style.display = 'none';
+    showSuccessToast('Приложение установлено');
+  });
+
+  if (installBtn) {
+    installBtn.onclick = async () => {
+      if (!deferredPwaPrompt) {
+        showInfoToast('Установка недоступна: откройте меню Chrome и выберите «Установить приложение»');
+        return;
+      }
+      try {
+        deferredPwaPrompt.prompt();
+        const { outcome } = await deferredPwaPrompt.userChoice;
+        if (outcome === 'accepted') {
+          showSuccessToast('Устанавливаем приложение...');
+        }
+      } catch (err) {
+        console.warn('[App] PWA install prompt failed:', err);
+      } finally {
+        deferredPwaPrompt = null;
+        installBtn.style.display = 'none';
       }
     };
   }
@@ -220,6 +279,8 @@ async function checkSharedReportCache() {
         history.replaceState({ __gymBaseline: true }, '', '#tab-sync');
         handleRouteHash();
         handleIncomingReportText(reportText);
+        // V55: информируем пользователя (P2 #18).
+        showInfoToast('Отчёт получен. Проверьте данные и нажмите «Синхронизировать»');
         return true;
       }
     }
@@ -292,7 +353,10 @@ async function refreshApplicationData(opts) {
 
   if (!res.success || !res.data) {
     if (navigator.onLine) {
-      showErrorToast('Не удалось обновить данные: ' + (res.error || 'нет связи'));
+      showErrorToast('Не удалось обновить данные: ' + (res.error || 'нет связи'), {
+        label: 'Повторить',
+        onClick: () => { refreshApplicationData({ force: true, noCache: true }); }
+      });
     }
     return;
   }

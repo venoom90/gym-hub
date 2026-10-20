@@ -6,6 +6,13 @@ import {
 import { extractPeriodization } from './parser.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
 
+/**
+ * V5.9.12 (Android UX P2 #21):
+ * - renderMuscleVolumeLandmarks при selectedCycleId === 'ALL' вычисляет
+ *   activeWeeks через calcAnalyzerActiveWeeks (не жёсткие 2). Устраняет
+ *   занижение объёма, когда за 14 дней было 3+ тренировки.
+ */
+
 let tonnageChartInstance = null;
 let exerciseChartInstance = null;
 let rirChartInstance = null;
@@ -442,8 +449,9 @@ function renderMuscleVolumeLandmarks(sets) {
       if (subtitleEl) subtitleEl.style.display = 'none';
       return;
     }
-    activeWeeks = 2;
-    windowLabel = 'Скользящее окно: 14 дней';
+    // V5.9.12: реальное число активных недель, а не жёсткие 2.
+    activeWeeks = Math.max(1, calcAnalyzerActiveWeeks(analyzerSets));
+    windowLabel = `Скользящее окно: 14 дней`;
   } else {
     activeWeeks = calcAnalyzerActiveWeeks(workSets);
     windowLabel = `Мезоцикл ${state.selectedCycleId} • активных недель: ${activeWeeks}`;
@@ -705,9 +713,9 @@ function renderRepRangeSpread(sets) {
   }
 
   const workSets = sets.filter(s => s.category === 'Рабочий' && s.effort !== 'Размин.');
-  
+
   let strength = 0, hyper = 0, pump = 0;
-  
+
   workSets.forEach(s => {
     const reps = parseInt(s.reps, 10) || 0;
     if (reps <= 8) strength++;
@@ -716,7 +724,7 @@ function renderRepRangeSpread(sets) {
   });
 
   const total = strength + hyper + pump;
-  
+
   if (total === 0) {
     if (verdictEl) verdictEl.innerText = '';
     return;
@@ -787,20 +795,20 @@ function renderDropOff(sets) {
     const db = normalizeDate(b.date);
     return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
   });
-  
+
   const latestDate = sortedByDate[0] ? sortedByDate[0].date : null;
   if (!latestDate) return;
-  
+
   const latestSets = workSets.filter(s => s.date === latestDate);
-  
+
   const byExercise = {};
   latestSets.forEach(s => {
     const ex = (s.exercise || '').trim();
     if (!ex) return;
-    
+
     const method = String(s.method || '').toLowerCase();
     if (method.includes('дроп') || method.includes('кластер')) return;
-    
+
     if (!byExercise[ex]) byExercise[ex] = [];
     byExercise[ex].push(s);
   });
@@ -809,13 +817,13 @@ function renderDropOff(sets) {
   Object.keys(byExercise).forEach(ex => {
     const exSets = byExercise[ex].sort((a,b) => parseInt(a.setNum) - parseInt(b.setNum));
     if (exSets.length < 2) return;
-    
+
     const first = exSets[0];
     const last = exSets[exSets.length - 1];
-    
+
     const firstTonnage = (parseFloat(first.weight) || 0) * (parseInt(first.reps, 10) || 0);
     const lastTonnage = (parseFloat(last.weight) || 0) * (parseInt(last.reps, 10) || 0);
-    
+
     if (firstTonnage > 0 && lastTonnage > 0 && firstTonnage > lastTonnage) {
       const pct = Math.round(((firstTonnage - lastTonnage) / firstTonnage) * 100);
       if (pct >= 10) {
@@ -825,7 +833,7 @@ function renderDropOff(sets) {
   });
 
   drops.sort((a, b) => b.pct - a.pct);
-  
+
   if (drops.length === 0) {
     container.innerHTML = `<div class="foster-indicator good">🟢 Отличная выносливость. Падения веса нет или оно < 10%</div>`;
     return;
@@ -858,7 +866,7 @@ function renderFatigueControl(sets) {
 
   const workouts = state.dbData.workouts || [];
   const dailyLoads = [];
-  
+
   const today = new Date();
   today.setHours(12, 0, 0, 0);
 
@@ -866,7 +874,7 @@ function renderFatigueControl(sets) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const key = getDateKey(d);
-    
+
     const dayWorkouts = workouts.filter(w => getDateKey(w.date) === key);
     let dayLoad = 0;
     dayWorkouts.forEach(w => {
@@ -1033,7 +1041,7 @@ function renderExercise1RMChart(sets, exerciseName) {
   const prBadge = document.getElementById('exercisePrBadge');
   const prValue = document.getElementById('exercisePrValue');
   const repMaxContainer = document.getElementById('repMaxContainer');
-  
+
   if (!canvas || typeof Chart === 'undefined') return;
 
   if (exerciseChartInstance) {
@@ -1061,7 +1069,7 @@ function renderExercise1RMChart(sets, exerciseName) {
     const serverE1 = parseFloat(s.e1rm);
 
     const displayW = w / mult;
-    
+
     if (r >= 4 && r <= 6 && displayW > max5) max5 = displayW;
     if (r >= 7 && r <= 9 && displayW > max8) max8 = displayW;
     if (r >= 10 && r <= 14 && displayW > max12) max12 = displayW;

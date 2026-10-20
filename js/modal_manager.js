@@ -1,20 +1,15 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — MODAL MANAGER (V50 History + Transient Fixes)
+ * GYM ANALYTICS HUB — MODAL MANAGER (V51 Android Inert Support)
  * =========================================================================
- * V50 (группа B аудита 20.10.2026):
- * - Bug 6: baseline-случай (back с любого модала в самый низ) теперь закрывает
- *   ВСЕ модалы через while (stack.length > 0). Раньше закрывался только top,
- *   и при накопленной истории из нескольких записей остальные модалы «висели»
- *   при уже откаченной истории.
- * - Bug 7: transient-модалы (например, confirm-sheet) НЕ восстанавливаются
- *   при forward. Их onClose/onOpen не рассчитаны на «оживление» без контекста
- *   (у confirm-sheet confirmSheetState = null → кнопки мертвы). Флаг
- *   config.transient = true ставится в registerModal.
- * - Bug 8: resetAllModals теперь ставит suppressPopstateCount = 1, а не depth.
- *   history.go(-N) эмитит ОДИН popstate на итоговое состояние. Старое значение
- *   проглатывало реальные события в окне 400 мс (hardware back, forward).
- * - V49-фиксы (isOurPopstateState, openModalWithoutHistory, history.go(-depth))
+ * V51 (Android UX P2 #15):
+ * - Добавлен setPageInert(inert) — устанавливает el.inert на <header.top-bar>,
+ *   <main>, <nav#bottomNav>, пока открыт хотя бы один модал. Это блокирует
+ *   Tab/TalkBack от попадания фокуса на скрытый за оверлеем контент.
+ * - Счётчик через stack.length: inert=true только при открытии первого модала,
+ *   inert=false только при закрытии последнего. Вложенные модалы работают корректно.
+ * - try/catch на присвоении inert — старые браузеры не падают.
+ * - V50-фиксы (Bug 6 baseline close-all, Bug 7 transient, Bug 8 suppress=1)
  *   сохранены.
  * =========================================================================
  */
@@ -30,6 +25,20 @@ function init() {
   initialized = true;
   history.replaceState({ __gymBaseline: true }, '', location.href);
   window.addEventListener('popstate', handlePopstate);
+}
+
+/**
+ * V51: inert на глобальные слои страницы, пока открыт модал.
+ * Безопасно: try/catch на случай отсутствия поддержки (Firefox < 112).
+ */
+function setPageInert(inert) {
+  const selectors = ['body > header.top-bar', 'body > main', 'body > nav#bottomNav'];
+  selectors.forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) {
+      try { el.inert = Boolean(inert); } catch (e) { /* noop */ }
+    }
+  });
 }
 
 function isOurPopstateState(state) {
@@ -52,6 +61,10 @@ function closeStackTop() {
       console.error('[ModalManager] onClose error for', topId, err);
     }
   }
+  // V51: снимаем inert только когда закрыт ПОСЛЕДНИЙ модал.
+  if (stack.length === 0) {
+    setPageInert(false);
+  }
 }
 
 function openModalWithoutHistory(id) {
@@ -60,6 +73,10 @@ function openModalWithoutHistory(id) {
   if (stack.includes(id)) return;
   stack.push(id);
   config.el.style.display = config.displayStyle || 'flex';
+  // V51: включаем inert при открытии первого модала.
+  if (stack.length === 1) {
+    setPageInert(true);
+  }
   if (typeof config.onOpen === 'function') {
     try {
       config.onOpen();
@@ -70,7 +87,6 @@ function openModalWithoutHistory(id) {
 }
 
 function handlePopstate(event) {
-  // Поглощение popstate от resetAllModals (history.go(-depth) — один event).
   if (suppressPopstateCount > 0) {
     suppressPopstateCount--;
     closingInProgress = false;
@@ -87,23 +103,19 @@ function handlePopstate(event) {
   const topId = stack.length > 0 ? stack[stack.length - 1] : null;
   const eventModalId = event.state.gymModal;
 
-  // Bug 6 fix: baseline — закрываем ВСЕ модалы, а не только top.
   if (event.state.__gymBaseline) {
     while (stack.length > 0) closeStackTop();
     return;
   }
 
   if (eventModalId) {
-    if (eventModalId === topId) {
-      return;
-    }
+    if (eventModalId === topId) return;
     if (stack.includes(eventModalId)) {
       while (stack.length > 0 && stack[stack.length - 1] !== eventModalId) {
         closeStackTop();
       }
       return;
     }
-    // Bug 7 fix: transient-модалы не восстанавливаем при forward.
     if (registry[eventModalId] && registry[eventModalId].el && !registry[eventModalId].transient) {
       openModalWithoutHistory(eventModalId);
     }
@@ -137,6 +149,11 @@ export function openModal(id, extraData) {
   stack.push(id);
 
   config.el.style.display = config.displayStyle || 'flex';
+
+  // V51: inert при открытии первого модала.
+  if (stack.length === 1) {
+    setPageInert(true);
+  }
 
   if (typeof config.onOpen === 'function') {
     try {
@@ -172,12 +189,6 @@ export function getTopModalId() {
   return stack.length > 0 ? stack[stack.length - 1] : null;
 }
 
-/**
- * Форсированная очистка БЕЗ onClose (не вызывает callbacks).
- * Используется при logout / save success / discard live session.
- *
- * Bug 8 fix: history.go(-N) эмитит ОДИН popstate, не N.
- */
 export function resetAllModals() {
   const depth = stack.length;
   stack.length = 0;
@@ -189,6 +200,9 @@ export function resetAllModals() {
       config.el.style.display = 'none';
     }
   });
+
+  // V51: принудительно снимаем inert.
+  setPageInert(false);
 
   if (depth > 0) {
     suppressPopstateCount = 1;
