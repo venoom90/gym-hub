@@ -369,20 +369,16 @@ export function startNewLiveWorkout(recipePayload) {
   }
 
   if (activeSession && !activeSession.isFinished) {
-    // Bug 5 обход: до закрытия группы B openConfirmSheet не умеет цепочки
-    // (onConfirm, открывающий модал, ломает closeModal). Откладываем старт
-    // на 250 мс — к этому моменту closeModal('gymConfirmSheet') завершён.
-    // onCancel = no-op: пользователь остаётся на вкладке, recovery-banner
-    // «Идёт тренировка» уже висит сверху.
+    // V2.8.13 (Bug 5 fix в ui.js V1.1): колбэк теперь вызывается из onClose
+    // модала, ПОСЛЕ закрытия. Костыль setTimeout(beginNewLiveWorkoutSession, 250)
+    // из V2.8.12 убран — цепочка confirm → openModal работает нативно.
     openConfirmSheet({
       title: 'Начать новую тренировку?',
       message: 'У вас есть незавершённая тренировка. Если начать новую, текущий прогресс будет сброшен без сохранения.',
       confirmLabel: 'Начать новую',
       cancelLabel: 'Отмена',
       danger: true,
-      onConfirm: () => {
-        setTimeout(() => beginNewLiveWorkoutSession(recipePayload), 250);
-      }
+      onConfirm: () => beginNewLiveWorkoutSession(recipePayload)
     });
     return;
   }
