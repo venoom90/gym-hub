@@ -2,29 +2,46 @@
  * Единый источник правды (Single Source of Truth)
  * Изолированное хранилище состояния приложения, Local-First гидратация и чистые утилиты нормализации
  *
- * V50:
- * - normalizeDb() — единая функция формы БД. getInitialDbData() и setDbData()
- *   стали тонкими обёртками. Устраняет дублирование 8 полей.
- * - showStorageWarningOnce() — user-facing toast при quota error (аудит 2.6).
- *   Раньше ошибка setItem глоталась в catch → кэш молча переставал обновляться.
+ * V51:
+ * - Удалён import { showWarningToast } from './ui.js' — устраняет циклическую
+ *   зависимость state → ui → modal_manager → History API. State больше не
+ *   зависит от DOM.
+ * - Введён setQuotaWarningHandler(fn) — внешний колбэк, регистрируется из app.js
+ *   на старте. Если handler не установлен (импорт в тестах / консоль), падаем
+ *   в console.warn — приложение не падает.
+ * - V50-фиксы normalizeDb / showStorageWarningOnce сохранены.
  * - V49-фиксы isIsolationExercise / rirWeight сохранены.
  */
-
-import { showWarningToast } from './ui.js';
 
 const STORAGE_KEY_DB = 'gym_cached_db_data';
 const STORAGE_KEY_AI_PLAN = 'gym_ai_coach_plan';
 
 let quotaWarningShown = false;
+let quotaWarningHandler = null;
+
+/**
+ * Регистрирует внешний обработчик warning'а quota. Вызывается из app.js
+ * в начале DOMContentLoaded, ДО первого setDbData.
+ *
+ * @param {(message: string) => void} fn
+ */
+export function setQuotaWarningHandler(fn) {
+  quotaWarningHandler = (typeof fn === 'function') ? fn : null;
+}
 
 function showStorageWarningOnce(message) {
   if (quotaWarningShown) return;
   quotaWarningShown = true;
-  try {
-    showWarningToast(message);
-  } catch (e) {
-    console.warn('[State] Toast-helper недоступен:', e);
+
+  if (typeof quotaWarningHandler === 'function') {
+    try {
+      quotaWarningHandler(message);
+      return;
+    } catch (e) {
+      console.warn('[State] quota warning handler упал, fallback на console.warn:', e);
+    }
   }
+  console.warn('[State] Quota warning:', message);
 }
 
 /**

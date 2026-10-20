@@ -1,4 +1,4 @@
-import { state, setInitialData } from './state.js';
+import { state, setInitialData, setQuotaWarningHandler } from './state.js';
 import { fetchAnalyticsData } from './api.js';
 import { renderOverviewModule } from './overview.js';
 import { renderAnalyticsModule } from './analytics.js';
@@ -6,7 +6,7 @@ import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
 import { initLiveWorkoutModule } from './live_workout.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
-import { showToast, showErrorToast } from './ui.js';
+import { showToast, showErrorToast, showWarningToast } from './ui.js';
 
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const LAST_SYNC_KEY = 'gym_last_sync_ts';
@@ -15,6 +15,10 @@ let refreshSeq = 0;
 let lastDataHash = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // V51: регистрируем quota-warning handler ДО первого setDbData.
+  // State больше не импортирует ui.js (устранена циклическая зависимость).
+  setQuotaWarningHandler(showWarningToast);
+
   initServiceWorker();
   initNavigation();
   initNetworkStatus();
