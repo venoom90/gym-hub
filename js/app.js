@@ -10,13 +10,13 @@ import { showToast, showErrorToast, showWarningToast } from './ui.js';
 
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const LAST_SYNC_KEY = 'gym_last_sync_ts';
+const GAS_CACHE_NAME = 'gym-gas-cache-v2';
 
 let refreshSeq = 0;
 let lastDataHash = '';
 
 document.addEventListener('DOMContentLoaded', async () => {
   // V51: регистрируем quota-warning handler ДО первого setDbData.
-  // State больше не импортирует ui.js (устранена циклическая зависимость).
   setQuotaWarningHandler(showWarningToast);
 
   initServiceWorker();
@@ -165,6 +165,7 @@ function renderActiveTab(tabName, force) {
 async function refreshApplicationData(opts) {
   const options = opts || {};
   const force = Boolean(options.force);
+  const noCache = Boolean(options.noCache);
 
   const mySeq = ++refreshSeq;
   const refreshBtn = document.getElementById('refreshDataBtn');
@@ -175,9 +176,9 @@ async function refreshApplicationData(opts) {
 
   let res;
   try {
-    res = await fetchAnalyticsData();
+    res = await fetchAnalyticsData({ noCache });
   } catch (err) {
-    res = { success: false, error: err.message || 'Network error' };
+    res = { success: false, error: err.message || 'Network error', fromCache: false, cacheAgeMs: 0 };
   } finally {
     if (mySeq === refreshSeq && refreshBtn) {
       refreshBtn.disabled = false;
@@ -188,7 +189,11 @@ async function refreshApplicationData(opts) {
   if (mySeq !== refreshSeq) return;
 
   if (!res.success || !res.data) {
-    showErrorToast('Не удалось обновить данные: ' + (res.error || 'нет связи'));
+    // Bug 13b: не спамим ошибкой, если браузер точно знает, что офлайн.
+    // Пользователь уже видит offline-точку в шапке.
+    if (navigator.onLine) {
+      showErrorToast('Не удалось обновить данные: ' + (res.error || 'нет связи'));
+    }
     return;
   }
 
@@ -197,7 +202,13 @@ async function refreshApplicationData(opts) {
   lastDataHash = newHash;
 
   setInitialData(res.data);
-  localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+
+  // Bug 13: если данные пришли из SW-кэша — фиксируем РЕАЛЬНЫЙ возраст,
+  // а не момент получения. Иначе «Обновлено сейчас» врёт про offline-stale.
+  const syncTimestamp = (res.fromCache && res.cacheAgeMs > 0)
+    ? (Date.now() - res.cacheAgeMs)
+    : Date.now();
+  localStorage.setItem(LAST_SYNC_KEY, String(syncTimestamp));
   renderLastSyncLabel();
 
   if (!changed && !force) return;
@@ -212,7 +223,10 @@ function initRefreshButton() {
   if (btn) {
     btn.onclick = async () => {
       if (btn.disabled) return;
-      await refreshApplicationData({ force: false });
+      // Bug 1 + Bug 2: force: true (перерендер даже при одинаковом hash) +
+      // noCache: true (обход SW-кэша — иначе ручное обновление отдаёт
+      // 5-минутный stale).
+      await refreshApplicationData({ force: true, noCache: true });
     };
   }
 }
@@ -283,11 +297,33 @@ function initSettingsModal() {
   };
 
   if (saveBtn && tokenInput) {
-    saveBtn.onclick = () => {
+    saveBtn.onclick = async () => {
       const val = tokenInput.value.trim();
+      const prevToken = localStorage.getItem('gym_api_token') || '';
       localStorage.setItem('gym_api_token', val);
       closeModal('settingsModal');
+
+      const tokenChanged = (val !== prevToken);
+
+      // Bug 2b: при смене токена стираем GAS-кэш, иначе первый запрос с
+      // новым токеном может получить закэшированный success:true от старого
+      // (и наоборот — упасть в 401 на «свежих» данных).
+      if (tokenChanged) {
+        try {
+          if ('caches' in window) {
+            await caches.delete(GAS_CACHE_NAME);
+            console.log('[App] GAS-кэш очищен после смены токена');
+          }
+        } catch (e) {
+          console.warn('[App] Не удалось очистить GAS-кэш:', e);
+        }
+      }
+
       showToast('Токен авторизации сохранён', 'success');
+
+      if (tokenChanged) {
+        await refreshApplicationData({ force: true, noCache: true });
+      }
     };
   }
 }
