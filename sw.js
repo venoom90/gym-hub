@@ -1,28 +1,26 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V52 CACHE-SCHEME HOTFIX)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V54)
  * =========================================================================
- * V52 (hotfix поверх V49/V50/V51):
- * - buildGasCacheKey() больше не использует схему 'gas-cache://'. Cache API
- *   принимает ТОЛЬКО http(s) URL, а не кастомные схемы. Симптом:
- *   "Failed to execute 'put' on 'Cache': Request scheme 'gas-cache' is
- *   unsupported" → кэш GAS физически не работал с V48, но ошибка была
- *   спрятана в try/catch → console.warn. Теперь ключ — синтетический
- *   http(s) URL на self.location.origin + '/__sw_gas_cache__/<action>'.
- *   Реального сетевого запроса на этот URL НЕ делается — только ключ.
- * - CACHE_NAME V51 → V52, чтобы установленная PWA подхватила фикс
- *   (cache-first для статики).
- * - Вся остальная логика V49/V50/V51 сохранена:
- *   * кэш GAS не отравляется {success:false} (isSuccessfulGasPayload);
- *   * isFresh реально соблюдается;
- *   * event.waitUntil для фонового обновления;
- *   * инвалидация get_all_data после sync_sets/save_ai_plan;
- *   * строгий hostname === 'script.google.com';
- *   * APP_ASSETS включает ./js/ui.js и ./js/modal_manager.js.
+ * V54 (поверх V53 / V52):
+ * - Bug 3: инвалидация get_all_data после sync_sets / save_ai_plan теперь
+ *   через await invalidateGetAllDataCache() ДО возврата ответа. Раньше
+ *   event.waitUntil позволял клиенту приступить к следующему get_all_data
+ *   раньше, чем завершится cache.delete → stale-гонка.
+ * - Bug 2: payload.noCache === true → SW пропускает чтение кэша и идёт в
+ *   сеть. При сбое сети — fallback на stale (если есть). Используется
+ *   ручной кнопкой «Обновить» и после смены токена (Bug 2b в app.js).
+ * - Bug 13: cached-ответы оборачиваются в новый Response с заголовками
+ *   X-SW-From-Cache: 1 и X-SW-Cache-Age-Ms: <ms>. Клиент (api.js) читает
+ *   их и корректно выставляет LAST_SYNC_KEY.
+ * - V52 hotfix (Cache API scheme — синтетический http(s) URL) сохранён.
+ * - V49 fixes (isSuccessfulGasPayload, TTL, hostname, APP_ASSETS) сохранены.
+ * - CACHE_NAME V52 → V54 (снапшот §8 числит V53; берём заведомо больший
+ *   номер, чтобы активировать на любом клиенте).
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v53';
+const CACHE_NAME = 'gym-hub-v54';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const GAS_CACHE_NAME = 'gym-gas-cache-v2';
 const GAS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
@@ -93,18 +91,6 @@ self.addEventListener('activate', (event) => {
  * GAS CACHE HELPERS
  * ========================================================= */
 
-/**
- * V52 FIX: Cache API принимает только http(s) URL.
- * Раньше ключ строился как 'gas-cache://POST/<action>' — cache.put()
- * бросал TypeError, кэш GAS никогда не записывался.
- *
- * Теперь ключ — синтетический http(s) URL на текущем origin:
- *   https://<origin>/__sw_gas_cache__/<action>
- *
- * Это ТОЛЬКО ключ. Реального запроса на этот URL не делается —
- * мы никогда не передаём его в fetch(). Используем Request для явности
- * (method='GET'), но подойдёт и строковое значение.
- */
 function buildGasCacheKey(action) {
   return new Request(
     `${self.location.origin}/__sw_gas_cache__/${action || 'unknown'}`,
@@ -145,9 +131,27 @@ async function putCachedWithTimestamp(cacheName, request, response) {
 }
 
 /**
- * Проверяет, что тело ответа — валидный JSON с data.success !== false.
- * Невалидный JSON / read error / HTTP !ok — считаются неуспехом (не кэшируются).
+ * Bug 13: оборачивает cached-ответ заголовками X-SW-From-Cache и
+ * X-SW-Cache-Age-Ms, чтобы клиент знал, что данные из кэша и насколько
+ * они старые. Создаётся constructed Response — клиент видит все headers.
  */
+async function buildCachedResponseWithHeaders(cachedResponse, ageMs) {
+  try {
+    const buf = await cachedResponse.clone().arrayBuffer();
+    const headers = new Headers(cachedResponse.headers);
+    headers.set('X-SW-From-Cache', '1');
+    headers.set('X-SW-Cache-Age-Ms', String(Math.max(0, Math.round(ageMs || 0))));
+    return new Response(buf, {
+      status: cachedResponse.status,
+      statusText: cachedResponse.statusText,
+      headers: headers
+    });
+  } catch (e) {
+    console.warn('[SW] Не удалось обернуть cached response:', e);
+    return cachedResponse;
+  }
+}
+
 async function isSuccessfulGasPayload(response) {
   try {
     const cloned = response.clone();
@@ -170,12 +174,6 @@ async function invalidateGetAllDataCache() {
   }
 }
 
-/**
- * Выполняет сетевой запрос к GAS и кэширует результат ТОЛЬКО при
- * HTTP 200 + data.success !== false. Возвращает Response (включая
- * {success:false} — вызывающий решает, что делать).
- * Бросает при сетевой ошибке.
- */
 async function fetchAndCacheGas(request, bodyText, cacheKey, isCacheable) {
   const fetchInit = request.method === 'POST'
     ? {
@@ -195,6 +193,13 @@ async function fetchAndCacheGas(request, bodyText, cacheKey, isCacheable) {
     }
   }
   return response;
+}
+
+function offlineErrorResponse(message) {
+  return new Response(JSON.stringify({ success: false, error: message }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
 }
 
 /* =========================================================
@@ -316,6 +321,7 @@ async function handleGasRequest(event) {
   const request = event.request;
   let actionHint = null;
   let bodyText = null;
+  let noCache = false;
 
   if (request.method === 'POST') {
     try {
@@ -323,6 +329,7 @@ async function handleGasRequest(event) {
       bodyText = await clonedRequest.text();
       const parsed = JSON.parse(bodyText);
       actionHint = parsed && parsed.action ? String(parsed.action) : null;
+      noCache = Boolean(parsed && parsed.noCache === true);
     } catch (e) {
       // тело не JSON — actionHint останется null
     }
@@ -330,6 +337,26 @@ async function handleGasRequest(event) {
 
   const isCacheableAction = (actionHint === 'get_all_data' || actionHint === 'get_debug_log');
   const cacheKey = buildGasCacheKey(actionHint);
+
+  // === Bug 2: noCache — принудительный обход кэша (только для cacheable) ===
+  if (noCache && isCacheableAction) {
+    try {
+      const networkResponse = await fetchAndCacheGas(request, bodyText, cacheKey, true);
+      if (networkResponse && networkResponse.ok) {
+        return networkResponse;
+      }
+      // HTTP !ok от GAS — не считаем успехом, идём в fallback.
+    } catch (err) {
+      console.warn('[SW] noCache fetch failed, fallback to cache:', err);
+    }
+
+    // Fallback: в офлайне — отдать stale (если есть).
+    const cached = await getCachedWithTimestamp(GAS_CACHE_NAME, cacheKey);
+    if (cached) {
+      return await buildCachedResponseWithHeaders(cached.response, cached.ageMs);
+    }
+    return offlineErrorResponse('Оффлайн-режим: обновление не удалось, кэшированных данных нет.');
+  }
 
   // === CACHEABLE ACTIONS (get_all_data, get_debug_log) ===
   if (isCacheableAction) {
@@ -343,7 +370,7 @@ async function handleGasRequest(event) {
           return null;
         })
       );
-      return cached.response;
+      return await buildCachedResponseWithHeaders(cached.response, cached.ageMs);
     }
 
     // Устаревший / отсутствующий кэш — ждём сеть.
@@ -352,21 +379,14 @@ async function handleGasRequest(event) {
       if (networkResponse && networkResponse.ok) {
         return networkResponse;
       }
-      // HTTP !ok — считаем сбоем, идём в fallback.
     } catch (err) {
       console.warn('[SW] GAS network failed (cacheable), fallback to cache:', err);
     }
 
     // Fallback: stale cache (если есть) или явный офлайн-ответ.
-    if (cached) return cached.response;
+    if (cached) return await buildCachedResponseWithHeaders(cached.response, cached.ageMs);
 
-    return new Response(JSON.stringify({
-      success: false,
-      error: 'Оффлайн-режим: сервер недоступен, кэшированных данных нет.'
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return offlineErrorResponse('Оффлайн-режим: сервер недоступен, кэшированных данных нет.');
   }
 
   // === NON-CACHEABLE ACTIONS (sync_sets, save_ai_plan, ask_gemini_coach) ===
@@ -374,29 +394,18 @@ async function handleGasRequest(event) {
     const networkResponse = await fetchAndCacheGas(request, bodyText, cacheKey, false);
 
     if (!networkResponse) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: 'Оффлайн-режим: серверный GAS недоступен. Повторите попытку при появлении связи.'
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      return offlineErrorResponse('Оффлайн-режим: серверный GAS недоступен. Повторите попытку при появлении связи.');
     }
 
-    // После успешной записи — инвалидация get_all_data (чтобы refresh увидел новое сразу).
+    // Bug 3 fix: await инвалидации ДО возврата ответа, иначе следующий
+    // get_all_data может успеть прочитать устаревший кэш.
     if (networkResponse.ok && (actionHint === 'sync_sets' || actionHint === 'save_ai_plan')) {
-      event.waitUntil(invalidateGetAllDataCache());
+      await invalidateGetAllDataCache();
     }
 
     return networkResponse;
   } catch (err) {
     console.warn('[SW] GAS offline (non-cacheable):', err);
-    return new Response(JSON.stringify({
-      success: false,
-      error: 'Оффлайн-режим: серверный GAS недоступен. Повторите попытку при появлении связи.'
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return offlineErrorResponse('Оффлайн-режим: серверный GAS недоступен. Повторите попытку при появлении связи.');
   }
 }
