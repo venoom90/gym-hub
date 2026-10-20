@@ -43,16 +43,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* =========================================================
- * SERVICE WORKER (V53)
+ * SERVICE WORKER (V54)
  * ========================================================= */
 
 function initServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  // D2=B: reload при смене controller — только если page уже был под контролем
-  // (иначе первый clients.claim() перезагрузит страницу при первом визите).
   const wasControlled = Boolean(navigator.serviceWorker.controller);
   let refreshing = false;
+  // V54: Флаг для игнорирования первого SW_UPDATED при первичной установке.
+  let isSwFirstInstall = !wasControlled;
 
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;
@@ -61,13 +61,14 @@ function initServiceWorker() {
     location.reload();
   });
 
-  // D2=B: SW_UPDATED приходит из activate нового SW. Показываем banner
-  // только если page уже под контролем (не первый визит).
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SW_UPDATED') {
-      if (navigator.serviceWorker.controller) {
+      // Показываем баннер только если страница уже была под контролем ДО этого запуска
+      if (navigator.serviceWorker.controller && !isSwFirstInstall) {
         showSwUpdateBanner(event.data.version || '');
       }
+      // После обработки первого сообщения сбрасываем флаг
+      isSwFirstInstall = false;
     }
   });
 
@@ -75,7 +76,6 @@ function initServiceWorker() {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => {
         console.log('[SW] Успешно зарегистрирован, scope:', reg.scope);
-        // Периодическая проверка обновлений (раз в час).
         try {
           setInterval(() => { reg.update().catch(() => {}); }, 3600000);
         } catch (e) {}
@@ -86,10 +86,6 @@ function initServiceWorker() {
   });
 }
 
-/**
- * D2=B: идемпотентный banner «Доступна новая версия» с кнопкой «Обновить».
- * Кнопка шлёт SKIP_WAITING активному новому SW → controllerchange → reload.
- */
 function showSwUpdateBanner(version) {
   if (document.getElementById('swUpdateBanner')) return;
 
@@ -140,9 +136,7 @@ function showSwUpdateBanner(version) {
         const reg = await navigator.serviceWorker.getRegistration();
         if (reg && reg.waiting) {
           reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          // Дальше — controllerchange → reload (см. выше).
         } else {
-          // Новый SW уже активен (edge-case), просто reload.
           location.reload();
         }
       } catch (e) {

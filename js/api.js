@@ -1,20 +1,13 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — API LAYER (V2.1)
+ * GYM ANALYTICS HUB — API LAYER (V2.2)
  * =========================================================================
- * V2.1:
- * - Bug 4 (критический): clearTimeout перенесён в finally. Раньше таймер
- *   снимался сразу после fetch() — res.text() выполнялся уже без контроля,
- *   и на медленной сети большой get_all_data мог висеть бесконечно.
- * - Bug 2: добавлен opts.noCache → payload.noCache=true. SW читает флаг и
- *   обходит кэш (используется ручной кнопкой «Обновить» и после смены токена).
- * - Bug 13: postGas() читает X-SW-From-Cache и X-SW-Cache-Age-Ms из ответа
- *   SW. fetchAnalyticsData() возвращает {success, data, fromCache, cacheAgeMs}
- *   — app.js использует это для честного LAST_SYNC_KEY.
- * - postGas() возвращает {ok, data, error, fromCache, cacheAgeMs}. Никогда
- *   не throws.
- * - V2.0-контракт сохранён: res.text()+JSON.parse, HTML-ответ даёт
- *   осмысленную ошибку.
+ * V2.2:
+ * - Bug fix: таймаут для get_all_data увеличен с 15000 до 25000 мс.
+ *   GAS часто отвечает 15-20 секунд при параллельной записи (LockService
+ *   ждет до 10с + чтение Sheets). Из-за этого при старте вылетал ложный
+ *   тост «Превышено время ожидания».
+ * - V2.1-фиксы сохранены (clearTimeout в finally, noCache, fromCache).
  * =========================================================================
  */
 
@@ -22,11 +15,6 @@ export const GAS_API_URL = 'https://script.google.com/macros/s/AKfycbydM_23SpEHm
 
 /**
  * Единственный транспорт к GAS. НИКОГДА не throws.
- *
- * @param {string} action
- * @param {object} payload
- * @param {object} opts - {timeoutMs, timeoutMessage, noCache}
- * @returns {Promise<{ok:boolean, data:any, error:string|null, fromCache:boolean, cacheAgeMs:number}>}
  */
 async function postGas(action, payload, opts) {
   const options = opts || {};
@@ -55,8 +43,6 @@ async function postGas(action, payload, opts) {
       return { ok: false, data: null, error: `HTTP Error ${res.status}`, fromCache: false, cacheAgeMs: 0 };
     }
 
-    // Bug 13: SW-кэш отмечает ответы из кэша кастомными заголовками.
-    // Для constructed Response (которые SW возвращает) headers видны полностью.
     const fromCache = res.headers.get('X-SW-From-Cache') === '1';
     const cacheAgeMs = parseInt(res.headers.get('X-SW-Cache-Age-Ms') || '0', 10) || 0;
 
@@ -90,9 +76,6 @@ async function postGas(action, payload, opts) {
     }
     return { ok: false, data: null, error: (err && err.message) || 'Сетевая ошибка', fromCache: false, cacheAgeMs: 0 };
   } finally {
-    // Bug 4 fix: таймер снимается ТОЛЬКО после того, как тело прочитано
-    // (или упало). Это гарантирует, что fetch + text() вместе укладываются
-    // в timeoutMs.
     clearTimeout(timeoutId);
   }
 }
@@ -104,7 +87,8 @@ async function postGas(action, payload, opts) {
 export async function fetchAnalyticsData(opts) {
   const options = opts || {};
   const r = await postGas('get_all_data', {}, {
-    timeoutMs: 15000,
+    // V2.2: Увеличено с 15000 до 25000.
+    timeoutMs: 25000, 
     noCache: options.noCache === true
   });
   if (!r.ok) {
