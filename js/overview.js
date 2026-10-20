@@ -5,6 +5,7 @@ import {
 import { extractPeriodization } from './parser.js';
 import { startNewLiveWorkout } from './live_workout.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
+import { showErrorToast } from './ui.js';
 
 let isOverviewInitialized = false;
 let latestPreparedWorkoutPayload = null;
@@ -764,8 +765,8 @@ function updatePlanPreviewCardUI(payload) {
 
 function openWorkoutPlanDetailsModal() {
   if (!latestPreparedWorkoutPayload || !latestPreparedWorkoutPayload.exercises) {
-    alert('План тренировки еще не загружен.');
-    return;
+  showErrorToast('План тренировки ещё не загружен');
+  return;
   }
 
   const switcher = document.getElementById('modalPlanSplitSwitcher');
