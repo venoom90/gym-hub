@@ -1,27 +1,16 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.10 FINISH SHEET HARDENING)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.8.12)
  * =========================================================================
- * V2.8.10:
- * - Фикс 1 / BUG-1: discard confirm state теперь хранится в dataset кнопки
- *   и сбрасывается через resetConfirmableAction при каждом openFinishSheet
- *   и onOpen closeout. Устраняет мгновенное удаление без подтверждения
- *   при повторном открытии шторки после «зависшего» confirm.
- * - Фикс 2: «Завершить упражнение» теперь требует double-tap confirm.
- * - Фикс 3 / 4: единый предикат isExerciseDone(); ветка «УПРАЖНЕНИЕ ЗАВЕРШЕНО»
- *   в renderPAB проверяется ДО rest timer — таймер не «переезжает» на
- *   завершённое упражнение при возврате стрелками.
- * - EDGE-1: при 0 записанных сетов в Top Sheet появляется ghost-кнопка
- *   «Продолжить тренировку» (динамически создаётся, index.html не тронут).
- * - EDGE-2: единые предикаты isWorkSet / isWarmupSet применены в
- *   openFinishSheet и calculateWorkoutSummaryMetrics.
- * - NOTE-1: backdrop Top Sheet больше не обнуляет pendingActionAfterFinishSheet,
- *   если пользователь уже принял решение (closeout/discard).
- * - Фикс 3 (приоритет перехода): findNextIncompleteExerciseIndex сначала ищет
- *   in-progress упражнения (0 < workDone < targetSets) и только потом —
- *   нетронутые forward/wrap.
- * - handleCompleteCurrentAndMoveNext не стартует rest timer, если мы просто
- *   вернулись на уже завершённое упражнение.
+ * V2.8.12 (группа C):
+ * - Bug 14: alert/confirm заменены на toast/confirm-sheet из ui.js.
+ *   • startNewLiveWorkout → сплит на публичную (confirm-sheet) +
+ *     beginNewLiveWorkoutSession (приватная).
+ *   • recordSimpleSet → showErrorToast.
+ *   • finalizeAndSyncLiveWorkout → showSuccessToast.
+ * - Bug 18b: escapeHtml для targetMuscle в renderBigClockWidgets и
+ *   warmupText в renderExerciseHeader.
+ * - V2.8.10 Finish Sheet Hardening сохранён.
  * =========================================================================
  */
 
@@ -31,8 +20,8 @@ import {
 } from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
-import { logToTerminal } from './sync.js';
 import { showErrorToast, showSuccessToast, openConfirmSheet } from './ui.js';
+import { logToTerminal } from './sync.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
@@ -50,7 +39,7 @@ let idleTimer = null;
 
 let activeClusterSheetState = null;
 let activeDropSheetState = null;
-let pendingActionAfterFinishSheet = null; // Действие после закрытия шторки Финиш
+let pendingActionAfterFinishSheet = null;
 
 const DEFAULT_TIMERS = {
   compound: 150,
@@ -77,10 +66,6 @@ export function initLiveWorkoutModule(onComplete) {
   });
 }
 
-/* =========================================================
- * V2.8.10: UNIFIED PREDICATES
- * ========================================================= */
-
 function isWorkSet(s) {
   return Boolean(s) && s.category === 'Рабочий';
 }
@@ -89,13 +74,6 @@ function isWarmupSet(s) {
   return Boolean(s) && s.category === 'Разминка';
 }
 
-/**
- * Единая точка правды «упражнение завершено».
- * true если:
- *   - помечено isCompleted (вручную через Top Sheet),
- *   - ИЛИ добит таргет рабочих сетов,
- *   И не выставлен allowBonusSet.
- */
 function isExerciseDone(ex) {
   if (!ex) return false;
   if (ex.allowBonusSet) return false;
@@ -104,22 +82,6 @@ function isExerciseDone(ex) {
   return workDone >= ex.targetSets;
 }
 
-/* =========================================================
- * V2.8.10: DOUBLE-TAP CONFIRM (unit-wide)
- * ========================================================= */
-
-/**
- * Привязывает к кнопке логику «первый тап → confirm, второй тап → действие».
- * Состояние хранится в btn.dataset.confirmState — переживает повторные открытия
- * шторки; сбрасывается через resetConfirmableAction при каждом показе.
- *
- * opts = {
- *   labelSelector: '.some-span',   // если label вложен в span
- *   idleLabel: 'строка',
- *   confirmLabel: 'Точно?',
- *   onConfirm: () => {}
- * }
- */
 function bindConfirmableAction(btn, opts) {
   if (!btn) return;
   btn.dataset.confirmState = 'idle';
@@ -160,10 +122,6 @@ function bindConfirmableAction(btn, opts) {
 function resetConfirmableAction(btn) {
   if (btn && typeof btn._confirmReset === 'function') btn._confirmReset();
 }
-
-/* =========================================================
- * MODAL MANAGER
- * ========================================================= */
 
 function registerLiveModals() {
   if (isLiveWorkoutInitialized) return;
@@ -237,7 +195,6 @@ function registerLiveModals() {
         }
       }
     });
-    // NOTE-1: не обнуляем pendingAction при клике по backdrop, если решение уже принято
     finishSheet.onclick = (e) => {
       if (e.target === finishSheet && !pendingActionAfterFinishSheet) {
         closeModal('liveFinishSheet');
@@ -281,10 +238,6 @@ function registerLiveModals() {
   }
 }
 
-/* =========================================================
- * TIMER PREFS
- * ========================================================= */
-
 function getTimerPrefs() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_TIMER_PREFS);
@@ -302,10 +255,6 @@ function saveTimerPrefs(prefs) {
     console.warn('[LiveWorkout] Не удалось сохранить настройки таймера:', e);
   }
 }
-
-/* =========================================================
- * HELPERS
- * ========================================================= */
 
 function roundToGymStep(val) {
   if (!val || val <= 0) return 0;
@@ -410,27 +359,29 @@ function computeSmartDraftSetForExercise(ex) {
 }
 
 /* =========================================================
- * START WORKOUT
+ * START WORKOUT (публичная + приватная)
  * ========================================================= */
 
 export function startNewLiveWorkout(recipePayload) {
   if (!recipePayload || !Array.isArray(recipePayload.exercises) || recipePayload.exercises.length === 0) {
-    showErrorToast('План тренировки пуст. Сначала загрузите данные или сформируйте план у Тренера');
+    showErrorToast('План тренировки пуст. Сначала загрузите данные или сформируйте план у Тренера.');
     return;
   }
 
   if (activeSession && !activeSession.isFinished) {
+    // Bug 5 обход: до закрытия группы B openConfirmSheet не умеет цепочки
+    // (onConfirm, открывающий модал, ломает closeModal). Откладываем старт
+    // на 250 мс — к этому моменту closeModal('gymConfirmSheet') завершён.
+    // onCancel = no-op: пользователь остаётся на вкладке, recovery-banner
+    // «Идёт тренировка» уже висит сверху.
     openConfirmSheet({
-      title: 'Тренировка уже идёт',
-      message: 'У вас уже есть незавершённая тренировка. Начать новую? Текущий прогресс будет сброшен.',
+      title: 'Начать новую тренировку?',
+      message: 'У вас есть незавершённая тренировка. Если начать новую, текущий прогресс будет сброшен без сохранения.',
       confirmLabel: 'Начать новую',
-      cancelLabel: 'Продолжить текущую',
+      cancelLabel: 'Отмена',
       danger: true,
-      requireDoubleTap: false,
-      onConfirm: () => beginNewLiveWorkoutSession(recipePayload),
-      onCancel: () => {
-        registerLiveModals();
-        openModal('liveWorkoutOverlay');
+      onConfirm: () => {
+        setTimeout(() => beginNewLiveWorkoutSession(recipePayload), 250);
       }
     });
     return;
@@ -522,10 +473,6 @@ function beginNewLiveWorkoutSession(recipePayload) {
   openModal('liveWorkoutOverlay');
 }
 
-/* =========================================================
- * PERSISTENCE / RECOVERY
- * ========================================================= */
-
 function persistActiveSession() {
   try {
     if (activeSession) localStorage.setItem(STORAGE_KEY_ACTIVE_SESSION, JSON.stringify(activeSession));
@@ -568,10 +515,6 @@ function hideRecoveryBanner() {
   const banner = document.getElementById('liveWorkoutRecoveryBanner');
   if (banner) banner.style.display = 'none';
 }
-
-/* =========================================================
- * WAKE LOCK / HAPTIC / OVERLAY
- * ========================================================= */
 
 async function requestScreenWakeLock() {
   if ('wakeLock' in navigator) {
@@ -630,10 +573,6 @@ function startDurationTicker() {
   updateClock();
   workoutDurationInterval = setInterval(updateClock, 1000);
 }
-
-/* =========================================================
- * BIG CLOCK / AMBIENT DASHBOARD & IDLE TIMER
- * ========================================================= */
 
 function openBigClockOverlay() {
   registerLiveModals();
@@ -868,7 +807,8 @@ function renderBigClockWidgets() {
     const volData = analyzeMuscleVolume(currentEx.targetMuscle);
 
     if (volTitleEl) {
-      volTitleEl.innerHTML = `ОБЪЕМ: ${currentEx.targetMuscle.toUpperCase()}`;
+      // Bug 18b: escapeHtml для targetMuscle (AI-план может содержать XSS).
+      volTitleEl.innerHTML = `ОБЪЕМ: ${escapeHtml(currentEx.targetMuscle.toUpperCase())}`;
     }
     if (volTextEl) volTextEl.innerText = `${volData.weeklyDone} / ${volData.thr.mavMax} (MAV)`;
     if (volFillEl) {
@@ -964,10 +904,6 @@ function computeSessionEta() {
   if (sameSplit.length >= 1) { const recent = sameSplit.slice(-5); const sum = recent.reduce((acc, w) => acc + (parseFloat(w.durationMin) || 0), 0); if (sum > 0) avgDurationMin = Math.round(sum / recent.length); }
   return { avgDurationMin, endsAtMs: activeSession.startedAtMs + avgDurationMin * 60 * 1000 };
 }
-
-/* =========================================================
- * MAIN RENDER
- * ========================================================= */
 
 function renderLiveWorkoutScreen() {
   if (!activeSession) return;
@@ -1076,7 +1012,9 @@ function renderExerciseHeader() {
     }
     const warmupHintEl = document.getElementById('liveExWarmupHint');
     if (warmupHintEl) {
-      const displayWarmupText = currentEx.warmupText ? currentEx.warmupText.replace(/(\d+(?:\.\d+)?)\s*кг/g, (m, p1) => {
+      // Bug 18b: escapeHtml для warmupText до вставки в innerHTML.
+      const escapedWarmup = currentEx.warmupText ? escapeHtml(String(currentEx.warmupText)) : '';
+      const displayWarmupText = escapedWarmup ? escapedWarmup.replace(/(\d+(?:\.\d+)?)\s*кг/g, (m, p1) => {
         const val = parseFloat(p1);
         const disp = roundToGymStep(val / currentEx.multiplier);
         return disp + ' кг' + (currentEx.multiplier === 2 ? '(×2)' : '');
@@ -1415,10 +1353,6 @@ function attachHistoryRowHandlers(container, sets, currentEx) {
   });
 }
 
-/* =========================================================
- * PAB
- * ========================================================= */
-
 function renderPAB() {
   const pab = document.getElementById('liveBottomActionBar');
   if (!pab || !activeSession) return;
@@ -1427,8 +1361,6 @@ function renderPAB() {
   pab.classList.remove('is-warning');
   const multBadge = currentEx.multiplier === 2 ? '(×2)' : '';
 
-  // Фикс 3 / 4: ветка "завершено" проверяется ПЕРВОЙ — таймер отдыха
-  // не должен показываться на завершённом упражнении при возврате стрелками.
   if (isExerciseDone(currentEx)) {
     const nextExIdx = findNextIncompleteExerciseIndex(activeSession.currentExerciseIndex);
     let secondaryLabel = 'Все упражнения → финиш тренировки';
@@ -1568,10 +1500,6 @@ function patchDraftSetDisplay() {
   renderPAB();
 }
 
-/* =========================================================
- * V2.7.0: MANUAL WEIGHT INPUT (MAIN SCREEN)
- * ========================================================= */
-
 function openWeightManualInput() {
   if (!activeSession) return;
   const displayEl = document.getElementById('liveWeightValue');
@@ -1650,10 +1578,6 @@ function openWeightManualInput() {
   });
 }
 
-/* =========================================================
- * V2.8.7: DROP SHEET MANUAL WEIGHT INPUT
- * ========================================================= */
-
 function openDropWeightInput(displayEl, currentValue, onCommit) {
   if (!displayEl) return;
   if (displayEl.dataset.editing === '1') return;
@@ -1730,10 +1654,6 @@ function openDropWeightInput(displayEl, currentValue, onCommit) {
   });
 }
 
-/* =========================================================
- * NOTE CHIPS
- * ========================================================= */
-
 function openNotesSheet() {
   if (!activeSession) return;
   const ex = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -1762,10 +1682,6 @@ function saveNotesSheet() {
   triggerHaptic([30]);
 }
 
-/* =========================================================
- * RECORD ROUTER
- * ========================================================= */
-
 function handleRecordCurrentSet() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -1785,7 +1701,11 @@ function recordSimpleSet() {
   const reps = parseInt(activeSession.draftSet.reps, 10) || 0;
   const rirRaw = String(activeSession.draftSet.rir || '2');
 
-  if (weightDisplay <= 0 || reps <= 0) { showErrorToast('Вес и повторения должны быть больше нуля'); return; }
+  if (weightDisplay <= 0 || reps <= 0) {
+    // Bug 14: alert → showErrorToast.
+    showErrorToast('Вес и повторения должны быть больше нуля.');
+    return;
+  }
 
   let effort = 'Высокое';
   let reserve = `+${rirRaw.replace('+', '')}`;
@@ -1904,10 +1824,6 @@ function commitRecordedSet(partialSet) {
   }
 }
 
-/* =========================================================
- * CLUSTER SHEET
- * ========================================================= */
-
 function openClusterSheet() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -2023,10 +1939,6 @@ function saveClusterSet() {
   activeClusterSheetState = null;
   closeModal('liveClusterSheet');
 }
-
-/* =========================================================
- * DROP SHEET
- * ========================================================= */
 
 function openDropSheet() {
   if (!activeSession) return;
@@ -2228,15 +2140,10 @@ function saveDropSet() {
   closeModal('liveDropSheet');
 }
 
-/* =========================================================
- * NAVIGATION
- * ========================================================= */
-
 function findNextIncompleteExerciseIndex(fromIndex) {
   if (!activeSession) return -1;
   const total = activeSession.exercises.length;
 
-  // Приоритет 1: in-progress (начатые, но не завершённые) — не пропускаем их
   const inProgress = [];
   for (let i = 0; i < total; i++) {
     if (i === fromIndex) continue;
@@ -2252,7 +2159,6 @@ function findNextIncompleteExerciseIndex(fromIndex) {
     return forward !== undefined ? forward : inProgress[0];
   }
 
-  // Приоритет 2: не начатые — forward, затем wrap
   for (let i = fromIndex + 1; i < total; i++) {
     const ex = activeSession.exercises[i];
     if (ex.isCompleted) continue;
@@ -2272,8 +2178,6 @@ function handleCompleteCurrentAndMoveNext() {
   if (!activeSession) return;
   const curIdx = activeSession.currentExerciseIndex;
   const currentEx = activeSession.exercises[curIdx];
-  // Фикс 4: если мы просто вернулись на уже завершённое упражнение — не стартуем
-  // новый rest timer (он и так идёт для следующего активного).
   const wasAlreadyCompleted = Boolean(currentEx && currentEx.isCompleted);
   if (currentEx) { currentEx.isCompleted = true; currentEx.allowBonusSet = false; }
   const nextIdx = findNextIncompleteExerciseIndex(curIdx);
@@ -2298,10 +2202,6 @@ function switchActiveExercise(newIndex) {
   persistActiveSession();
   renderLiveWorkoutScreen();
 }
-
-/* =========================================================
- * REST TIMER
- * ========================================================= */
 
 function startRestTimer(seconds) {
   if (!activeSession) return;
@@ -2360,10 +2260,6 @@ function syncRestTimerWithWallClock() {
   tick();
   restTimerInterval = setInterval(tick, 250);
 }
-
-/* =========================================================
- * SUMMARY METRICS & CLOSEOUT
- * ========================================================= */
 
 function calculateWorkoutSummaryMetrics() {
   let totalWorkSets = 0;
@@ -2482,7 +2378,6 @@ function openFinishSheet() {
     }
   }
 
-  // Фикс 1: сбрасываем confirm-state кнопок при каждом показе шторки.
   resetConfirmableAction(btnDiscard);
   resetConfirmableAction(btnEndEx);
 
@@ -2617,7 +2512,8 @@ async function finalizeAndSyncLiveWorkout() {
     if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
     setTimeout(() => { if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay'); document.body.style.overflow = ''; }, 280);
     if (typeof onWorkoutCompletedCallback === 'function') await onWorkoutCompletedCallback();
-    setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена в Google Таблицы`); }, 320);
+    // Bug 14: alert → showSuccessToast.
+    setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена в Google Таблицы.`); }, 320);
   } catch (err) {
     logToTerminal('LIVE_SYNC_ERR', `Сбой: ${err.message}`, 'error');
     if (statusEl) { statusEl.style.color = 'var(--md-sys-color-error)'; statusEl.innerText = `❌ Сбой сети: ${err.message}. Данные сохранены в памяти телефона — повторите отправку при появлении связи.`; }
@@ -2625,10 +2521,6 @@ async function finalizeAndSyncLiveWorkout() {
     if (saveBtn) saveBtn.disabled = false;
   }
 }
-
-/* =========================================================
- * DOM EVENTS
- * ========================================================= */
 
 function bindLiveWorkoutDomEvents() {
   const resumeBtn = document.getElementById('liveResumeBannerBtn');
@@ -2683,7 +2575,6 @@ function bindLiveWorkoutDomEvents() {
   if (clusterBtn) clusterBtn.onclick = () => handleMethodToggle('cluster');
   if (dropBtn) dropBtn.onclick = () => handleMethodToggle('drop');
 
-  // Фикс 2: «Завершить упражнение» теперь через double-tap.
   const endExerciseBtn = document.getElementById('liveEndExerciseBtn');
   if (endExerciseBtn) {
     bindConfirmableAction(endExerciseBtn, {
@@ -2705,8 +2596,6 @@ function bindLiveWorkoutDomEvents() {
     handleCancelBonusFromSheet();
   };
 
-  // EDGE-1: динамически создаём ghost-кнопку «Продолжить тренировку» перед
-  // кнопкой удаления. index.html не меняем — контейнер уже flex-column.
   const discardFromSheetBtn = document.getElementById('liveDiscardFromSheetBtn');
   if (discardFromSheetBtn && !document.getElementById('liveResumeFromSheetBtn')) {
     const btnResume = document.createElement('md-outlined-button');
@@ -2717,8 +2606,6 @@ function bindLiveWorkoutDomEvents() {
     discardFromSheetBtn.parentNode.insertBefore(btnResume, discardFromSheetBtn);
   }
 
-  // Фикс 1: единый double-tap, состояние сбрасывается через resetConfirmableAction
-  // при каждом openFinishSheet → нет "залипшего" confirm при повторном открытии.
   if (discardFromSheetBtn) {
     bindConfirmableAction(discardFromSheetBtn, {
       labelSelector: '.discard-text',
@@ -2904,7 +2791,6 @@ function bindLiveWorkoutDomEvents() {
   const confirmFinishBtn = document.getElementById('liveConfirmFinishBtn');
   if (confirmFinishBtn) confirmFinishBtn.onclick = () => finalizeAndSyncLiveWorkout();
 
-  // Фикс 1 (Closeout): единый double-tap, state сбрасывается в onOpen closeout.
   const discardSessionBtn = document.getElementById('liveDiscardWorkoutBtn');
   if (discardSessionBtn) {
     bindConfirmableAction(discardSessionBtn, {

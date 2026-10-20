@@ -450,7 +450,6 @@ function prepareSplitPayloadFromAiPlan(splitObj, splitLetter, cycleId, cycleMode
           finalRir = baseRir;
           finalMethod = 'Стандарт';
         } else {
-          // V5.9.3: Изменено на 0.78 для защиты от занижения
           calculatedWeight = roundToGymStep(baseWeight * 0.78);
           finalReps = '12-16';
           finalRir = '+2..+3';
@@ -700,7 +699,6 @@ function renderAiRecipeCard() {
     } else {
       targetRepsBadge = '12–16';
       rirBadgeText = '2–3';
-      // V5.9.3: 0.78 вместо 0.75 (защита от занижения)
       rawTargetLoad = lastKnownWorkingWeight > 0 ? (lastKnownWorkingWeight * 0.78) : 0;
     }
 
@@ -765,8 +763,9 @@ function updatePlanPreviewCardUI(payload) {
 
 function openWorkoutPlanDetailsModal() {
   if (!latestPreparedWorkoutPayload || !latestPreparedWorkoutPayload.exercises) {
-  showErrorToast('План тренировки ещё не загружен');
-  return;
+    // V5.9.21: alert → showErrorToast (UX P1, регламент §2.3 п.28).
+    showErrorToast('План тренировки ещё не загружен. Сначала сформируйте его во вкладке «Тренер» или загрузите данные.');
+    return;
   }
 
   const switcher = document.getElementById('modalPlanSplitSwitcher');

@@ -801,7 +801,9 @@ function renderStructuredCards() {
     let justHtml = '';
     currentSplit.exercises.forEach(ex => {
       if (ex.justification) {
-        justHtml += `<div style="margin-bottom: 8px;"><b>#${ex.order} ${escapeHtml(ex.name)}:</b> ${escapeHtml(ex.justification)}</div>`;
+        // V5.9.10: ex.order пропускаем через parseInt — иначе AI мог
+        // вернуть HTML-строку в поле order и получить XSS в rationale.
+        justHtml += `<div style="margin-bottom: 8px;"><b>#${parseInt(ex.order, 10) || '?'} ${escapeHtml(ex.name)}:</b> ${escapeHtml(ex.justification)}</div>`;
       }
     });
 
