@@ -1,6 +1,7 @@
 import { state, setParsedWorkout, setInitialData, normalizeDate, getDateKey, escapeHtml } from './state.js';
 import { parseGymUpReport } from './parser.js';
 import { syncSetsToSheets, fetchAnalyticsData, fetchServerDebugLogs } from './api.js';
+import { showErrorToast, showSuccessToast, openConfirmSheet } from './ui.js';
 
 let terminalLogsBuffer = [];
 let isSyncModuleInitialized = false;
@@ -51,8 +52,8 @@ export function initSyncModule(onSyncSuccess) {
   }
 
   if (deleteByDateBtn) {
-    deleteByDateBtn.addEventListener('click', async () => {
-      await handleDeleteWorkoutByDate();
+    deleteByDateBtn.addEventListener('click', () => {
+      handleDeleteWorkoutByDate();
     });
   }
 
@@ -60,9 +61,9 @@ export function initSyncModule(onSyncSuccess) {
     copyLogBtn.addEventListener('click', () => {
       const text = terminalLogsBuffer.join('\n');
       navigator.clipboard.writeText(text).then(() => {
-        alert('Лог синхронизации скопирован в буфер обмена!');
+        showSuccessToast('Лог синхронизации скопирован в буфер обмена');
       }).catch(() => {
-        alert('Не удалось скопировать лог.');
+        showErrorToast('Не удалось скопировать лог');
       });
     });
   }
@@ -89,9 +90,6 @@ export function renderSyncModule() {
   if (state.parsedWorkout && state.parsedWorkout.sets && state.parsedWorkout.sets.length > 0) {
     renderParsedWorkoutView();
   }
-
-  // V5.4.2: перерисовка терминала из буфера при открытии вкладки
-  // (в Live Workout лог пишется в память, но DOM терминала ещё может быть не готов)
   const box = document.getElementById('syncTerminalLogs');
   if (box && terminalLogsBuffer.length > 0) {
     box.innerText = terminalLogsBuffer.join('\n');
@@ -154,20 +152,28 @@ function populateDeleteWorkoutSelector() {
   });
 }
 
-async function handleDeleteWorkoutByDate() {
+function handleDeleteWorkoutByDate() {
   const selectEl = document.getElementById('deleteWorkoutDateSelect');
-  const deleteBtn = document.getElementById('deleteWorkoutByDateBtn');
   if (!selectEl || !selectEl.value) {
-    alert('Выберите дату тренировки для удаления.');
+    showErrorToast('Выберите дату тренировки для удаления');
     return;
   }
 
   const dateToDelete = selectEl.value;
   const selectedLabel = selectEl.options[selectEl.selectedIndex]?.textContent || dateToDelete;
 
-  const confirmed = confirm(`Вы действительно хотите ПОЛНОСТЬЮ УДАЛИТЬ тренировку:\n"${selectedLabel}"\nиз листов Log и Workouts?`);
-  if (!confirmed) return;
+  openConfirmSheet({
+    title: 'Удалить тренировку?',
+    message: `Вы действительно хотите ПОЛНОСТЬЮ УДАЛИТЬ тренировку:\n"${selectedLabel}"\nиз листов Log и Workouts?`,
+    confirmLabel: 'Удалить',
+    cancelLabel: 'Отмена',
+    danger: true,
+    onConfirm: () => executeDeleteWorkoutByDate(dateToDelete)
+  });
+}
 
+async function executeDeleteWorkoutByDate(dateToDelete) {
+  const deleteBtn = document.getElementById('deleteWorkoutByDateBtn');
   if (deleteBtn) deleteBtn.disabled = true;
   logToTerminal('DELETE_START', `Запрос на удаление тренировки за ${dateToDelete}...`, 'info');
 
@@ -193,26 +199,22 @@ async function handleDeleteWorkoutByDate() {
       await onGlobalSyncSuccessCallback();
     }
 
-    alert(`Тренировка за ${dateToDelete} успешно удалена из базы данных!`);
+    showSuccessToast(`Тренировка за ${dateToDelete} успешно удалена из базы данных`);
   } catch (err) {
     logToTerminal('DELETE_ERROR', `Ошибка удаления: ${err.message}`, 'error');
-    alert('Ошибка при удалении тренировки: ' + err.message);
+    showErrorToast('Ошибка при удалении тренировки: ' + err.message);
   } finally {
     if (deleteBtn) deleteBtn.disabled = false;
   }
 }
 
-/**
- * V5.4.2: публичный логгер терминала.
- * Вызывается из sync.js и live_workout.js.
- * Всегда пишет в in-memory buffer; DOM-терминал обновляется, если открыт.
- */
-export function logToTerminal(stage, message, level = 'info') {
+export function logToTerminal(stage, message, level) {
+  const lvl = level || 'info';
   const now = new Date();
   const time = now.toLocaleTimeString('ru-RU', { hour12: false }) + '.' + String(now.getMilliseconds()).padStart(3, '0');
-  const icon = level === 'error' ? '❌' : (level === 'success' ? '✅' : 'ℹ️');
+  const icon = lvl === 'error' ? '❌' : (lvl === 'success' ? '✅' : 'ℹ️');
   const line = `[${time}] ${icon} [${stage}] ${message}`;
-  
+
   terminalLogsBuffer.push(line);
   if (terminalLogsBuffer.length > 100) terminalLogsBuffer.shift();
 
@@ -249,7 +251,7 @@ function readAndHandleFile(file) {
   };
   reader.onerror = (err) => {
     logToTerminal('FILE_ERROR', 'Ошибка чтения файла: ' + err, 'error');
-    alert('Ошибка чтения файла: ' + err);
+    showErrorToast('Ошибка чтения файла: ' + err);
   };
   reader.readAsText(file);
 }
@@ -269,7 +271,7 @@ function renderParsedWorkoutView() {
 
   if (!workout.sets || workout.sets.length === 0) {
     logToTerminal('VALIDATION', 'Отчет пуст или не содержит выполненных сетов!', 'error');
-    alert('В отчете не найдено выполненных рабочих сетов!');
+    showErrorToast('В отчете не найдено выполненных рабочих сетов');
     return;
   }
 
@@ -298,8 +300,8 @@ function renderParsedWorkoutView() {
       const row = document.createElement('div');
       row.className = 'set-row';
 
-      const categoryColor = set.category === 'Рабочий' 
-        ? 'var(--md-sys-color-primary)' 
+      const categoryColor = set.category === 'Рабочий'
+        ? 'var(--md-sys-color-primary)'
         : 'var(--md-sys-color-on-surface-variant)';
 
       let statusIconHtml = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-outline-variant);">hourglass_empty</span>`;
@@ -381,13 +383,13 @@ async function executeSync(onSyncSuccess) {
 
   if (!workout.sets || workout.sets.length === 0) {
     logToTerminal('SYNC_ABORT', 'Нет данных для синхронизации', 'error');
-    alert('Нет данных для синхронизации!');
+    showErrorToast('Нет данных для синхронизации');
     return;
   }
 
   if (!workout.date) {
     logToTerminal('SYNC_ABORT', 'Дата тренировки не определена. Синхронизация отменена во избежание порчи данных.', 'error');
-    alert('Не удалось определить дату тренировки. Проверьте формат отчета.');
+    showErrorToast('Не удалось определить дату тренировки. Проверьте формат отчета.');
     return;
   }
 
@@ -457,7 +459,7 @@ async function executeSync(onSyncSuccess) {
         box.innerHTML = `<span class="material-symbols-outlined" style="font-size: 20px; color: var(--md-sys-color-error);" title="${escapeHtml(err.message)}">error</span>`;
       }
     });
-    alert('Ошибка при синхронизации: ' + err.message);
+    showErrorToast('Ошибка при синхронизации: ' + err.message);
   } finally {
     syncBtn.disabled = false;
   }

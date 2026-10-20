@@ -6,14 +6,13 @@ import { renderCoachModule } from './coach.js';
 import { initSyncModule, renderSyncModule, handleIncomingReportText } from './sync.js';
 import { initLiveWorkoutModule } from './live_workout.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
+import { showToast, showErrorToast } from './ui.js';
 
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const LAST_SYNC_KEY = 'gym_last_sync_ts';
 
-// V49 D: race protection и dedup-хэш.
 let refreshSeq = 0;
 let lastDataHash = '';
-let toastTimeout = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   initServiceWorker();
@@ -54,12 +53,6 @@ function initServiceWorker() {
   }
 }
 
-/**
- * V49 D: tab-navigation через history.replaceState.
- * Не создаёт записей в истории, не срабатывает hashchange, не конфликтует
- * с pushState/popstate в modal_manager.js (см. fix 2.2 аудита).
- * __gymBaseline сохраняется, чтобы back из модала корректно распознавался.
- */
 function navigateToTab(tabName) {
   const targetHash = `tab-${tabName}`;
   history.replaceState({ __gymBaseline: true }, '', '#' + targetHash);
@@ -76,8 +69,6 @@ function initNavigation() {
       }
     });
   });
-  // V49 D: hashchange-listener убран. navigateToTab вызывает handleRouteHash()
-  // синхронно; слушатель приводил к двойному рендеру и конфликту с popstate.
 }
 
 function handleRouteHash() {
@@ -124,8 +115,6 @@ async function checkSharedReportCache() {
       const reportText = await cachedResponse.text();
       await cache.delete('shared-workout-data');
       if (reportText && reportText.trim()) {
-        // V49 D: replaceState вместо location.hash (не создаёт запись, не
-        // сбивает baseline-state, согласовано с modal_manager).
         history.replaceState({ __gymBaseline: true }, '', '#tab-sync');
         handleRouteHash();
         handleIncomingReportText(reportText);
@@ -138,11 +127,6 @@ async function checkSharedReportCache() {
   return false;
 }
 
-/**
- * Лёгкий хэш «изменились ли данные». Только ключевые метрики — набор
- * элементов, идентификаторы циклов. Не ловит правки внутри существующих
- * сетов (это и не нужно для «не дёргать UI при ручном refresh»).
- */
 function computeDataHash(data) {
   if (!data) return '';
   try {
@@ -159,10 +143,6 @@ function computeDataHash(data) {
   }
 }
 
-/**
- * Пользователь сейчас набирает текст / держит открытый дропдаун.
- * Перерисовка активной вкладки сбила бы фокус, выделение и ввод.
- */
 function isUserTyping() {
   const ae = document.activeElement;
   if (!ae) return false;
@@ -171,30 +151,13 @@ function isUserTyping() {
 }
 
 function renderActiveTab(tabName, force) {
-  // force=true — критические источники (startup / sync / live). Всё равно
-  // не сбиваем ввод пользователя: пропустим один тик.
-  if (!force && isUserTyping()) {
-    return;
-  }
+  if (!force && isUserTyping()) return;
   if (tabName === 'overview') renderOverviewModule();
   if (tabName === 'analytics') renderAnalyticsModule();
   if (tabName === 'coach') renderCoachModule();
   if (tabName === 'sync') renderSyncModule();
 }
 
-/**
- * Загрузка данных из GAS.
- *
- * opts.force:
- *   true  — startup / sync-callback / live-callback: рендерить даже если хэш
- *           не изменился (данные только что записаны — нужен свежий вид).
- *   false — manual refresh: если данные не изменились, не трогать UI
- *           (сохранить скролл, ввод, открытые дропдауны).
- *
- * Race protection: seq-счётчик отбрасывает устаревшие ответы.
- * Loading/offline разведены: refresh НЕ трогает #networkStatusDot, точкой
- * владеет initNetworkStatus (navigator.onLine).
- */
 async function refreshApplicationData(opts) {
   const options = opts || {};
   const force = Boolean(options.force);
@@ -212,18 +175,16 @@ async function refreshApplicationData(opts) {
   } catch (err) {
     res = { success: false, error: err.message || 'Network error' };
   } finally {
-    // Разблокировать кнопку может только последний запрос.
     if (mySeq === refreshSeq && refreshBtn) {
       refreshBtn.disabled = false;
       refreshBtn.removeAttribute('aria-busy');
     }
   }
 
-  // Устаревший ответ — игнорируем полностью.
   if (mySeq !== refreshSeq) return;
 
   if (!res.success || !res.data) {
-    showToast('Не удалось обновить данные: ' + (res.error || 'нет связи'), 'error');
+    showErrorToast('Не удалось обновить данные: ' + (res.error || 'нет связи'));
     return;
   }
 
@@ -235,66 +196,11 @@ async function refreshApplicationData(opts) {
   localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
   renderLastSyncLabel();
 
-  if (!changed && !force) {
-    return;
-  }
+  if (!changed && !force) return;
 
   const activeNav = document.querySelector('#bottomNav .nav-item.active');
   const curTab = activeNav ? activeNav.getAttribute('data-tab') : 'overview';
   renderActiveTab(curTab, force);
-}
-
-/**
- * Минимальный toast-helper. Inline-стили — не требует правок index.html.
- * Позже, в пакете H (alert → toast), расширим и переиспользуем.
- */
-function showToast(message, type) {
-  const existing = document.getElementById('__gym_toast__');
-  if (existing) existing.remove();
-  if (toastTimeout) { clearTimeout(toastTimeout); toastTimeout = null; }
-
-  const toast = document.createElement('div');
-  toast.id = '__gym_toast__';
-  toast.textContent = message;
-
-  const isError = (type === 'error');
-  const bg = isError ? 'var(--md-sys-color-error-container)' : 'var(--md-sys-color-secondary-container)';
-  const fg = isError ? 'var(--md-sys-color-on-error-container)' : 'var(--md-sys-color-on-secondary-container)';
-  const border = isError ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-outline)';
-
-  toast.style.cssText = [
-    'position:fixed',
-    'left:16px',
-    'right:16px',
-    'bottom:calc(88px + env(safe-area-inset-bottom, 0px))',
-    'padding:12px 16px',
-    'border-radius:var(--md-sys-shape-corner-medium)',
-    'background:' + bg,
-    'color:' + fg,
-    'border:1px solid ' + border,
-    'font: var(--md-sys-typescale-body-medium)',
-    'font-weight:500',
-    'z-index:5000',
-    'box-shadow:0 4px 16px rgba(0,0,0,0.4)',
-    'transition:opacity 200ms ease, transform 200ms ease',
-    'opacity:0',
-    'transform:translateY(8px)'
-  ].join(';');
-
-  document.body.appendChild(toast);
-
-  requestAnimationFrame(() => {
-    toast.style.opacity = '1';
-    toast.style.transform = 'translateY(0)';
-  });
-
-  toastTimeout = setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(8px)';
-    setTimeout(() => {
-      if (toast.parentNode) toast.remove();
-    }, 220);
-  }, 3500);
 }
 
 function initRefreshButton() {

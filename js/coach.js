@@ -4,6 +4,7 @@ import {
   rirWeight, isIsolationExercise, isDeloadSet, getExerciseMultiplier
 } from './state.js';
 import { askGasGeminiCoach, saveAiPlanToSheets } from './api.js';
+import { showErrorToast, showSuccessToast, showWarningToast, openConfirmSheet } from './ui.js';
 
 let activeSplitView = 'A';
 let cachedPlanData = null;
@@ -71,7 +72,7 @@ function initSosCalculator() {
     const actualReps = parseInt(actualRepsInput?.value, 10) || 0;
 
     if (weight <= 0 || targetReps <= 0) {
-      alert('Укажите корректный рабочий вес и целевые повторения.');
+      showErrorToast('Укажите корректный рабочий вес и целевые повторения');
       return;
     }
 
@@ -189,19 +190,34 @@ function initCyclePlanner() {
   isCoachInitialized = true;
 }
 
-async function syncCachedPlanToSheets() {
-  const syncCloudBtn = document.getElementById('syncCachedPlanToCloudBtn');
+function syncCachedPlanToSheets() {
   if (!cachedPlanData || !cachedPlanData.splits) {
-    alert('Нет сохраненного плана мезоцикла для отправки.');
+    showErrorToast('Нет сохраненного плана мезоцикла для отправки');
     return;
   }
 
-  // V5.9.8: защита от случайной перезаписи уже синхронизированного плана
   if (!cachedPlanData._pendingCloudSync) {
-    const alreadySynced = confirm('План уже сохранён в AI_Plan. Отправить повторно (перезапишет лист)?');
-    if (!alreadySynced) return;
+    openConfirmSheet({
+      title: 'Перезаписать план?',
+      message: 'План уже сохранён в AI_Plan. Отправить повторно (перезапишет лист)?',
+      confirmLabel: 'Перезаписать',
+      cancelLabel: 'Отмена',
+      danger: true,
+      onConfirm: () => executeSyncCachedPlan()
+    });
+    return;
   }
 
+  executeSyncCachedPlan();
+}
+
+async function executeSyncCachedPlan() {
+  if (!cachedPlanData || !cachedPlanData.splits) {
+    showErrorToast('Нет сохраненного плана мезоцикла для отправки');
+    return;
+  }
+
+  const syncCloudBtn = document.getElementById('syncCachedPlanToCloudBtn');
   if (syncCloudBtn) syncCloudBtn.disabled = true;
 
   try {
@@ -212,12 +228,12 @@ async function syncCachedPlanToSheets() {
       cachedPlanData = cleanPlan;
       localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
       renderStructuredCards();
-      alert(`✅ План успешно сохранен на лист AI_Plan! (Записано строк: ${res.savedRows})`);
+      showSuccessToast(`План успешно сохранён на лист AI_Plan (Записано строк: ${res.savedRows})`);
     } else {
-      alert('Ошибка сохранения плана: ' + (res?.error || 'Неизвестная ошибка на сервере'));
+      showErrorToast('Ошибка сохранения плана: ' + (res?.error || 'Неизвестная ошибка на сервере'));
     }
   } catch (err) {
-    alert('Сбой при отправке плана: ' + err.message);
+    showErrorToast('Сбой при отправке плана: ' + err.message);
   } finally {
     if (syncCloudBtn) syncCloudBtn.disabled = false;
   }
@@ -265,7 +281,6 @@ function buildAthleteSituationPromptBlock() {
   );
   if (allSets.length === 0) return '';
 
-  // V5.9.8 FIX: используем currentCycleId, а не selectedCycleId из analytics-фильтра
   const cycleId = state.dbData.currentCycleId || 'C-1';
 
   const cycleSets = allSets.filter(s => (s.cycleId || 'C-1') === cycleId);
@@ -318,7 +333,6 @@ function buildAthleteSituationPromptBlock() {
     }
   });
 
-  // V5.9.8: RIR-контекст по всему циклу
   const rirStats = cycleSets.reduce((acc, s) => {
     const clean = parseFloat(String(s.reserve || '').replace('+', ''));
     if (!isNaN(clean)) { acc.sum += clean; acc.count++; }
@@ -343,8 +357,6 @@ ${laggingText}
 Средний RIR: ${avgRir}. ${rirAdvice}`;
 }
 
-// V5.9.8: Fallback-потолок веса для новых упражнений без истории
-// Используется ТОЛЬКО для защиты от явных галлюцинаций ИИ (×3 потолок).
 function getFallbackWeight(muscleTarget, cycleMode) {
   const baseMap = {
     'Грудь': 80, 'Широчайшие': 80, 'Верх спины': 70,
@@ -359,7 +371,6 @@ function getFallbackWeight(muscleTarget, cycleMode) {
   return Math.round((base * coef) / 2.5) * 2.5;
 }
 
-// V5.9.8: Строгая валидация JSON-схемы плана
 function extractAndValidatePlan(rawAnswer) {
   if (!rawAnswer || typeof rawAnswer !== 'string') {
     throw new Error('Модель вернула пустой ответ');
@@ -418,7 +429,6 @@ function extractAndValidatePlan(rawAnswer) {
   return parsed;
 }
 
-// V5.9.8: Усиление промпта при retry
 function buildPromptWithAttempt(basePrompt, attempt) {
   if (attempt <= 1) return basePrompt;
   return basePrompt + `\n\n[ПОВТОРНАЯ ПОПЫТКА №${attempt} — КРИТИЧЕСКОЕ ТРЕБОВАНИЕ]
@@ -575,7 +585,6 @@ ${catalogList || 'Нет размеченных упражнений в ката
   if (genBtn) genBtn.disabled = true;
 
   try {
-    // V5.9.8: retry-цикл с валидацией схемы (2 попытки)
     const MAX_ATTEMPTS = 2;
     let parsedPlan = null;
     let lastError = null;
@@ -601,7 +610,6 @@ ${catalogList || 'Нет размеченных упражнений в ката
       throw new Error(lastError ? lastError.message : 'Не удалось получить валидный план после всех попыток');
     }
 
-    // V5.9.8: Clamping весов — история + fallback для новых упражнений
     ['A', 'B'].forEach(splitKey => {
       parsedPlan.splits[splitKey].exercises.forEach(ex => {
         const hist = exerciseStatsMap[ex.name];
@@ -623,7 +631,6 @@ ${catalogList || 'Нет размеченных упражнений в ката
             ex.notes = (ex.notes || '') + ' (Вес скорректирован физиологическим лимитом)';
           }
         } else {
-          // Новое упражнение без истории — защита от явных галлюцинаций (×3 потолок)
           const fallbackCap = getFallbackWeight(ex.target, phase.nextMode);
           if (fallbackCap > 0 && ex.weight > fallbackCap * 3) {
             ex.weight = fallbackCap;
@@ -660,10 +667,10 @@ ${catalogList || 'Нет размеченных упражнений в ката
       cachedPlanData._pendingCloudSync = true;
       localStorage.setItem('gym_ai_coach_plan', JSON.stringify(cachedPlanData));
       try { renderStructuredCards(); } catch(e) {}
-      alert('⚠️ План сохранен в памяти телефона, но сервер временно не смог записать его в таблицу. Нажмите «Отправить несохраненный план в таблицу» чуть позже.');
+      showWarningToast('План сохранён в памяти телефона, но сервер временно не смог записать его в таблицу. Нажмите «Отправить несохраненный план в таблицу» чуть позже.');
     }
   } catch (err) {
-    alert(`Ошибка генерации плана: ${err.message}`);
+    showErrorToast(`Ошибка генерации плана: ${err.message}`);
   } finally {
     if (timerInterval) clearInterval(timerInterval);
     if (loadingBox) loadingBox.style.display = 'none';
@@ -797,7 +804,7 @@ function renderStructuredCards() {
         justHtml += `<div style="margin-bottom: 8px;"><b>#${ex.order} ${escapeHtml(ex.name)}:</b> ${escapeHtml(ex.justification)}</div>`;
       }
     });
-    
+
     if (cachedPlanData.rationale) {
       justHtml += `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant);"><b>Общая стратегия:</b><br>${escapeHtml(cachedPlanData.rationale)}</div>`;
     }
