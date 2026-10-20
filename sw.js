@@ -1,29 +1,28 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — SERVICE WORKER (V49 CACHE-INTEGRITY HARDENING)
+ * GYM ANALYTICS HUB — SERVICE WORKER (V52 CACHE-SCHEME HOTFIX)
  * =========================================================================
- * V49 изменения:
- * - Кэш GAS больше не «отравляется» ошибками: {success:false} и невалидный
- *   JSON не попадают в кэш. Ответ считается успешным только при
- *   data.success !== false (см. isSuccessfulGasPayload).
- * - isFresh теперь реально работает: свежий кэш (<5 мин) отдаётся мгновенно
- *   с фоновым обновлением через event.waitUntil; устаревший кэш (>5 мин)
- *   блокирует ответ до ответа сети, а кэш используется только как fallback
- *   при сетевом сбое.
- * - Фоновое обновление защищено event.waitUntil — воркер не будет убит
- *   раньше, чем кэш обновится.
- * - После успешной записи (sync_sets / save_ai_plan) кэш get_all_data
- *   инвалидируется: следующий refresh видит новые данные СРАЗУ, а не со
- *   второго обновления (Последствие 1 из аудита).
- * - APP_ASSETS включает ./js/modal_manager.js — офлайн-запуск PWA не упадёт
- *   на отсутствующем модуле.
- * - Строгая проверка url.hostname === 'script.google.com' для GAS.
- * - CACHE_NAME V48→V49 и GAS_CACHE_NAME v1→v2: старые (возможно,
- *   отравленные) записи не переживают деплой.
+ * V52 (hotfix поверх V49/V50/V51):
+ * - buildGasCacheKey() больше не использует схему 'gas-cache://'. Cache API
+ *   принимает ТОЛЬКО http(s) URL, а не кастомные схемы. Симптом:
+ *   "Failed to execute 'put' on 'Cache': Request scheme 'gas-cache' is
+ *   unsupported" → кэш GAS физически не работал с V48, но ошибка была
+ *   спрятана в try/catch → console.warn. Теперь ключ — синтетический
+ *   http(s) URL на self.location.origin + '/__sw_gas_cache__/<action>'.
+ *   Реального сетевого запроса на этот URL НЕ делается — только ключ.
+ * - CACHE_NAME V51 → V52, чтобы установленная PWA подхватила фикс
+ *   (cache-first для статики).
+ * - Вся остальная логика V49/V50/V51 сохранена:
+ *   * кэш GAS не отравляется {success:false} (isSuccessfulGasPayload);
+ *   * isFresh реально соблюдается;
+ *   * event.waitUntil для фонового обновления;
+ *   * инвалидация get_all_data после sync_sets/save_ai_plan;
+ *   * строгий hostname === 'script.google.com';
+ *   * APP_ASSETS включает ./js/ui.js и ./js/modal_manager.js.
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v51';
+const CACHE_NAME = 'gym-hub-v52';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const GAS_CACHE_NAME = 'gym-gas-cache-v2';
 const GAS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
@@ -43,7 +42,7 @@ const APP_ASSETS = [
   './js/sync.js',
   './js/parser.js',
   './js/live_workout.js',
-  './js/modal_manager.js'
+  './js/modal_manager.js',
   './js/ui.js'
 ];
 
@@ -94,8 +93,23 @@ self.addEventListener('activate', (event) => {
  * GAS CACHE HELPERS
  * ========================================================= */
 
+/**
+ * V52 FIX: Cache API принимает только http(s) URL.
+ * Раньше ключ строился как 'gas-cache://POST/<action>' — cache.put()
+ * бросал TypeError, кэш GAS никогда не записывался.
+ *
+ * Теперь ключ — синтетический http(s) URL на текущем origin:
+ *   https://<origin>/__sw_gas_cache__/<action>
+ *
+ * Это ТОЛЬКО ключ. Реального запроса на этот URL не делается —
+ * мы никогда не передаём его в fetch(). Используем Request для явности
+ * (method='GET'), но подойдёт и строковое значение.
+ */
 function buildGasCacheKey(action) {
-  return new Request(`gas-cache://POST/${action || 'unknown'}`, { method: 'GET' });
+  return new Request(
+    `${self.location.origin}/__sw_gas_cache__/${action || 'unknown'}`,
+    { method: 'GET' }
+  );
 }
 
 async function getCachedWithTimestamp(cacheName, request) {
