@@ -23,7 +23,7 @@
  * =========================================================================
  */
 
-const CACHE_NAME = 'gym-hub-v50';
+const CACHE_NAME = 'gym-hub-v51';
 const SHARE_CACHE_NAME = 'gym-share-mailbox';
 const GAS_CACHE_NAME = 'gym-gas-cache-v2';
 const GAS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
@@ -44,6 +44,7 @@ const APP_ASSETS = [
   './js/parser.js',
   './js/live_workout.js',
   './js/modal_manager.js'
+  './js/ui.js'
 ];
 
 self.addEventListener('install', (event) => {
