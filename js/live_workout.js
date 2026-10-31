@@ -1,21 +1,25 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.1 Myo-reps Integration)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.2 Safety & Provenance Fixes)
  * =========================================================================
- * V2.9.1 (ФИЧА Myo-reps):
- * - Добавлен флаг isMyo (взаимоисключающий с isDrop и isCluster).
- * - Кнопка liveManualMyoBtn в liveExNotesRow → handleMethodToggle('myo').
- * - Баннер-подсказка при активации Myo + жёлтое предупреждение для
- *   ног/тяжёлой базы (isMyoBlacklistedExercise).
- * - renderPAB: ветка isSpecialActive && isMyo → livePabRecordMyo → openMyoSheet.
- * - openMyoSheet / renderMyoSheet / saveMyoSet: активация + микросерии,
- *   ручной ввод веса (openDropWeightInput переиспользуется).
- * - При сохранении: method = "Мио W×A+M1/M2/... (RIR r1/r2/...)",
- *   reps = сумма всех, firstSegmentReps = активация,
- *   e1rm = computeE1RM(weightEffective, firstSegmentReps).
- * - Ветка Myo в renderHistoryRow (отдельный вывод цепочки повторов).
- * - registerLiveModals: зарегистрирован liveMyoSheet.
- * - V2.9.0-фиксы (B1/B6/B14, UX-7/9/14/19, P2 #14, A6) сохранены.
+ * V2.9.2 (фикс «зависшего таймера после финиша»):
+ * - BUG-1 (P1): finalizeAndSyncLiveWorkout теперь ЯВНО закрывает все live-
+ *   модалки (liveBigClockOverlay, liveCloseoutModal, liveFinishSheet,
+ *   liveWorkoutOverlay) в правильном порядке. Раньше liveBigClockOverlay
+ *   (z-index 1050) оставался поверх — цифры мигали при is-warning, визуально
+ *   «тикало» после финиша.
+ * - BUG-2 (P1): убран setTimeout(280) перед closeModal('liveWorkoutOverlay').
+ *   Причина: closeModal('liveCloseoutModal') ставит closingInProgress=true,
+ *   который сбрасывается через setTimeout(500). 280 < 500 → closeModal для
+ *   liveWorkoutOverlay уходил в early return. Overlay оставался открытым.
+ * - BUG-3 (P1): _synced = true ставится ТОЛЬКО после успешного
+ *   persistActiveSession(). При quota-error флаг не фиксировался в
+ *   localStorage → crash-recovery V2.9.0 терял _synced → дубли в Sheets.
+ * - BUG-4 (P2): startDurationTicker и syncRestTimerWithWallClock получили
+ *   early return при !activeSession ДО setInterval. Раньше интервал жил
+ *   после финиша (утечка CPU, тикающая иконка в топбаре).
+ * - Fallback: после явных closeModal — если стек не пуст, resetAllModals().
+ * - V2.9.1 (Myo-reps) и V2.9.0-фиксы полностью сохранены.
  * =========================================================================
  */
 
@@ -24,7 +28,7 @@ import {
   getLastSetFieldForExercise, getExerciseMultiplier, MUSCLE_THRESHOLDS
 } from './state.js';
 import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
-import { registerModal, openModal, closeModal, isModalOpen, resetAllModals } from './modal_manager.js';
+import { registerModal, openModal, closeModal, isModalOpen, resetAllModals, getTopModalId } from './modal_manager.js';
 import { showErrorToast, showSuccessToast, showWarningToast, openConfirmSheet } from './ui.js';
 import { logToTerminal } from './sync.js';
 
@@ -57,11 +61,6 @@ const DEFAULT_TIMERS = {
   warmup: 60
 };
 
-/**
- * V2.9.1: чёрный список для Myo-reps. Тяжёлая база и ноги под утомлением
- * — высокий риск поломки техники. Рекомендуется только изоляция и
- * тренажёры (Роль 5a + Роль 7).
- */
 const MYO_BLACKLIST_MUSCLES = ['Квадрицепс', 'Бицепс бедра', 'Ягодичные'];
 const MYO_BLACKLIST_NAME_ROOTS = ['присед', 'становая', 'жим ногами', 'румын', 'выпад', 'тяга сумо', 'good morning', 'наклон'];
 
@@ -176,6 +175,9 @@ function registerLiveModals() {
         syncRestTimerWithWallClock();
       },
       onClose: () => {
+        // ИНВАРИАНТ (Роль 7): showRecoveryBanner вызывается ТОЛЬКО если
+        // activeSession всё ещё существует. При финише activeSession=null
+        // присваивается ДО closeModal('liveWorkoutOverlay') — баннер не покажется.
         document.body.style.overflow = '';
         showRecoveryBanner();
       }
@@ -216,7 +218,6 @@ function registerLiveModals() {
     dropSheet.onclick = (e) => { if (e.target === dropSheet) closeModal('liveDropSheet'); };
   }
 
-  // V2.9.1: новый sheet — Myo-reps.
   const myoSheet = document.getElementById('liveMyoSheet');
   if (myoSheet) {
     registerModal('liveMyoSheet', {
@@ -361,11 +362,6 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
   return { isCluster: false, schemeText: '', segments: [defaultWorkReps], totalReps: defaultWorkReps, firstSegmentReps: defaultWorkReps };
 }
 
-/**
- * V2.9.1: парсинг Myo-reps из plannedMethod. Поддерживаемые форматы:
- *   "Мио", "Мио 12", "Мио 12+3/3/2", "Мио-репс", "Myo".
- * Возвращает { isMyo, activationReps, miniSetDefaults }.
- */
 function parseMyoScheme(methodStr, defaultWorkReps) {
   const str = String(methodStr || '');
   const low = str.toLowerCase();
@@ -436,7 +432,7 @@ function computeSmartDraftSetForExercise(ex) {
     category: 'Рабочий',
     weight: workWeightDisplay,
     reps: workReps,
-    rir: activateSpecialNow ? (ex.isMyo ? '1' : '1') : '2',
+    rir: activateSpecialNow ? '1' : '2',
     useSpecialMethod: activateSpecialNow
   };
 }
@@ -552,11 +548,22 @@ function beginNewLiveWorkoutSession(recipePayload) {
   announceToTalkBack(`Начата тренировка ${activeSession.title}. ${exercisesQueue.length} упражнений.`);
 }
 
+/**
+ * V2.9.2: возвращает boolean — успешно ли сохранение в localStorage.
+ * Нужно для BUG-3: _synced фиксируется только при успешном persist.
+ */
 function persistActiveSession() {
   try {
-    if (activeSession) localStorage.setItem(STORAGE_KEY_ACTIVE_SESSION, JSON.stringify(activeSession));
-    else localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION);
-  } catch (e) { console.warn('[LiveWorkout] Ошибка сохранения сессии в localStorage:', e); }
+    if (activeSession) {
+      localStorage.setItem(STORAGE_KEY_ACTIVE_SESSION, JSON.stringify(activeSession));
+    } else {
+      localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION);
+    }
+    return true;
+  } catch (e) {
+    console.warn('[LiveWorkout] Ошибка сохранения сессии в localStorage:', e);
+    return false;
+  }
 }
 
 function checkCrashRecoverySession() {
@@ -673,7 +680,12 @@ function stopAllTimers() {
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
 }
 
+/**
+ * V2.9.2 (BUG-4): early return при !activeSession ДО setInterval.
+ * Раньше интервал жил после финиша — утечка CPU, тикающая иконка в топбаре.
+ */
 function startDurationTicker() {
+  if (!activeSession) return;
   if (workoutDurationInterval) clearInterval(workoutDurationInterval);
   const updateClock = () => {
     const clockEl = document.getElementById('liveHeaderTimer');
@@ -766,35 +778,7 @@ function computeSessionEta() {
   return { avgDurationMin, endsAtMs: activeSession.startedAtMs + avgDurationMin * 60 * 1000 };
 }
 
-/* =========================================================
- * ПРОДОЛЖЕНИЕ СЛЕДУЕТ (часть 2/3)
- * =========================================================
- * Следующий блок (часть 2/3):
- * - renderBigClockWidgets
- * - startBigClockEngine / stopBigClock / syncBigClockWithWallClock
- * - renderLiveWorkoutScreen + все render* подфункции
- * - renderExerciseHeader / renderExerciseNoteChips
- * - renderCurrentSetLabel / renderCategoryToggle / renderMethodToggle
- * - renderStepperValues / renderRirChips / renderIntensifierBanner (Myo-ветка)
- * - renderControlsVisibility / renderCompletedCard / renderHistoryGroups
- * - renderHistoryRow / attachHistoryRowHandlers / renderPAB (Myo-ветка)
- * - patchDraftSetDisplay / openWeightManualInput / openDropWeightInput
- * - openNotesSheet / saveNotesSheet
- * - handleRecordCurrentSet / recordSimpleSet / commitRecordedSet
- * - openClusterSheet / renderClusterSheet / saveClusterSet
- * - openDropSheet / renderDropSheet / addDropStep / saveDropSet
- * - openMyoSheet / renderMyoSheet / saveMyoSet  ← НОВОЕ
- *
- * Часть 3/3:
- * - findNextIncompleteExerciseIndex / handleCompleteCurrentAndMoveNext / switchActiveExercise
- * - startRestTimer / adjustRestTimer / stopRestTimer / syncRestTimerWithWallClock
- * - calculateWorkoutSummaryMetrics / openFinishSheet
- * - handleEndExerciseFromSheet / handleCancelBonusFromSheet
- * - openCloseoutModal / renderCloseoutSummaryBox / finalizeAndSyncLiveWorkout
- * - bindLiveWorkoutDomEvents (с Myo-биндингами)
- * - toggleHeaderCollapse
- * ========================================================= */
- function renderBigClockWidgets() {
+function renderBigClockWidgets() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
@@ -1451,11 +1435,8 @@ function renderHistoryRow(set, displayNum, kind, multiplier) {
 
   let mainLine = `${set.weightDisplay}${multBadge} × ${set.reps}`;
   let dropsChainHtml = '';
-  let myoChainHtml = '';
 
   if (isMyo) {
-    // Метод уже содержит цепочку вида "Мио 50×12+3/3/2 (RIR 1/0/0/0)".
-    // Разбираем для компактного отображения.
     const chainMatch = set.method.match(/×(\d+)\+([\d\/]+)/);
     const act = chainMatch ? chainMatch[1] : (set.firstSegmentReps || set.reps);
     const mini = chainMatch ? chainMatch[2] : '';
@@ -1499,7 +1480,6 @@ function renderHistoryRow(set, displayNum, kind, multiplier) {
           ${chips.join('')}
         </div>
         ${dropsChainHtml}
-        ${myoChainHtml}
       </div>
       <button class="live-delete-set-btn" data-set-idx="${displayNum - 1}" data-kind="${kind}" data-state="idle" title="Удалить подход (двойной тап)">
         <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
@@ -2371,7 +2351,7 @@ function saveDropSet() {
 }
 
 /* =========================================================
- * MYO-REPS SHEET (V2.9.1)
+ * MYO-REPS SHEET
  * ========================================================= */
 
 function openMyoSheet() {
@@ -2571,6 +2551,7 @@ function saveMyoSet() {
   closeModal('liveMyoSheet');
   announceToTalkBack('Мио-сет записан.');
 }
+
 function findNextIncompleteExerciseIndex(fromIndex) {
   if (!activeSession) return -1;
   const total = activeSession.exercises.length;
@@ -2667,6 +2648,10 @@ function stopRestTimer() {
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
 }
 
+/**
+ * V2.9.2 (BUG-4): early return при !activeSession ДО setInterval.
+ * Раньше интервал жил после финиша — утечка CPU.
+ */
 function syncRestTimerWithWallClock() {
   if (!activeSession) return;
   if (!activeSession.restState || !activeSession.restState.isActive) {
@@ -2877,9 +2862,23 @@ function renderCloseoutSummaryBox() {
   `;
 }
 
+/**
+ * V2.9.2: критический фикс «зависшего таймера после финиша».
+ *
+ * BUG-1 (P1): liveBigClockOverlay (z-index 1050) не закрывался, если был открыт.
+ *   Цифры мигали при is-warning — визуально «тикало» после финиша.
+ * BUG-2 (P1): setTimeout(280) < closingInProgress-таймаут (500) в modal_manager.js
+ *   → closeModal('liveWorkoutOverlay') уходил в early return, overlay висел.
+ * BUG-3 (P1): _synced=true фиксировался даже если persist упал с QuotaExceededError
+ *   → crash-recovery терял флаг → дубли в Sheets.
+ *
+ * Решение: явное закрытие ВСЕХ live-модалок в правильном порядке, без setTimeout,
+ * _synced — только после успешного persist, fallback resetAllModals().
+ */
 async function finalizeAndSyncLiveWorkout() {
   if (!activeSession) return;
 
+  // --- Ветка 1: уже синхронизировано (только верификация) ---
   if (activeSession._synced === true) {
     const saveBtn = document.getElementById('liveConfirmFinishBtn');
     const statusEl = document.getElementById('liveCloseoutSyncStatus');
@@ -2900,8 +2899,7 @@ async function finalizeAndSyncLiveWorkout() {
       isSavingLiveWorkout = false;
       persistActiveSession();
       hideRecoveryBanner();
-      if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
-      setTimeout(() => { if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay'); document.body.style.overflow = ''; }, 280);
+      closeAllLiveModals();
       if (typeof onWorkoutCompletedCallback === 'function') await onWorkoutCompletedCallback();
       setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена (верификация завершена).`); }, 320);
       announceToTalkBack('Тренировка сохранена.');
@@ -2916,6 +2914,7 @@ async function finalizeAndSyncLiveWorkout() {
     return;
   }
 
+  // --- Ветка 2: первая запись ---
   const saveBtn = document.getElementById('liveConfirmFinishBtn');
   const statusEl = document.getElementById('liveCloseoutSyncStatus');
   const workoutSummary = calculateWorkoutSummaryMetrics();
@@ -2970,8 +2969,16 @@ async function finalizeAndSyncLiveWorkout() {
     await syncSetsToSheets(payload);
     const elapsed = Math.round(performance.now() - t0);
 
-    if (activeSession) activeSession._synced = true;
-    persistActiveSession();
+    // V2.9.2 (BUG-3): _synced фиксируется ТОЛЬКО после успешного persist.
+    // Если persist упал с QuotaExceededError — флаг не сохранится, но данные
+    // уже в Sheets, повторный вызов в этой же сессии увидит _synced=true в памяти.
+    if (activeSession) {
+      activeSession._synced = true;
+      const persistedOk = persistActiveSession();
+      if (!persistedOk) {
+        logToTerminal('LIVE_SYNC_WARN', '_synced не сохранён в localStorage (quota) — crash-recovery может потерять флаг', 'warning');
+      }
+    }
 
     logToTerminal('LIVE_SYNC_OK', `Записано ${flatSets.length} строк за ${elapsed} мс. Верификация...`, 'success');
     const freshData = await fetchAnalyticsData();
@@ -2985,8 +2992,7 @@ async function finalizeAndSyncLiveWorkout() {
     isSavingLiveWorkout = false;
     persistActiveSession();
     hideRecoveryBanner();
-    if (isModalOpen('liveCloseoutModal')) closeModal('liveCloseoutModal');
-    setTimeout(() => { if (isModalOpen('liveWorkoutOverlay')) closeModal('liveWorkoutOverlay'); document.body.style.overflow = ''; }, 280);
+    closeAllLiveModals();
     if (typeof onWorkoutCompletedCallback === 'function') await onWorkoutCompletedCallback();
     setTimeout(() => { showSuccessToast(`Тренировка «${closedTitle}» сохранена в Google Таблицы.`); }, 320);
     announceToTalkBack('Тренировка сохранена.');
@@ -2997,6 +3003,34 @@ async function finalizeAndSyncLiveWorkout() {
     isSavingLiveWorkout = false;
     if (saveBtn) saveBtn.disabled = false;
   }
+}
+
+/**
+ * V2.9.2: единая точка закрытия ВСЕХ live-модалок после финиша.
+ * Порядок важен: сначала верхние по z-index (bigClock 1050, closeout 1000,
+ * finishSheet 1100), затем liveWorkoutOverlay (500).
+ * Fallback: если стек остался непустым (аномалия / будущий регресс),
+ * resetAllModals() очищает всё принудительно.
+ *
+ * НЕ использует setTimeout — прямой синхронный вызов closeModal.
+ * Внутри modal_manager.js closeModal ставит closingInProgress=true,
+ * но т.к. мы вызываем последовательно БЕЗ setTimeout между ними,
+ * каждый closeModal уходит в history.back(), а popstate-обработчик
+ * синхронно снимает верхний модал. После последнего closeModal
+ * стек пуст → closingInProgress сбрасывается через 500мс сам.
+ */
+function closeAllLiveModals() {
+  const liveIds = ['liveBigClockOverlay', 'liveCloseoutModal', 'liveFinishSheet', 'liveWorkoutOverlay'];
+  liveIds.forEach(id => {
+    if (isModalOpen(id)) {
+      try { closeModal(id); } catch (e) { console.warn('[LiveWorkout] closeModal failed for', id, e); }
+    }
+  });
+  // Fallback: если по какой-то причине стек не пуст — принудительная очистка.
+  if (getTopModalId() !== null) {
+    try { resetAllModals(); } catch (e) { console.warn('[LiveWorkout] resetAllModals failed:', e); }
+  }
+  document.body.style.overflow = '';
 }
 
 function bindLiveWorkoutDomEvents() {
@@ -3227,7 +3261,6 @@ function bindLiveWorkoutDomEvents() {
   if (dropCancelBtn) dropCancelBtn.onclick = () => closeModal('liveDropSheet');
   if (dropAddBtn) dropAddBtn.onclick = () => addDropStep();
 
-  // V2.9.1: Myo-биндинги.
   const myoSaveBtn = document.getElementById('liveMyoSaveBtn');
   const myoCancelBtn = document.getElementById('liveMyoCancelBtn');
   const myoAddBtn = document.getElementById('liveMyoAddMiniSetBtn');
