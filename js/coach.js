@@ -6,6 +6,16 @@ import {
 import { askGasGeminiCoach, saveAiPlanToSheets } from './api.js';
 import { showErrorToast, showSuccessToast, showWarningToast, openConfirmSheet } from './ui.js';
 
+/**
+ * V5.9.11 (ФИЧА Myo-reps):
+ * - buildAthleteSituationPromptBlock: для сетов с method.startsWith('мио')
+ *   к объёму применяется коэффициент ×2.5. Это критично: без него Gemini
+ *   видит заниженный объём Myo-мышц и может не заметить лаг, не закрыв его
+ *   в новом плане. Коэффициент синхронизирован с calcWeeklyVolumeByMuscle
+ *   в analytics.js V5.9.13.
+ * - V5.9.10-фиксы (XSS в rationale через parseInt(ex.order)) сохранены.
+ */
+
 let activeSplitView = 'A';
 let cachedPlanData = null;
 let isCoachInitialized = false;
@@ -273,6 +283,11 @@ function detectNextCyclePhase() {
   return { nextWeek, nextMode, nextWave, nextSplit, cycleId };
 }
 
+/**
+ * V5.9.11: Myo-сеты учитываются с коэффициентом ×2.5, синхронизировано
+ * с calcWeeklyVolumeByMuscle в analytics.js V5.9.13. Без этого Gemini
+ * видит заниженный объём и может не заметить лаг.
+ */
 function buildAthleteSituationPromptBlock() {
   const allSets = (state.dbData.sets || []).filter(s =>
     s.category === 'Рабочий' &&
@@ -306,6 +321,12 @@ function buildAthleteSituationPromptBlock() {
     const coef = rirWeight(s.reserve, isIsolationExercise(s.exercise));
     if (coef <= 0) return;
 
+    let myoCoef = 1;
+    const methodStr = String(s.method || '').toLowerCase();
+    if (methodStr.startsWith('мио') || methodStr.startsWith('myo')) {
+      myoCoef = 2.5;
+    }
+
     const targets = [
       { m: cat.primaryMuscle, r: parseFloat(cat.primaryRatio) || 1.0 },
       { m: cat.secondaryMuscle, r: parseFloat(cat.secondaryRatio) || 0.5 },
@@ -314,7 +335,7 @@ function buildAthleteSituationPromptBlock() {
 
     targets.forEach(t => {
       if (!t.m) return;
-      volume[t.m] = (volume[t.m] || 0) + (t.r * coef);
+      volume[t.m] = (volume[t.m] || 0) + (t.r * coef * myoCoef);
     });
   });
 

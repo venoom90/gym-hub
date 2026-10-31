@@ -7,10 +7,13 @@ import { extractPeriodization } from './parser.js';
 import { registerModal, openModal, closeModal } from './modal_manager.js';
 
 /**
- * V5.9.12 (Android UX P2 #21):
- * - renderMuscleVolumeLandmarks при selectedCycleId === 'ALL' вычисляет
- *   activeWeeks через calcAnalyzerActiveWeeks (не жёсткие 2). Устраняет
- *   занижение объёма, когда за 14 дней было 3+ тренировки.
+ * V5.9.13 (ФИЧА Myo-reps):
+ * - calcWeeklyVolumeByMuscle: для сетов с method.startsWith('мио') к объёму
+ *   применяется коэффициент ×2.5. Обоснование (Роль 5a): один Myo-сет
+ *   накапливает ~2.5× эффективных повторений по сравнению с обычным сетом
+ *   при том же RIR-взвешивании. Без коэффициента аналитика систематически
+ *   занижает объём для мышц, тренируемых Myo-reps.
+ * - V5.9.12-фикс (activeWeeks при ALL, calcAnalyzerActiveWeeks) сохранён.
  */
 
 let tonnageChartInstance = null;
@@ -42,7 +45,7 @@ const METRIC_HELP_DICTIONARY = {
   },
   'help-volume': {
     title: 'Нагрузка на мышцы (Muscle Load Analyzer)',
-    text: 'Недельный RIR-взвешенный объём по каждой мышце в сравнении с научными порогами Israetel:\n\n• MEV — минимальный эффективный объём для роста.\n• MAV — оптимальный объём гипертрофии.\n• MRV — максимальный переносимый объём.\n\nВес каждого подхода зависит от RIR: 0-1 → 1.0, 2 → 0.85, 3 → 0.5-0.6, 4+ → 0.25-0.3.\n\nДелоад-недели исключаются из подсчёта.'
+    text: 'Недельный RIR-взвешенный объём по каждой мышце в сравнении с научными порогами Israetel:\n\n• MEV — минимальный эффективный объём для роста.\n• MAV — оптимальный объём гипертрофии.\n• MRV — максимальный переносимый объём.\n\nВес каждого подхода зависит от RIR: 0-1 → 1.0, 2 → 0.85, 3 → 0.5-0.6, 4+ → 0.25-0.3.\n\nMyo-reps-сеты учитываются с коэффициентом ×2.5 (накопление эффективных повторений).\n\nДелоад-недели исключаются из подсчёта.'
   },
   'help-tonnage': {
     title: 'Динамика рабочего тоннажа',
@@ -50,7 +53,7 @@ const METRIC_HELP_DICTIONARY = {
   },
   'help-1rm': {
     title: 'Прогресс в движении (Расчетный 1ПМ)',
-    text: 'Оценка вашего разового максимума по формуле Эпли: Вес × (1 + Повторы / 30).\n\nРассчитывается строго на подходах до 8 повторений включительно. Свыше 8 — формула даёт >10% погрешности, такие сеты исключаются (для кластеров и дроп-сетов берётся первый сегмент).'
+    text: 'Оценка вашего разового максимума по формуле Эпли: Вес × (1 + Повторы / 30).\n\nРассчитывается строго на подходах до 8 повторений включительно. Свыше 8 — формула даёт >10% погрешности, такие сеты исключаются (для кластеров и дроп-сетов берётся первый сегмент; для Myo-reps — повторы активации).'
   }
 };
 
@@ -362,6 +365,12 @@ function calcAnalyzerActiveWeeks(sets) {
   return Math.max(1, buckets.size);
 }
 
+/**
+ * V5.9.13: Myo-reps получает коэффициент ×2.5 к объёму.
+ * myoCoef применяется ПОСЛЕ rirCoef — это физиологически корректно:
+ * сначала учитываем близость к отказу (RIR), затем накопление
+ * эффективных повторений (Myo).
+ */
 function calcWeeklyVolumeByMuscle(sets, activeWeeks) {
   const catalogMap = {};
   (state.dbData.catalog || []).forEach(item => {
@@ -377,6 +386,12 @@ function calcWeeklyVolumeByMuscle(sets, activeWeeks) {
     const rirCoef = rirWeight(s.reserve, isIsolationExercise(s.exercise));
     if (rirCoef <= 0) return;
 
+    let myoCoef = 1;
+    const methodStr = String(s.method || '').toLowerCase();
+    if (methodStr.startsWith('мио') || methodStr.startsWith('myo')) {
+      myoCoef = 2.5;
+    }
+
     const targets = [
       { m: cat.primaryMuscle, r: parseFloat(cat.primaryRatio) || 1.0 },
       { m: cat.secondaryMuscle, r: parseFloat(cat.secondaryRatio) || 0.5 },
@@ -386,7 +401,7 @@ function calcWeeklyVolumeByMuscle(sets, activeWeeks) {
     targets.forEach(t => {
       if (!t.m) return;
       const region = resolveDetailedMuscleRegion(t.m, s.exercise);
-      volumeByMuscle[region] = (volumeByMuscle[region] || 0) + (t.r * rirCoef);
+      volumeByMuscle[region] = (volumeByMuscle[region] || 0) + (t.r * rirCoef * myoCoef);
     });
   });
 
@@ -396,7 +411,6 @@ function calcWeeklyVolumeByMuscle(sets, activeWeeks) {
   });
   return weekly;
 }
-
 function renderMuscleVolumeLandmarks(sets) {
   const container = document.getElementById('muscleVolumeContainer');
   const warningEl = document.getElementById('unmappedWarning');
@@ -449,7 +463,6 @@ function renderMuscleVolumeLandmarks(sets) {
       if (subtitleEl) subtitleEl.style.display = 'none';
       return;
     }
-    // V5.9.12: реальное число активных недель, а не жёсткие 2.
     activeWeeks = Math.max(1, calcAnalyzerActiveWeeks(analyzerSets));
     windowLabel = `Скользящее окно: 14 дней`;
   } else {
@@ -515,7 +528,7 @@ function renderMuscleVolumeLandmarks(sets) {
 
   if (subtitleEl) {
     subtitleEl.style.display = 'block';
-    subtitleEl.innerText = `${windowLabel} • RIR-взвешивание: ON`;
+    subtitleEl.innerText = `${windowLabel} • RIR-взвешивание: ON • Myo ×2.5: ON`;
   }
 
   container.innerHTML = '';
@@ -807,7 +820,7 @@ function renderDropOff(sets) {
     if (!ex) return;
 
     const method = String(s.method || '').toLowerCase();
-    if (method.includes('дроп') || method.includes('кластер')) return;
+    if (method.includes('дроп') || method.includes('кластер') || method.startsWith('мио') || method.startsWith('myo')) return;
 
     if (!byExercise[ex]) byExercise[ex] = [];
     byExercise[ex].push(s);
@@ -1036,6 +1049,12 @@ function populateExerciseSelector(sets) {
   renderExercise1RMChart(sets, select.value || exList[0]);
 }
 
+/**
+ * V5.9.13: Myo-сеты на графике 1ПМ используют e1RM по активации
+ * (firstSegmentReps), а не по сумме. Это физиологически корректно:
+ * Эпли применим только к сетам ≤8 повторов, активация Myo обычно 10–14,
+ * поэтому e1RM для Myo-сета будет 0 — что верно (Роль 5a).
+ */
 function renderExercise1RMChart(sets, exerciseName) {
   const canvas = document.getElementById('exerciseChart');
   const prBadge = document.getElementById('exercisePrBadge');
@@ -1068,15 +1087,23 @@ function renderExercise1RMChart(sets, exerciseName) {
     const r = parseInt(s.reps, 10) || 0;
     const serverE1 = parseFloat(s.e1rm);
 
+    const isMyo = String(s.method || '').toLowerCase().startsWith('мио');
+    const calcReps = (isMyo && s.firstSegmentReps)
+      ? (parseInt(s.firstSegmentReps, 10) || r)
+      : r;
+
     const displayW = w / mult;
 
     if (r >= 4 && r <= 6 && displayW > max5) max5 = displayW;
     if (r >= 7 && r <= 9 && displayW > max8) max8 = displayW;
     if (r >= 10 && r <= 14 && displayW > max12) max12 = displayW;
 
-    const validE1RM = (!isNaN(serverE1) && serverE1 > 0)
-      ? serverE1
-      : computeE1RM(w, r);
+    let validE1RM;
+    if (!isNaN(serverE1) && serverE1 > 0) {
+      validE1RM = serverE1;
+    } else {
+      validE1RM = computeE1RM(w, calcReps);
+    }
 
     if (validE1RM <= 0) return;
 

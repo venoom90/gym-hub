@@ -1,24 +1,21 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.0 Android UX + Bug Fixes)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.1 Myo-reps Integration)
  * =========================================================================
- * V2.9.0 (Android UX вариант C + B1/B6/B9):
- * - B1: Убран setTimeout(250) в startNewLiveWorkout. onConfirm вызывает
- *   beginNewLiveWorkoutSession напрямую (V1.1 ui.js исправил race).
- * - B6: finalizeAndSyncLiveWorkout — флаг activeSession._synced=true после
- *   успешного syncSetsToSheets. При ошибке верификации сессия НЕ сбрасывается,
- *   но повторный вызов не отправляет данные заново (только верифицирует).
- * - UX-7: isSavingLiveWorkout блокирует backdrop liveCloseoutModal во время
- *   сохранения. Защита от случайного закрытия.
- * - UX-9: checkCrashRecoverySession guard на exercises.length === 0 — сессия
- *   не восстанавливается, показывается toast.
- * - UX-14: beforeunload при активной несохранённой тренировке.
- * - UX-19: recovery-banner показывает остаток таймера отдыха (или «завершён»).
- * - P2 #14: openWeightManualInput — scrollIntoView({ block: 'center' })
- *   после фокуса, чтобы клавиатура не перекрывала input.
- * - A6: announceToTalkBack() через #liveAriaAnnouncer (aria-live="polite",
- *   visually-hidden). Озвучивает запись сета, смену упражнения, сохранение.
- * - V2.8.13-фиксы (B1..B14) сохранены.
+ * V2.9.1 (ФИЧА Myo-reps):
+ * - Добавлен флаг isMyo (взаимоисключающий с isDrop и isCluster).
+ * - Кнопка liveManualMyoBtn в liveExNotesRow → handleMethodToggle('myo').
+ * - Баннер-подсказка при активации Myo + жёлтое предупреждение для
+ *   ног/тяжёлой базы (isMyoBlacklistedExercise).
+ * - renderPAB: ветка isSpecialActive && isMyo → livePabRecordMyo → openMyoSheet.
+ * - openMyoSheet / renderMyoSheet / saveMyoSet: активация + микросерии,
+ *   ручной ввод веса (openDropWeightInput переиспользуется).
+ * - При сохранении: method = "Мио W×A+M1/M2/... (RIR r1/r2/...)",
+ *   reps = сумма всех, firstSegmentReps = активация,
+ *   e1rm = computeE1RM(weightEffective, firstSegmentReps).
+ * - Ветка Myo в renderHistoryRow (отдельный вывод цепочки повторов).
+ * - registerLiveModals: зарегистрирован liveMyoSheet.
+ * - V2.9.0-фиксы (B1/B6/B14, UX-7/9/14/19, P2 #14, A6) сохранены.
  * =========================================================================
  */
 
@@ -40,8 +37,8 @@ let restTimerInterval = null;
 let wakeLockSentinel = null;
 let onWorkoutCompletedCallback = null;
 let isLiveWorkoutInitialized = false;
-let isSavingLiveWorkout = false;   // V2.9.0: UX-7
-let recoveryBannerInterval = null; // V2.9.0: UX-19
+let isSavingLiveWorkout = false;
+let recoveryBannerInterval = null;
 
 let bigClockStartedAtMs = 0;
 let bigClockInterval = null;
@@ -49,6 +46,7 @@ let idleTimer = null;
 
 let activeClusterSheetState = null;
 let activeDropSheetState = null;
+let activeMyoSheetState = null;
 let pendingActionAfterFinishSheet = null;
 
 const DEFAULT_TIMERS = {
@@ -60,9 +58,24 @@ const DEFAULT_TIMERS = {
 };
 
 /**
- * V2.9.0: TalkBack announcement через hidden aria-live region.
- * Очищаем перед новой записью, чтобы повторный текст озвучивался заново.
+ * V2.9.1: чёрный список для Myo-reps. Тяжёлая база и ноги под утомлением
+ * — высокий риск поломки техники. Рекомендуется только изоляция и
+ * тренажёры (Роль 5a + Роль 7).
  */
+const MYO_BLACKLIST_MUSCLES = ['Квадрицепс', 'Бицепс бедра', 'Ягодичные'];
+const MYO_BLACKLIST_NAME_ROOTS = ['присед', 'становая', 'жим ногами', 'румын', 'выпад', 'тяга сумо', 'good morning', 'наклон'];
+
+function isMyoBlacklistedExercise(ex) {
+  if (!ex) return false;
+  const muscle = String(ex.targetMuscle || '').trim();
+  if (MYO_BLACKLIST_MUSCLES.includes(muscle)) return true;
+  const name = String(ex.name || '').toLowerCase();
+  for (let i = 0; i < MYO_BLACKLIST_NAME_ROOTS.length; i++) {
+    if (name.includes(MYO_BLACKLIST_NAME_ROOTS[i])) return true;
+  }
+  return false;
+}
+
 function announceToTalkBack(text) {
   const el = document.getElementById('liveAriaAnnouncer');
   if (!el) return;
@@ -86,7 +99,6 @@ export function initLiveWorkoutModule(onComplete) {
     }
   });
 
-  // V2.9.0: UX-14 — предупреждение при закрытии вкладки/приложения.
   window.addEventListener('beforeunload', (e) => {
     if (!activeSession || activeSession.isFinished) return;
     if (isSavingLiveWorkout) return;
@@ -96,13 +108,8 @@ export function initLiveWorkoutModule(onComplete) {
   });
 }
 
-function isWorkSet(s) {
-  return Boolean(s) && s.category === 'Рабочий';
-}
-
-function isWarmupSet(s) {
-  return Boolean(s) && s.category === 'Разминка';
-}
+function isWorkSet(s) { return Boolean(s) && s.category === 'Рабочий'; }
+function isWarmupSet(s) { return Boolean(s) && s.category === 'Разминка'; }
 
 function isExerciseDone(ex) {
   if (!ex) return false;
@@ -116,7 +123,6 @@ function bindConfirmableAction(btn, opts) {
   if (!btn) return;
   btn.dataset.confirmState = 'idle';
   if (opts.idleLabel) btn.dataset.idleLabel = opts.idleLabel;
-
   const getLabelEl = () => (opts.labelSelector ? btn.querySelector(opts.labelSelector) : null);
 
   const reset = () => {
@@ -210,6 +216,17 @@ function registerLiveModals() {
     dropSheet.onclick = (e) => { if (e.target === dropSheet) closeModal('liveDropSheet'); };
   }
 
+  // V2.9.1: новый sheet — Myo-reps.
+  const myoSheet = document.getElementById('liveMyoSheet');
+  if (myoSheet) {
+    registerModal('liveMyoSheet', {
+      el: myoSheet,
+      displayStyle: 'flex',
+      onClose: () => { activeMyoSheetState = null; }
+    });
+    myoSheet.onclick = (e) => { if (e.target === myoSheet) closeModal('liveMyoSheet'); };
+  }
+
   const finishSheet = document.getElementById('liveFinishSheet');
   if (finishSheet) {
     registerModal('liveFinishSheet', {
@@ -244,7 +261,6 @@ function registerLiveModals() {
     });
     const closeCloseoutBtn = document.getElementById('closeLiveCloseoutModalBtn');
     if (closeCloseoutBtn) closeCloseoutBtn.onclick = () => {
-      // V2.9.0 UX-7: не закрываем во время сохранения.
       if (isSavingLiveWorkout) {
         showWarningToast('Идёт сохранение. Подождите…');
         return;
@@ -252,7 +268,6 @@ function registerLiveModals() {
       closeModal('liveCloseoutModal');
     };
     closeoutModal.onclick = (e) => {
-      // V2.9.0 UX-7: блокируем backdrop во время сохранения.
       if (e.target === closeoutModal && !isSavingLiveWorkout) closeModal('liveCloseoutModal');
     };
   }
@@ -346,6 +361,34 @@ function parseClusterScheme(methodStr, defaultWorkReps) {
   return { isCluster: false, schemeText: '', segments: [defaultWorkReps], totalReps: defaultWorkReps, firstSegmentReps: defaultWorkReps };
 }
 
+/**
+ * V2.9.1: парсинг Myo-reps из plannedMethod. Поддерживаемые форматы:
+ *   "Мио", "Мио 12", "Мио 12+3/3/2", "Мио-репс", "Myo".
+ * Возвращает { isMyo, activationReps, miniSetDefaults }.
+ */
+function parseMyoScheme(methodStr, defaultWorkReps) {
+  const str = String(methodStr || '');
+  const low = str.toLowerCase();
+  if (!low.includes('мио') && !low.includes('myo')) {
+    return { isMyo: false, activationReps: defaultWorkReps, miniSetDefaults: [3, 3, 2] };
+  }
+
+  const plusMatch = str.match(/(\d+)\s*\+\s*([\d\/]+)/);
+  if (plusMatch) {
+    const act = parseInt(plusMatch[1], 10) || defaultWorkReps;
+    const mini = plusMatch[2].split('/').map(n => parseInt(n, 10) || 0).filter(n => n > 0);
+    return { isMyo: true, activationReps: act, miniSetDefaults: mini.length > 0 ? mini : [3, 3, 2] };
+  }
+
+  const simpleMatch = str.match(/мио[-\s]*(\d+)/i);
+  if (simpleMatch) {
+    const act = parseInt(simpleMatch[1], 10) || defaultWorkReps;
+    return { isMyo: true, activationReps: act, miniSetDefaults: [3, 3, 2] };
+  }
+
+  return { isMyo: true, activationReps: defaultWorkReps, miniSetDefaults: [3, 3, 2] };
+}
+
 function defaultRirForSegment(index, total) {
   if (total <= 1) return '0';
   if (index === 0) return '2';
@@ -365,7 +408,6 @@ function computeSmartDraftSetForExercise(ex) {
   const warmupDoneCount = ex.completedSets.filter(s => s.category === 'Разминка').length;
   const workDoneCount = ex.completedSets.filter(s => s.category === 'Рабочий').length;
   const warmupSteps = Array.isArray(ex.warmupSteps) && ex.warmupSteps.length > 0 ? ex.warmupSteps : [];
-
   const displayWarmupSteps = warmupSteps.map(s => ({ ...s, weight: roundToGymStep(s.weight / ex.multiplier) }));
 
   if (workDoneCount === 0 && warmupDoneCount < displayWarmupSteps.length) {
@@ -383,8 +425,9 @@ function computeSmartDraftSetForExercise(ex) {
 
   let workReps = ex.defaultReps;
   if (activateSpecialNow && ex.isCluster) {
-    const clusterInfo = parseClusterScheme(ex.plannedMethod, ex.defaultReps);
-    workReps = clusterInfo.totalReps;
+    workReps = parseClusterScheme(ex.plannedMethod, ex.defaultReps).totalReps;
+  } else if (activateSpecialNow && ex.isMyo) {
+    workReps = parseMyoScheme(ex.plannedMethod, ex.defaultReps).activationReps;
   } else if (lastWorkSet && !lastWorkSet.method) {
     workReps = lastWorkSet.reps;
   }
@@ -393,7 +436,7 @@ function computeSmartDraftSetForExercise(ex) {
     category: 'Рабочий',
     weight: workWeightDisplay,
     reps: workReps,
-    rir: activateSpecialNow ? '1' : '2',
+    rir: activateSpecialNow ? (ex.isMyo ? '1' : '1') : '2',
     useSpecialMethod: activateSpecialNow
   };
 }
@@ -409,16 +452,13 @@ export function startNewLiveWorkout(recipePayload) {
   }
 
   if (activeSession && !activeSession.isFinished) {
-    // V2.9.0 B1: прямой вызов (V1.1 ui.js исправил race condition).
     openConfirmSheet({
       title: 'Начать новую тренировку?',
       message: 'У вас есть незавершённая тренировка. Если начать новую, текущий прогресс будет сброшен без сохранения.',
       confirmLabel: 'Начать новую',
       cancelLabel: 'Отмена',
       danger: true,
-      onConfirm: () => {
-        beginNewLiveWorkoutSession(recipePayload);
-      }
+      onConfirm: () => { beginNewLiveWorkoutSession(recipePayload); }
     });
     return;
   }
@@ -441,6 +481,7 @@ function beginNewLiveWorkoutSession(recipePayload) {
     const plannedMethod = String(ex.method || 'Стандарт').trim();
     const isDropMethod = plannedMethod.toLowerCase().includes('дроп');
     const isClusterMethod = plannedMethod.toLowerCase().includes('кластер');
+    const isMyoMethod = plannedMethod.toLowerCase().includes('мио') || plannedMethod.toLowerCase().includes('myo');
 
     const warmupStepsEffective = (Array.isArray(ex.warmupSteps) && ex.warmupSteps.length > 0)
       ? ex.warmupSteps
@@ -463,6 +504,7 @@ function beginNewLiveWorkoutSession(recipePayload) {
       plannedMethod: plannedMethod,
       isDrop: isDropMethod,
       isCluster: isClusterMethod,
+      isMyo: isMyoMethod,
       dropWeight: isDropMethod ? roundToGymStep(targetWeightEffective * 0.75) : 0,
       warmupText: ex.warmupText || '',
       warmupSteps: warmupStepsEffective,
@@ -523,7 +565,6 @@ function checkCrashRecoverySession() {
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (parsed && !parsed.isFinished && Array.isArray(parsed.exercises)) {
-      // V2.9.0 UX-9: защита от пустой/повреждённой сессии.
       if (parsed.exercises.length === 0) {
         console.warn('[LiveWorkout] Повреждённая сессия (0 упражнений) — удалена.');
         localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION);
@@ -539,6 +580,9 @@ function checkCrashRecoverySession() {
       parsed.exercises.forEach(ex => {
         if (!ex.multiplier) ex.multiplier = getExerciseMultiplier(ex.name);
         if (!ex.targetWeightDisplay) ex.targetWeightDisplay = roundToGymStep(ex.targetWeight / ex.multiplier);
+        if (typeof ex.isMyo !== 'boolean') ex.isMyo = false;
+        if (typeof ex.isDrop !== 'boolean') ex.isDrop = false;
+        if (typeof ex.isCluster !== 'boolean') ex.isCluster = false;
       });
 
       activeSession = parsed;
@@ -556,7 +600,6 @@ function showRecoveryBanner() {
   banner.style.display = 'flex';
   updateRecoveryBannerText();
 
-  // V2.9.0 UX-19: обновляем текст каждую секунду (для остатка таймера).
   if (recoveryBannerInterval) clearInterval(recoveryBannerInterval);
   recoveryBannerInterval = setInterval(updateRecoveryBannerText, 1000);
 }
@@ -653,7 +696,7 @@ function openBigClockOverlay() {
 function resetIdleTimer() {
   if (idleTimer) clearTimeout(idleTimer);
   if (!activeSession || !activeSession.restState || !activeSession.restState.isActive) return;
-  if (isModalOpen('liveBigClockOverlay') || isModalOpen('liveClusterSheet') || isModalOpen('liveDropSheet') || isModalOpen('liveFinishSheet')) return;
+  if (isModalOpen('liveBigClockOverlay') || isModalOpen('liveClusterSheet') || isModalOpen('liveDropSheet') || isModalOpen('liveMyoSheet') || isModalOpen('liveFinishSheet')) return;
 
   idleTimer = setTimeout(() => {
     if (activeSession && activeSession.restState.isActive && !isModalOpen('liveBigClockOverlay')) {
@@ -713,7 +756,45 @@ function analyzeMuscleVolume(muscleName) {
   };
 }
 
-function renderBigClockWidgets() {
+function computeSessionEta() {
+  if (!activeSession) return null;
+  const history = Array.isArray(state.dbData.workouts) ? state.dbData.workouts : [];
+  const mySplit = String(activeSession.splitDay || '').toUpperCase();
+  const sameSplit = history.filter(w => { const s = String(w.split || '').toUpperCase(); return s === mySplit || (mySplit === 'А' && s === 'A') || (mySplit === 'Б' && s === 'B'); });
+  let avgDurationMin = 55;
+  if (sameSplit.length >= 1) { const recent = sameSplit.slice(-5); const sum = recent.reduce((acc, w) => acc + (parseFloat(w.durationMin) || 0), 0); if (sum > 0) avgDurationMin = Math.round(sum / recent.length); }
+  return { avgDurationMin, endsAtMs: activeSession.startedAtMs + avgDurationMin * 60 * 1000 };
+}
+
+/* =========================================================
+ * ПРОДОЛЖЕНИЕ СЛЕДУЕТ (часть 2/3)
+ * =========================================================
+ * Следующий блок (часть 2/3):
+ * - renderBigClockWidgets
+ * - startBigClockEngine / stopBigClock / syncBigClockWithWallClock
+ * - renderLiveWorkoutScreen + все render* подфункции
+ * - renderExerciseHeader / renderExerciseNoteChips
+ * - renderCurrentSetLabel / renderCategoryToggle / renderMethodToggle
+ * - renderStepperValues / renderRirChips / renderIntensifierBanner (Myo-ветка)
+ * - renderControlsVisibility / renderCompletedCard / renderHistoryGroups
+ * - renderHistoryRow / attachHistoryRowHandlers / renderPAB (Myo-ветка)
+ * - patchDraftSetDisplay / openWeightManualInput / openDropWeightInput
+ * - openNotesSheet / saveNotesSheet
+ * - handleRecordCurrentSet / recordSimpleSet / commitRecordedSet
+ * - openClusterSheet / renderClusterSheet / saveClusterSet
+ * - openDropSheet / renderDropSheet / addDropStep / saveDropSet
+ * - openMyoSheet / renderMyoSheet / saveMyoSet  ← НОВОЕ
+ *
+ * Часть 3/3:
+ * - findNextIncompleteExerciseIndex / handleCompleteCurrentAndMoveNext / switchActiveExercise
+ * - startRestTimer / adjustRestTimer / stopRestTimer / syncRestTimerWithWallClock
+ * - calculateWorkoutSummaryMetrics / openFinishSheet
+ * - handleEndExerciseFromSheet / handleCancelBonusFromSheet
+ * - openCloseoutModal / renderCloseoutSummaryBox / finalizeAndSyncLiveWorkout
+ * - bindLiveWorkoutDomEvents (с Myo-биндингами)
+ * - toggleHeaderCollapse
+ * ========================================================= */
+ function renderBigClockWidgets() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
   if (!currentEx) return;
@@ -762,7 +843,7 @@ function renderBigClockWidgets() {
         else barClass += ' is-rir-3';
       } else {
         if (i === workDone && !isWarmupMode) barClass += ' is-current';
-        if (isLast && (currentEx.isDrop || currentEx.isCluster)) barClass += ' is-special';
+        if (isLast && (currentEx.isDrop || currentEx.isCluster || currentEx.isMyo)) barClass += ' is-special';
       }
       barsHtml += `<div class="${barClass}"></div>`;
     }
@@ -785,6 +866,10 @@ function renderBigClockWidgets() {
         methodBadgeEl.style.color = '#3a2a06';
       } else if (currentEx.isDrop) {
         methodBadgeEl.innerText = 'ДРОП-СЕТ';
+        methodBadgeEl.style.background = 'var(--app-color-warning)';
+        methodBadgeEl.style.color = '#3a2a06';
+      } else if (currentEx.isMyo) {
+        methodBadgeEl.innerText = 'МИО-РЕПС';
         methodBadgeEl.style.background = 'var(--app-color-warning)';
         methodBadgeEl.style.color = '#3a2a06';
       } else {
@@ -965,16 +1050,6 @@ function syncBigClockWithWallClock() {
   if (bigClockStartedAtMs && !bigClockInterval) startBigClockEngine();
 }
 
-function computeSessionEta() {
-  if (!activeSession) return null;
-  const history = Array.isArray(state.dbData.workouts) ? state.dbData.workouts : [];
-  const mySplit = String(activeSession.splitDay || '').toUpperCase();
-  const sameSplit = history.filter(w => { const s = String(w.split || '').toUpperCase(); return s === mySplit || (mySplit === 'А' && s === 'A') || (mySplit === 'Б' && s === 'B'); });
-  let avgDurationMin = 55;
-  if (sameSplit.length >= 1) { const recent = sameSplit.slice(-5); const sum = recent.reduce((acc, w) => acc + (parseFloat(w.durationMin) || 0), 0); if (sum > 0) avgDurationMin = Math.round(sum / recent.length); }
-  return { avgDurationMin, endsAtMs: activeSession.startedAtMs + avgDurationMin * 60 * 1000 };
-}
-
 function renderLiveWorkoutScreen() {
   if (!activeSession) return;
   const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -1036,8 +1111,10 @@ function renderExerciseHeader() {
 
   const clusterBtn = document.getElementById('liveManualClusterBtn');
   const dropBtn = document.getElementById('liveManualDropBtn');
+  const myoBtn = document.getElementById('liveManualMyoBtn');
   if (clusterBtn) clusterBtn.classList.toggle('is-active', currentEx.isCluster);
   if (dropBtn) dropBtn.classList.toggle('is-active', currentEx.isDrop);
+  if (myoBtn) myoBtn.classList.toggle('is-active', currentEx.isMyo);
 
   if (isCollapsed) {
     if (compactEl) compactEl.style.display = 'flex';
@@ -1058,6 +1135,7 @@ function renderExerciseHeader() {
         if (schemeMatch) methodLabel = `⚡ ${schemeMatch[1]}`;
         else if (methodLabel.toLowerCase().includes('дроп')) methodLabel = '⚡ Дроп';
         else if (methodLabel.toLowerCase().includes('кластер')) methodLabel = '⚡ Кластер';
+        else if (methodLabel.toLowerCase().includes('мио')) methodLabel = '⚡ Мио';
         else methodLabel = `⚡ ${methodLabel}`;
         chips.push(`<span class="live-compact-chip is-method">${escapeHtml(methodLabel)}</span>`);
       }
@@ -1170,6 +1248,7 @@ function renderMethodToggle() {
     if (schemeMatch) chipLabel = schemeMatch[1];
     else if (chipLabel.toLowerCase().includes('дроп')) chipLabel = 'Дроп';
     else if (chipLabel.toLowerCase().includes('кластер')) chipLabel = 'Кластер';
+    else if (chipLabel.toLowerCase().includes('мио')) chipLabel = 'Мио';
     txt.innerText = chipLabel;
     btn.classList.toggle('is-active', isSpecialActive);
   } else {
@@ -1203,6 +1282,7 @@ function renderIntensifierBanner() {
 
   if (isExerciseDone(currentEx)) {
     el.style.display = 'none';
+    el.classList.remove('is-myo-warning');
     return;
   }
 
@@ -1214,13 +1294,30 @@ function renderIntensifierBanner() {
 
   if (isSpecialActive && currentEx.isDrop) {
     el.style.display = 'flex';
+    el.classList.remove('is-myo-warning');
     el.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">bolt</span><div><b>Финальный Дроп-сет:</b> после основного подхода сбросьте вес на <b>${dropDisplay} кг${multBadge}</b> и дожмите <b>5 повт.</b> без отдыха.</div>`;
   } else if (isSpecialActive && currentEx.isCluster) {
     const clusterInfo = parseClusterScheme(currentEx.plannedMethod, currentEx.defaultReps);
     el.style.display = 'flex';
+    el.classList.remove('is-myo-warning');
     el.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">timer</span><div><b>Финальный Кластер (${escapeHtml(clusterInfo.schemeText)}):</b> в топбаре или внизу откроется секундомер. Запись — <b>[✓ ЗАПИСАТЬ КЛАСТЕР]</b>.</div>`;
+  } else if (isSpecialActive && currentEx.isMyo) {
+    const blacklisted = isMyoBlacklistedExercise(currentEx);
+    el.style.display = 'flex';
+    if (blacklisted) {
+      el.classList.add('is-myo-warning');
+      el.style.background = 'rgba(250, 204, 21, 0.18)';
+      el.style.borderColor = 'var(--app-color-warning)';
+      el.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; color: var(--app-color-warning);">warning</span><div><b>⚠️ Myo-reps на базе/ногах рискован:</b> техника под утомлением. Рекомендуется только изоляция и тренажёры. Активация 10–14 повт (RIR 1), пауза 15 сек, микросерии 3–4 повт до падения.</div>`;
+    } else {
+      el.classList.remove('is-myo-warning');
+      el.style.background = '';
+      el.style.borderColor = '';
+      el.innerHTML = `<span class="material-symbols-outlined" style="font-size:18px; color: var(--md-sys-color-primary);">restart_alt</span><div><b>Myo-reps:</b> активация 10–14 повт (RIR 1). Пауза 15 сек. Микросерии по 3–4 повтора до падения. Внеси результат в шит.</div>`;
+    }
   } else {
     el.style.display = 'none';
+    el.classList.remove('is-myo-warning');
   }
 }
 
@@ -1323,8 +1420,10 @@ function renderHistoryGroups() {
     const last = workSets[workSets.length - 1];
     const lastDropsCount = Array.isArray(last.drops) ? last.drops.length : (last.dropWeight > 0 ? 1 : 0);
     const dropsMetaTxt = lastDropsCount > 1 ? ` (+${lastDropsCount} дроп.)` : '';
+    const isMyoLast = String(last.method || '').toLowerCase().startsWith('мио');
+    const myoMetaTxt = isMyoLast ? ' · Мио' : '';
     const rirTxt = last.reserve ? ` · RIR ${last.reserve.replace('+','')}` : '';
-    if (workMeta) workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weightDisplay}${multBadge}×${last.reps}${dropsMetaTxt}${rirTxt}`;
+    if (workMeta) workMeta.innerText = `${workSets.length} / ${currentEx.targetSets} • посл. ${last.weightDisplay}${multBadge}×${last.reps}${dropsMetaTxt}${myoMetaTxt}${rirTxt}`;
     const isCollapsed = activeSession.historyUiState.workCollapsed === true;
     workGroup.classList.toggle('is-collapsed', isCollapsed);
     const chevron = document.getElementById('liveWorkChevron');
@@ -1344,6 +1443,7 @@ function renderHistoryRow(set, displayNum, kind, multiplier) {
   const chips = [];
   const methodLower = String(set.method || '').toLowerCase();
   const isDrop = kind === 'work' && methodLower.includes('дроп');
+  const isMyo = kind === 'work' && methodLower.startsWith('мио');
   const dropsArr = Array.isArray(set.drops) ? set.drops : [];
   const hasArrayDrops = dropsArr.length > 0;
   const hasLegacyDrop = set.dropWeight > 0 && set.dropReps > 0;
@@ -1351,8 +1451,22 @@ function renderHistoryRow(set, displayNum, kind, multiplier) {
 
   let mainLine = `${set.weightDisplay}${multBadge} × ${set.reps}`;
   let dropsChainHtml = '';
+  let myoChainHtml = '';
 
-  if (isDrop) {
+  if (isMyo) {
+    // Метод уже содержит цепочку вида "Мио 50×12+3/3/2 (RIR 1/0/0/0)".
+    // Разбираем для компактного отображения.
+    const chainMatch = set.method.match(/×(\d+)\+([\d\/]+)/);
+    const act = chainMatch ? chainMatch[1] : (set.firstSegmentReps || set.reps);
+    const mini = chainMatch ? chainMatch[2] : '';
+    mainLine = `${set.weightDisplay}${multBadge} × ${act}${mini ? ' + ' + mini : ''}`;
+    const rirChainMatch = set.method.match(/\(RIR ([\d\/]+)\)/);
+    if (rirChainMatch) {
+      chips.push(`<span class="coach-method-badge" style="background: var(--app-color-warning); color: #3a2a06;">Мио · RIR ${escapeHtml(rirChainMatch[1])}</span>`);
+    } else {
+      chips.push(`<span class="coach-method-badge" style="background: var(--app-color-warning); color: #3a2a06;">Мио</span>`);
+    }
+  } else if (isDrop) {
     if (hasArrayDrops && dropsArr.length === 1) {
       const d = dropsArr[0];
       mainLine = `${set.weightDisplay}${multBadge}×${set.reps} + ${d.weight / multiplier}${multBadge}×${d.reps}`;
@@ -1365,8 +1479,8 @@ function renderHistoryRow(set, displayNum, kind, multiplier) {
     }
   }
 
-  if (kind === 'work' && set.reserve) chips.push(`<span class="coach-card-chip">RIR ${escapeHtml(set.reserve.replace('+',''))}</span>`);
-  if (kind === 'work' && set.method) {
+  if (kind === 'work' && set.reserve && !isMyo) chips.push(`<span class="coach-card-chip">RIR ${escapeHtml(set.reserve.replace('+',''))}</span>`);
+  if (kind === 'work' && set.method && !isMyo) {
     let methodLabel = set.method;
     const schemeMatch = set.method.match(/(\d+(?:[+\/]\d+)+)/);
     if (schemeMatch) methodLabel = `⚡ ${schemeMatch[1]}`;
@@ -1385,6 +1499,7 @@ function renderHistoryRow(set, displayNum, kind, multiplier) {
           ${chips.join('')}
         </div>
         ${dropsChainHtml}
+        ${myoChainHtml}
       </div>
       <button class="live-delete-set-btn" data-set-idx="${displayNum - 1}" data-kind="${kind}" data-state="idle" title="Удалить подход (двойной тап)">
         <span class="material-symbols-outlined" style="font-size:18px;">delete</span>
@@ -1539,6 +1654,28 @@ function renderPAB() {
     return;
   }
 
+  if (isSpecialActive && currentEx.isMyo) {
+    const myoInfo = parseMyoScheme(currentEx.plannedMethod, currentEx.defaultReps);
+    pab.innerHTML = `
+      <div class="live-pab-content">
+        <div class="live-pab-method-combo">
+          <button class="live-pab-method-btn" id="livePabRecordMyo" type="button">
+            <span class="live-pab-primary-label">ЗАПИСАТЬ МИО-РЕПС</span>
+            <span class="live-pab-secondary-label">${activeSession.draftSet.weight}${multBadge} · акт ${myoInfo.activationReps} + микро</span>
+          </button>
+          <button class="live-pab-clock-round" id="livePabBigClockBtn" type="button" aria-label="Открыть секундомер">
+            <span class="material-symbols-outlined" aria-hidden="true">timer</span>
+          </button>
+        </div>
+      </div>
+    `;
+    const recBtn = document.getElementById('livePabRecordMyo');
+    if (recBtn) recBtn.onclick = () => openMyoSheet();
+    const clockBtn = document.getElementById('livePabBigClockBtn');
+    if (clockBtn) clockBtn.onclick = () => openBigClockOverlay();
+    return;
+  }
+
   let primaryLabel = '';
   let secondaryLabel = '';
   if (isWarmupMode) {
@@ -1610,7 +1747,6 @@ function openWeightManualInput() {
   displayEl.style.display = 'none';
   displayEl.parentNode.insertBefore(input, displayEl.nextSibling);
 
-  // V2.9.0 P2 #14: scrollIntoView после раскрытия клавиатуры.
   requestAnimationFrame(function () {
     try {
       input.focus();
@@ -1779,6 +1915,7 @@ function handleRecordCurrentSet() {
   const isSpecialActive = !isWarmupMode && activeSession.draftSet.useSpecialMethod;
   if (isSpecialActive && currentEx.isCluster) { openClusterSheet(); return; }
   if (isSpecialActive && currentEx.isDrop) { openDropSheet(); return; }
+  if (isSpecialActive && currentEx.isMyo) { openMyoSheet(); return; }
   recordSimpleSet();
 }
 
@@ -1907,7 +2044,6 @@ function commitRecordedSet(partialSet) {
   persistActiveSession();
   renderLiveWorkoutScreen();
 
-  // V2.9.0 A6: TalkBack announcement.
   const kindTxt = recordedSet.category === 'Разминка' ? 'Разминка' : 'Подход';
   announceToTalkBack(`${kindTxt} ${recordedSet.setNum} записан. Отдых ${restSeconds} секунд.`);
 
@@ -2234,6 +2370,207 @@ function saveDropSet() {
   closeModal('liveDropSheet');
 }
 
+/* =========================================================
+ * MYO-REPS SHEET (V2.9.1)
+ * ========================================================= */
+
+function openMyoSheet() {
+  if (!activeSession) return;
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+  const myoInfo = parseMyoScheme(currentEx.plannedMethod, currentEx.defaultReps);
+  const mainWeightDisplay = parseFloat(activeSession.draftSet.weight) || currentEx.targetWeightDisplay;
+  const activationReps = myoInfo.activationReps || 12;
+
+  activeMyoSheetState = {
+    mainWeightDisplay: mainWeightDisplay,
+    multiplier: currentEx.multiplier,
+    activationReps: activationReps,
+    activationRir: '1',
+    miniSets: (myoInfo.miniSetDefaults || [3, 3, 2]).map(reps => ({ reps: reps, rir: '0' }))
+  };
+  renderMyoSheet();
+  registerLiveModals();
+  openModal('liveMyoSheet');
+  announceToTalkBack('Запись мио-репс. Активация и микросерии.');
+}
+
+function renderMyoSheet() {
+  const sheetState = activeMyoSheetState;
+  if (!sheetState) return;
+  const subtitleEl = document.getElementById('liveMyoSheetSubtitle');
+  const weightEl = document.getElementById('liveMyoActivationWeight');
+  const repsEl = document.getElementById('liveMyoActivationReps');
+  const rirEl = document.getElementById('liveMyoActivationRir');
+  const miniContainer = document.getElementById('liveMyoMiniSetsContainer');
+  const summaryEl = document.getElementById('liveMyoSummary');
+  if (!miniContainer) return;
+  const multBadge = sheetState.multiplier === 2 ? ' (×2)' : '';
+
+  if (subtitleEl) subtitleEl.innerText = `Вес ${sheetState.mainWeightDisplay} кг${multBadge} · активация + ${sheetState.miniSets.length} микросерий`;
+
+  if (weightEl) {
+    weightEl.innerText = sheetState.mainWeightDisplay;
+    weightEl.onclick = () => {
+      openDropWeightInput(weightEl, sheetState.mainWeightDisplay, (newVal) => {
+        sheetState.mainWeightDisplay = newVal;
+        renderMyoSheet();
+      });
+    };
+  }
+
+  if (repsEl) repsEl.innerText = sheetState.activationReps;
+
+  if (rirEl) {
+    rirEl.innerHTML = ['0','1','2','3+'].map(v => `
+      <button class="live-sheet-rir-chip ${sheetState.activationRir === v ? 'active' : ''}" data-myo-act-rir="${v}" type="button">${v}</button>
+    `).join('');
+  }
+
+  miniContainer.innerHTML = sheetState.miniSets.map((mini, idx) => `
+    <div class="live-sheet-row-2" style="flex-direction: column;">
+      <div class="live-sheet-row-2-top">
+        <span class="live-sheet-row-2-label">Микросерия ${idx + 1}</span>
+        <div class="live-sheet-rir">
+          ${['0','1','2','3+'].map(v => `
+            <button class="live-sheet-rir-chip ${mini.rir === v ? 'active' : ''}" data-myo-mini-rir="${idx}" data-rir-val="${v}" type="button">${v}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="live-sheet-row-2-bottom">
+        <button class="live-sheet-mini-btn" data-myo-mini-reps="${idx}" data-delta="-1" type="button">−</button>
+        <span class="live-sheet-value">${mini.reps}</span>
+        <button class="live-sheet-mini-btn" data-myo-mini-reps="${idx}" data-delta="+1" type="button">+</button>
+        <span class="live-sheet-unit">повт</span>
+        <button class="live-sheet-mini-btn" data-myo-mini-remove="${idx}" type="button" style="margin-left:8px; color: var(--md-sys-color-error);" aria-label="Удалить микросерию">×</button>
+      </div>
+    </div>
+  `).join('');
+
+  const totalReps = sheetState.activationReps + sheetState.miniSets.reduce((a, m) => a + m.reps, 0);
+  const weightEffective = sheetState.mainWeightDisplay * sheetState.multiplier;
+  const tonnage = weightEffective * totalReps;
+  const e1rm = computeE1RM(weightEffective, sheetState.activationReps);
+
+  if (summaryEl) {
+    const e1rmText = e1rm > 0 ? `~${e1rm} кг` : '— (активация >8 повт, порог Эпли)';
+    summaryEl.innerHTML = `Всего: <b>${totalReps} повт.</b> (активация ${sheetState.activationReps} + микро ${sheetState.miniSets.reduce((a, m) => a + m.reps, 0)}) · тоннаж <b>${tonnage.toFixed(1)} кг</b> · e1RM: <b>${e1rmText}</b>`;
+  }
+
+  if (rirEl) {
+    rirEl.querySelectorAll('[data-myo-act-rir]').forEach(btn => {
+      btn.onclick = () => {
+        sheetState.activationRir = btn.getAttribute('data-myo-act-rir');
+        triggerHaptic([15]);
+        renderMyoSheet();
+      };
+    });
+  }
+
+  miniContainer.querySelectorAll('[data-myo-mini-reps]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.getAttribute('data-myo-mini-reps'), 10);
+      const delta = parseInt(btn.getAttribute('data-delta'), 10);
+      sheetState.miniSets[idx].reps = Math.max(1, sheetState.miniSets[idx].reps + delta);
+      triggerHaptic([15]);
+      renderMyoSheet();
+    };
+  });
+
+  miniContainer.querySelectorAll('[data-myo-mini-rir]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.getAttribute('data-myo-mini-rir'), 10);
+      sheetState.miniSets[idx].rir = btn.getAttribute('data-rir-val');
+      triggerHaptic([15]);
+      renderMyoSheet();
+    };
+  });
+
+  miniContainer.querySelectorAll('[data-myo-mini-remove]').forEach(btn => {
+    btn.onclick = () => {
+      const idx = parseInt(btn.getAttribute('data-myo-mini-remove'), 10);
+      if (sheetState.miniSets.length <= 1) {
+        showWarningToast('Должна остаться хотя бы одна микросерия.');
+        return;
+      }
+      sheetState.miniSets.splice(idx, 1);
+      triggerHaptic([25]);
+      renderMyoSheet();
+    };
+  });
+
+  const mainRow = document.getElementById('liveMyoActivationRow');
+  if (mainRow) {
+    mainRow.querySelectorAll('[data-myo-main-adjust]').forEach(btn => {
+      btn.onclick = () => {
+        const field = btn.getAttribute('data-myo-main-adjust');
+        const delta = parseFloat(btn.getAttribute('data-delta'));
+        if (field === 'weight') sheetState.mainWeightDisplay = Math.max(0, parseFloat((sheetState.mainWeightDisplay + delta).toFixed(2)));
+        else if (field === 'reps') sheetState.activationReps = Math.max(1, sheetState.activationReps + Math.round(delta));
+        triggerHaptic([15]);
+        renderMyoSheet();
+      };
+    });
+  }
+}
+
+function addMyoMiniSet() {
+  const sheetState = activeMyoSheetState;
+  if (!sheetState) return;
+  const last = sheetState.miniSets[sheetState.miniSets.length - 1];
+  const newReps = last ? Math.max(1, last.reps) : 3;
+  sheetState.miniSets.push({ reps: newReps, rir: '0' });
+  triggerHaptic([25]);
+  renderMyoSheet();
+}
+
+function saveMyoSet() {
+  const sheetState = activeMyoSheetState;
+  if (!sheetState || !activeSession) return;
+  const currentEx = activeSession.exercises[activeSession.currentExerciseIndex];
+  if (!currentEx) return;
+
+  const mainWeightDisplay = sheetState.mainWeightDisplay;
+  const weightEffective = mainWeightDisplay * sheetState.multiplier;
+  const activationReps = sheetState.activationReps;
+  const activationRir = sheetState.activationRir;
+  const miniSets = sheetState.miniSets;
+
+  const totalReps = activationReps + miniSets.reduce((a, m) => a + m.reps, 0);
+  const tonnage = parseFloat((weightEffective * totalReps).toFixed(1));
+  const e1rm = computeE1RM(weightEffective, activationReps);
+
+  const miniChain = miniSets.map(m => m.reps).join('/');
+  const rirChain = [activationRir, ...miniSets.map(m => m.rir)].join('/');
+  const method = `Мио ${weightEffective}×${activationReps}+${miniChain} (RIR ${rirChain})`;
+
+  const lastRir = miniSets[miniSets.length - 1] ? miniSets[miniSets.length - 1].rir : activationRir;
+
+  const setNum = currentEx.completedSets.length + 1;
+
+  commitRecordedSet({
+    setNum: setNum,
+    weight: weightEffective,
+    weightDisplay: mainWeightDisplay,
+    multiplier: sheetState.multiplier,
+    reps: totalReps,
+    firstSegmentReps: activationReps,
+    dropWeight: 0,
+    dropReps: 0,
+    drops: [],
+    effort: 'Максим.',
+    reserve: `+${String(lastRir).replace('+','')}`,
+    method: method,
+    category: 'Рабочий',
+    tonnage: tonnage,
+    e1rm: e1rm
+  });
+
+  logToTerminal('LIVE_SET', `${currentEx.name} • ${method}: ${mainWeightDisplay}${sheetState.multiplier === 2 ? '(×2)' : ''} кг = ${totalReps} повт`, 'success');
+  activeMyoSheetState = null;
+  closeModal('liveMyoSheet');
+  announceToTalkBack('Мио-сет записан.');
+}
 function findNextIncompleteExerciseIndex(fromIndex) {
   if (!activeSession) return -1;
   const total = activeSession.exercises.length;
@@ -2543,7 +2880,6 @@ function renderCloseoutSummaryBox() {
 async function finalizeAndSyncLiveWorkout() {
   if (!activeSession) return;
 
-  // V2.9.0 B6: повторный вызов после успешной записи — только верификация.
   if (activeSession._synced === true) {
     const saveBtn = document.getElementById('liveConfirmFinishBtn');
     const statusEl = document.getElementById('liveCloseoutSyncStatus');
@@ -2634,7 +2970,6 @@ async function finalizeAndSyncLiveWorkout() {
     await syncSetsToSheets(payload);
     const elapsed = Math.round(performance.now() - t0);
 
-    // V2.9.0 B6: фиксируем успешную запись ДО верификации.
     if (activeSession) activeSession._synced = true;
     persistActiveSession();
 
@@ -2658,8 +2993,6 @@ async function finalizeAndSyncLiveWorkout() {
   } catch (err) {
     logToTerminal('LIVE_SYNC_ERR', `Сбой: ${err.message}`, 'error');
     if (statusEl) { statusEl.style.color = 'var(--md-sys-color-error)'; statusEl.innerText = `❌ Сбой сети: ${err.message}. Данные сохранены в памяти телефона — повторите отправку при появлении связи.`; }
-    // V2.9.0 B6: если запись уже была зафиксирована — не сбрасываем сессию.
-    // Если это первая попытка и она упала до syncSetsToSheets — activeSession остаётся для повтора.
   } finally {
     isSavingLiveWorkout = false;
     if (saveBtn) saveBtn.disabled = false;
@@ -2697,6 +3030,7 @@ function bindLiveWorkoutDomEvents() {
 
   const clusterBtn = document.getElementById('liveManualClusterBtn');
   const dropBtn = document.getElementById('liveManualDropBtn');
+  const myoBtn = document.getElementById('liveManualMyoBtn');
   const handleMethodToggle = (methodType) => {
     if (!activeSession) return;
     const ex = activeSession.exercises[activeSession.currentExerciseIndex];
@@ -2705,11 +3039,18 @@ function bindLiveWorkoutDomEvents() {
     if (methodType === 'cluster') {
       ex.isCluster = !ex.isCluster;
       ex.isDrop = false;
+      ex.isMyo = false;
       ex.plannedMethod = ex.isCluster ? 'Кластер' : 'Стандарт';
     } else if (methodType === 'drop') {
       ex.isDrop = !ex.isDrop;
       ex.isCluster = false;
+      ex.isMyo = false;
       ex.plannedMethod = ex.isDrop ? 'Дроп-сет' : 'Стандарт';
+    } else if (methodType === 'myo') {
+      ex.isMyo = !ex.isMyo;
+      ex.isDrop = false;
+      ex.isCluster = false;
+      ex.plannedMethod = ex.isMyo ? 'Мио' : 'Стандарт';
     }
     activeSession.draftSet = computeSmartDraftSetForExercise(ex);
     persistActiveSession();
@@ -2718,6 +3059,7 @@ function bindLiveWorkoutDomEvents() {
   };
   if (clusterBtn) clusterBtn.onclick = () => handleMethodToggle('cluster');
   if (dropBtn) dropBtn.onclick = () => handleMethodToggle('drop');
+  if (myoBtn) myoBtn.onclick = () => handleMethodToggle('myo');
 
   const endExerciseBtn = document.getElementById('liveEndExerciseBtn');
   if (endExerciseBtn) {
@@ -2797,6 +3139,7 @@ function bindLiveWorkoutDomEvents() {
       const useSpecial = Boolean(hasSpecial && isFinalSet);
       let reps = ex.defaultReps;
       if (useSpecial && ex.isCluster) reps = parseClusterScheme(ex.plannedMethod, ex.defaultReps).totalReps;
+      if (useSpecial && ex.isMyo) reps = parseMyoScheme(ex.plannedMethod, ex.defaultReps).activationReps;
       activeSession.draftSet.category = 'Рабочий';
       activeSession.draftSet.weight = ex.targetWeightDisplay;
       activeSession.draftSet.reps = reps;
@@ -2813,6 +3156,10 @@ function bindLiveWorkoutDomEvents() {
       activeSession.draftSet.useSpecialMethod = !activeSession.draftSet.useSpecialMethod;
       if (ex.isCluster) {
         if (activeSession.draftSet.useSpecialMethod) activeSession.draftSet.reps = parseClusterScheme(ex.plannedMethod, ex.defaultReps).totalReps;
+        else activeSession.draftSet.reps = ex.defaultReps;
+      }
+      if (ex.isMyo) {
+        if (activeSession.draftSet.useSpecialMethod) activeSession.draftSet.reps = parseMyoScheme(ex.plannedMethod, ex.defaultReps).activationReps;
         else activeSession.draftSet.reps = ex.defaultReps;
       }
       triggerHaptic(30);
@@ -2872,12 +3219,22 @@ function bindLiveWorkoutDomEvents() {
   const clusterCancelBtn = document.getElementById('liveClusterCancelBtn');
   if (clusterSaveBtn) clusterSaveBtn.onclick = () => saveClusterSet();
   if (clusterCancelBtn) clusterCancelBtn.onclick = () => closeModal('liveClusterSheet');
+
   const dropSaveBtn = document.getElementById('liveDropSaveBtn');
   const dropCancelBtn = document.getElementById('liveDropCancelBtn');
   const dropAddBtn = document.getElementById('liveDropAddBtn');
   if (dropSaveBtn) dropSaveBtn.onclick = () => saveDropSet();
   if (dropCancelBtn) dropCancelBtn.onclick = () => closeModal('liveDropSheet');
   if (dropAddBtn) dropAddBtn.onclick = () => addDropStep();
+
+  // V2.9.1: Myo-биндинги.
+  const myoSaveBtn = document.getElementById('liveMyoSaveBtn');
+  const myoCancelBtn = document.getElementById('liveMyoCancelBtn');
+  const myoAddBtn = document.getElementById('liveMyoAddMiniSetBtn');
+  if (myoSaveBtn) myoSaveBtn.onclick = () => saveMyoSet();
+  if (myoCancelBtn) myoCancelBtn.onclick = () => closeModal('liveMyoSheet');
+  if (myoAddBtn) myoAddBtn.onclick = () => addMyoMiniSet();
+
   const openTimerPrefsBtn = document.getElementById('liveOpenTimerSettingsBtn');
   const saveTimerPrefsBtn = document.getElementById('saveLiveTimerSettingsBtn');
   if (openTimerPrefsBtn) {
