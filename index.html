@@ -112,7 +112,6 @@
       overscroll-behavior-x: contain;
     }
 
-    /* Android UX: блокирует pull-to-refresh и edge-back конфликты внутри overlay-элементов. */
     .live-workout-overlay,
     .modal-card,
     .live-sheet,
@@ -148,9 +147,6 @@
       border: 0;
     }
 
-    /* =========================================================
-     * SKELETON (Android UX)
-     * ========================================================= */
     .skeleton {
       background: linear-gradient(90deg,
         var(--md-sys-color-surface-container-high) 25%,
@@ -168,9 +164,6 @@
       100% { background-position: -200% 0; }
     }
 
-    /* =========================================================
-     * SYNC SPIN (Android UX)
-     * ========================================================= */
     @keyframes syncSpin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
@@ -179,9 +172,6 @@
       animation: syncSpin 1s linear infinite;
     }
 
-    /* =========================================================
-     * RIPPLE (Android Material)
-     * ========================================================= */
     .live-pab-record-btn,
     .live-pab-completed-btn,
     .live-pab-method-btn,
@@ -261,12 +251,8 @@
       opacity: 1;
     }
 
-    /* Отключить ripple на "успешном" состоянии — оно отключено pointer-events. */
     .live-pab-record-btn.is-success::after { display: none; }
 
-    /* =========================================================
-     * GLOBAL HEADER / CONTAINER / CARDS
-     * ========================================================= */
     .top-bar {
       display: flex;
       justify-content: space-between;
@@ -381,7 +367,6 @@
     }
     .help-trigger-btn .material-symbols-outlined { font-size: 18px; }
 
-    /* CALENDAR STRIP */
     .calendar-range-btn {
       background: transparent;
       border: 1px solid transparent;
@@ -449,7 +434,6 @@
     .badge-split-b { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
     .badge-rest { width: 6px; height: 6px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-outline-variant); margin-top: 10px; }
 
-    /* CALENDAR MONTH MODAL */
     .cal-month-weekdays {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
@@ -538,7 +522,6 @@
     }
     .cal-month-nav-group { display: flex; align-items: center; gap: 2px; }
 
-    /* PLAN BADGES */
     .plan-cycle-chip {
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
@@ -549,7 +532,6 @@
       letter-spacing: 0.5px;
     }
 
-    /* PLAN PREVIEW CARD */
     .plan-preview-trigger-card {
       background: var(--md-sys-color-surface-container-high);
       border: 1px solid rgba(168, 200, 255, 0.18);
@@ -594,7 +576,6 @@
       flex-shrink: 0;
     }
 
-    /* RECIPE STEP */
     .recipe-step {
       background: var(--md-sys-color-surface-container-high);
       border-radius: var(--md-sys-shape-corner-large);
@@ -675,7 +656,6 @@
       white-space: nowrap;
     }
 
-    /* PRIMARY BUTTONS */
     .start-live-workout-btn {
       width: 100%;
       min-height: var(--app-touch-comfortable);
@@ -698,7 +678,6 @@
     .start-live-workout-btn:active { transform: scale(0.97); }
     .start-live-workout-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* RECOVERY BANNER */
     .recovery-banner {
       display: none;
       background: var(--md-sys-color-primary-container);
@@ -711,9 +690,6 @@
       border: 1px solid var(--md-sys-color-primary);
     }
 
-    /* =========================================================
-     * LIVE WORKOUT OVERLAY
-     * ========================================================= */
     .live-workout-overlay {
       display: none;
       position: fixed;
@@ -726,7 +702,6 @@
       -webkit-overflow-scrolling: touch;
     }
 
-    /* Liquid Glass Top Bar */
     .live-top-bar {
       display: flex;
       align-items: center;
@@ -807,7 +782,6 @@
       flex: 1;
     }
 
-    /* Progress Strip */
     .live-progress-strip {
       display: flex;
       align-items: center;
@@ -865,7 +839,6 @@
       text-align: center;
     }
 
-    /* Collapsible exercise header */
     .live-ex-header-card {
       background: var(--md-sys-color-surface-container);
       border-radius: var(--md-sys-shape-corner-large);
@@ -970,7 +943,6 @@
       line-height: 1.35;
     }
 
-    /* Note chips */
     .live-ex-notes-row {
       display: flex;
       gap: 8px;
@@ -1195,7 +1167,6 @@
       padding: 3px 0;
     }
 
-    /* Closeout chips */
     .live-readiness-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -1310,7 +1281,6 @@
       color: var(--app-color-warning);
     }
 
-    /* History groups */
     .live-history-groups-container {
       display: flex;
       flex-direction: column;
@@ -1380,7 +1350,6 @@
       transition: background-color var(--md-sys-motion-duration-short4);
     }
 
-    /* Android UX: расширенные tap-зоны через ::before (визуально 40×40, физически 48×48). */
     .live-delete-set-btn {
       min-width: 40px;
       height: 40px;
@@ -1414,9 +1383,6 @@
     .live-delete-set-btn.is-confirm .delete-label { display: inline; }
     .live-delete-set-btn .delete-label { display: none; }
 
-    /* =========================================================
-     * PAB (Плавающая нижняя панель)
-     * ========================================================= */
     .live-pab {
       position: fixed;
       left: 12px;
@@ -1606,9 +1572,6 @@
       animation: pabWarningPulse 1s ease-in-out infinite;
     }
 
-    /* =========================================================
-     * BIG CLOCK OVERLAY
-     * ========================================================= */
     .live-big-clock-overlay {
       display: none;
       position: fixed;
@@ -1842,9 +1805,6 @@
       animation: pabWarningPulse 1s ease-in-out infinite;
     }
 
-    /* =========================================================
-     * BOTTOM SHEETS
-     * ========================================================= */
     .live-sheet-overlay {
       display: none;
       position: fixed;
@@ -1924,7 +1884,6 @@
       margin: 0 4px;
     }
 
-    /* Android UX: расширенные tap-зоны 32→40dp через ::before. */
     .live-sheet-mini-btn {
       width: 32px;
       height: 32px;
@@ -1984,7 +1943,6 @@
       gap: 3px;
       flex-shrink: 0;
     }
-    /* Android UX: расширенные tap-зоны 30×28→44dp через ::before. */
     .live-sheet-rir-chip {
       min-width: 30px;
       height: 28px;
@@ -2049,9 +2007,6 @@
       margin-top: 4px;
     }
 
-    /* =========================================================
-     * TOP SHEET
-     * ========================================================= */
     .live-top-sheet-overlay {
       display: none;
       position: fixed;
@@ -2098,9 +2053,6 @@
       margin-top: 8px;
     }
 
-    /* =========================================================
-     * HELPERS
-     * ========================================================= */
     .mannequin-container { display: flex; flex-direction: column; align-items: center; gap: 12px; }
     .mannequin-views-row {
       display: flex;
@@ -2223,7 +2175,6 @@
     }
     .muscle-card-details b { color: var(--md-sys-color-on-surface); }
 
-    /* KPI GRID */
     .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .kpi-card {
       background: var(--md-sys-color-surface-container-high);
@@ -2240,7 +2191,6 @@
     .kpi-value { font: 700 1.25rem/1.2 'Roboto'; color: var(--md-sys-color-on-surface); margin-top: 4px; }
     .kpi-subtext { font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-on-surface-variant); margin-top: 2px; }
 
-    /* BALANCE */
     .balance-card-content { display: flex; flex-direction: column; gap: 10px; }
     .balance-header-row {
       display: flex;
@@ -2283,7 +2233,6 @@
       flex-wrap: wrap;
     }
 
-    /* FORM INPUTS */
     select.m3-select, input.m3-input, textarea.m3-input {
       width: 100%;
       background: var(--md-sys-color-surface-container-highest);
@@ -2312,10 +2261,8 @@
       padding: 14px 16px;
     }
 
-    /* CHARTS */
     .chart-container { position: relative; height: 240px; width: 100%; }
 
-    /* MUSCLE LOAD ANALYZER */
     .volume-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
     .volume-section-header {
       display: flex;
@@ -2412,7 +2359,6 @@
       transition: width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard);
     }
 
-    /* PR PILL */
     .pr-pill {
       font: var(--md-sys-typescale-label-medium);
       font-weight: 700;
@@ -2426,7 +2372,6 @@
       gap: 4px;
     }
 
-    /* REP MAX GRID */
     .rep-max-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -2453,7 +2398,6 @@
       color: var(--app-color-success);
     }
 
-    /* FOSTER INDICATOR */
     .foster-indicator {
       display: flex;
       align-items: center;
@@ -2468,7 +2412,6 @@
     .foster-indicator.warn { background: var(--app-color-warning-container); color: var(--app-color-warning); border: 1px solid rgba(250, 204, 21, 0.3); }
     .foster-indicator.bad { background: rgba(255, 107, 107, 0.12); color: #ff6b6b; border: 1px solid rgba(255, 107, 107, 0.3); }
 
-    /* COACH */
     .coach-sos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .coach-split-chips-row { display: flex; gap: 8px; margin-bottom: 4px; }
     .coach-split-chip {
@@ -2548,7 +2491,6 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    /* FILE DROP ZONE */
     .file-drop-zone {
       border: 2px dashed var(--md-sys-color-outline-variant);
       border-radius: var(--md-sys-shape-corner-extra-large);
@@ -2565,7 +2507,6 @@
     .file-drop-zone.active { border-color: var(--md-sys-color-primary); }
     .file-drop-zone input[type="file"] { display: none; }
 
-    /* EXERCISE CARDS (parsed view) */
     .exercise-card {
       background: var(--md-sys-color-surface-container);
       border-radius: var(--md-sys-shape-corner-large);
@@ -2594,7 +2535,6 @@
       color: var(--md-sys-color-on-surface-variant);
     }
 
-    /* SYNC TERMINAL */
     .sync-terminal {
       background: #0d0e11;
       border: 1px solid var(--md-sys-color-outline-variant);
@@ -2616,7 +2556,6 @@
     }
     .terminal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-    /* BOTTOM NAVIGATION - LIQUID GLASS ISLAND */
     .navigation-bar {
       position: fixed;
       left: 16px;
@@ -2672,7 +2611,6 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
     }
 
-    /* MODALS */
     .modal-overlay {
       display: none;
       position: fixed;
@@ -2702,7 +2640,6 @@
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
     }
 
-    /* BOTTOM SHEET */
     .bottom-sheet-overlay {
       display: none;
       position: fixed;
@@ -2809,7 +2746,6 @@
       <md-filled-button id="liveResumeBannerBtn">Вернуться</md-filled-button>
     </div>
 
-    <!-- МОДУЛЬ 1: ОБЗОР -->
     <div id="tab-overview" class="tab-content active">
 
       <div class="m3-card">
@@ -2903,7 +2839,7 @@
                 <path class="muscle-path" data-muscle="Бицепс бедра" d="M36 92 C34.5 106, 35.5 122, 38.5 138 C44 138, 48 120, 48.5 92 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Бицепс бедра" d="M64 92 C65.5 106, 64.5 122, 61.5 138 C56 138, 52 120, 51.5 92 Z" fill="#3b4262" />
                 <path class="muscle-path" data-muscle="Икры" d="M38 141 C33.5 153, 34.5 173, 38.5 190 C44 188, 45.5 170, 44 141 Z" fill="#3b4262" />
-                <path class="muscle-path" data-muscle="Икры" d="M62 141 C66.5 153, 65.5 173, 61.5 190 C56 188, 54.5 170, 56 141 Z" fill="#3b4262" />
+                <path class="muscle-path" data-muscle="Икры" d="M62 141 C66.5 153, 65.5 173, 61.5 190                   C56 188, 54.5 170, 56 141 Z" fill="#3b4262" />
                 <path d="M38 191 L35 198 L44 198 L43.5 191 Z" class="body-silhouette" />
                 <path d="M62 191 L65 198 L56 198 L56.5 191 Z" class="body-silhouette" />
               </svg>
@@ -3138,8 +3074,7 @@
         </div>
       </div>
     </div>
-
-    <!-- МОДУЛЬ 3: ТРЕНЕР -->
+	    <!-- МОДУЛЬ 3: ТРЕНЕР -->
     <div id="tab-coach" class="tab-content">
 
       <div class="m3-card" style="border: 1px solid rgba(168, 200, 255, 0.2);">
@@ -3372,10 +3307,9 @@
     </div>
   </div>
 
-  <!-- LIVE WORKOUT OVERLAY V2.9.0 -->
+  <!-- LIVE WORKOUT OVERLAY V2.9.1 -->
   <div id="liveWorkoutOverlay" class="live-workout-overlay" role="region" aria-label="Активная тренировка">
 
-    <!-- TalkBack announcer (visually hidden, aria-live) -->
     <div id="liveAriaAnnouncer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 
     <div class="live-top-bar">
@@ -3435,6 +3369,10 @@
             <button type="button" id="liveManualDropBtn" class="live-note-chip" aria-label="Дроп">
               <span class="material-symbols-outlined" aria-hidden="true">trending_down</span>
               <span class="live-note-value">Дроп</span>
+            </button>
+            <button type="button" id="liveManualMyoBtn" class="live-note-chip" aria-label="Мио-репс">
+              <span class="material-symbols-outlined" aria-hidden="true">restart_alt</span>
+              <span class="live-note-value">Мио</span>
             </button>
           </div>
           <div id="liveExWarmupHint" class="live-ex-warmup-hint"></div>
@@ -3656,6 +3594,53 @@
       <div class="live-sheet-actions">
         <md-outlined-button id="liveDropCancelBtn">Отмена</md-outlined-button>
         <md-filled-button id="liveDropSaveBtn">
+          <span class="material-symbols-outlined" slot="icon" aria-hidden="true">check</span>
+          Сохранить
+        </md-filled-button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM SHEET: ЗАПИСЬ MYO-REPS (NEW) -->
+  <div id="liveMyoSheet" class="live-sheet-overlay" role="dialog" aria-modal="true" aria-labelledby="liveMyoSheetTitle">
+    <div class="live-sheet">
+      <div class="live-sheet-handle" aria-hidden="true"></div>
+      <div class="live-sheet-title" id="liveMyoSheetTitle">Запись Myo-reps</div>
+      <div class="live-sheet-subtitle" id="liveMyoSheetSubtitle">Активация + микросерии</div>
+
+      <div style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-high); padding: 10px 12px; border-radius: var(--md-sys-shape-corner-medium); line-height: 1.45;">
+        Активация: 10–14 повт (RIR 1). Пауза 15 сек. Микросерии: 3–4 повт, RIR 0. Внеси по факту.
+      </div>
+
+      <div id="liveMyoActivationRow" class="live-sheet-row-2">
+        <div class="live-sheet-row-2-top">
+          <span class="live-sheet-row-2-label">Активация</span>
+          <div class="live-sheet-rir" id="liveMyoActivationRir"></div>
+        </div>
+        <div class="live-sheet-row-2-bottom">
+          <button class="live-sheet-mini-btn" data-myo-main-adjust="weight" data-delta="-2.5" type="button">−</button>
+          <span class="live-sheet-value" style="border-bottom: 2px dashed var(--md-sys-color-primary); cursor: pointer; min-width: 30px; text-align: center;" id="liveMyoActivationWeight">50</span>
+          <button class="live-sheet-mini-btn" data-myo-main-adjust="weight" data-delta="+2.5" type="button">+</button>
+          <span class="live-sheet-unit">кг ×</span>
+          <button class="live-sheet-mini-btn" data-myo-main-adjust="reps" data-delta="-1" type="button">−</button>
+          <span class="live-sheet-value" id="liveMyoActivationReps">12</span>
+          <button class="live-sheet-mini-btn" data-myo-main-adjust="reps" data-delta="+1" type="button">+</button>
+          <span class="live-sheet-unit">повт</span>
+        </div>
+      </div>
+
+      <div id="liveMyoMiniSetsContainer" style="display:flex; flex-direction:column; gap:6px;"></div>
+
+      <button type="button" id="liveMyoAddMiniSetBtn" class="live-sheet-add-btn">
+        <span class="material-symbols-outlined" aria-hidden="true" style="font-size:18px;">add_circle</span>
+        Добавить микросерию (3–4 повт)
+      </button>
+
+      <div class="live-sheet-summary" id="liveMyoSummary"></div>
+
+      <div class="live-sheet-actions">
+        <md-outlined-button id="liveMyoCancelBtn">Отмена</md-outlined-button>
+        <md-filled-button id="liveMyoSaveBtn">
           <span class="material-symbols-outlined" slot="icon" aria-hidden="true">check</span>
           Сохранить
         </md-filled-button>
