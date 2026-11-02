@@ -3722,7 +3722,7 @@
     </div>
   </div>
 
-  <!-- TIMER SETTINGS MODAL -->
+    <!-- TIMER SETTINGS MODAL -->
   <div id="liveTimerSettingsModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="liveTimerSettingsTitle">
     <div class="modal-card">
       <div class="card-title">
@@ -3747,6 +3747,30 @@
         <div>
           <label for="prefTimerDrop" style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant);">Пауза на сброс веса в дроп-сете, сек:</label>
           <input type="number" id="prefTimerDrop" class="m3-input" value="15" step="5" min="5" max="120" inputmode="numeric">
+        </div>
+
+        <div style="border-top: 1px solid var(--md-sys-color-outline-variant); padding-top: 12px; margin-top: 4px;">
+          <label for="liveVoiceCoachToggle" style="font: var(--md-sys-typescale-title-small); font-weight: 600; color: var(--md-sys-color-on-surface); display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 48px;">
+            <span>Голосовые подсказки</span>
+            <md-switch id="liveVoiceCoachToggle" aria-label="Включить голосовые подсказки"></md-switch>
+          </label>
+          <p style="font: var(--md-sys-typescale-body-small); color: var(--md-sys-color-on-surface-variant); line-height: 1.4; margin: 2px 0 10px 0;">
+            Озвучивает отдых и параметры следующего подхода, остаток отдыха и завершение. На Android может приостанавливать музыку.
+          </p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+            <div>
+              <label for="liveVoiceThreshold1" style="font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-on-surface-variant);">Порог 1, сек:</label>
+              <input type="number" id="liveVoiceThreshold1" class="m3-input" value="60" step="5" min="0" max="300" inputmode="numeric">
+            </div>
+            <div>
+              <label for="liveVoiceThreshold2" style="font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-on-surface-variant);">Порог 2, сек:</label>
+              <input type="number" id="liveVoiceThreshold2" class="m3-input" value="30" step="5" min="0" max="300" inputmode="numeric">
+            </div>
+            <div>
+              <label for="liveVoiceThreshold3" style="font: var(--md-sys-typescale-label-small); color: var(--md-sys-color-on-surface-variant);">Порог 3, сек:</label>
+              <input type="number" id="liveVoiceThreshold3" class="m3-input" value="10" step="5" min="0" max="300" inputmode="numeric">
+            </div>
+          </div>
         </div>
       </div>
       <div style="display:flex; justify-content:flex-end; margin-top:8px;">

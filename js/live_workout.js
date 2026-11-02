@@ -1,25 +1,20 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.2 Safety & Provenance Fixes)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.3 Voice Coach Integration)
  * =========================================================================
- * V2.9.2 (фикс «зависшего таймера после финиша»):
- * - BUG-1 (P1): finalizeAndSyncLiveWorkout теперь ЯВНО закрывает все live-
- *   модалки (liveBigClockOverlay, liveCloseoutModal, liveFinishSheet,
- *   liveWorkoutOverlay) в правильном порядке. Раньше liveBigClockOverlay
- *   (z-index 1050) оставался поверх — цифры мигали при is-warning, визуально
- *   «тикало» после финиша.
- * - BUG-2 (P1): убран setTimeout(280) перед closeModal('liveWorkoutOverlay').
- *   Причина: closeModal('liveCloseoutModal') ставит closingInProgress=true,
- *   который сбрасывается через setTimeout(500). 280 < 500 → closeModal для
- *   liveWorkoutOverlay уходил в early return. Overlay оставался открытым.
- * - BUG-3 (P1): _synced = true ставится ТОЛЬКО после успешного
- *   persistActiveSession(). При quota-error флаг не фиксировался в
- *   localStorage → crash-recovery V2.9.0 терял _synced → дубли в Sheets.
- * - BUG-4 (P2): startDurationTicker и syncRestTimerWithWallClock получили
- *   early return при !activeSession ДО setInterval. Раньше интервал жил
- *   после финиша (утечка CPU, тикающая иконка в топбаре).
- * - Fallback: после явных closeModal — если стек не пуст, resetAllModals().
- * - V2.9.1 (Myo-reps) и V2.9.0-фиксы полностью сохранены.
+ * V2.9.3 (голосовые подсказки через Web Speech API):
+ * - Интеграция с js/voice_coach.js V1.0.0.
+ * - Канал A: после записи подхода (setTimeout 500 мс) — одна фраза
+ *   "Отдых X. Упражнение, вес, повторы, RIR [метод]" через speakAfterSet.
+ * - Канал B: на порогах 60/30/10 в syncRestTimerWithWallClock — speakRestTime.
+ *   Пороги хранятся в restState.spokenThresholds (массив, переживает +30 сек).
+ * - Канал C: при remainingSec <= 0 — speakRestFinished() перед stopRestTimer().
+ * - Канал D: в switchActiveExercise — speakNextExercise (без слова "Отдых").
+ * - Ручной пропуск: cancelVoice() без фразы (wasNatural guard в stopRestTimer).
+ * - finalizeAndSyncLiveWorkout: cancelVoice() в начале.
+ * - Настройки (галка + 3 порога) обрабатываются в bindLiveWorkoutDomEvents.
+ *
+ * V2.9.2 и ранее — сохранены полностью.
  * =========================================================================
  */
 
@@ -31,6 +26,10 @@ import { syncSetsToSheets, fetchAnalyticsData } from './api.js';
 import { registerModal, openModal, closeModal, isModalOpen, resetAllModals, getTopModalId } from './modal_manager.js';
 import { showErrorToast, showSuccessToast, showWarningToast, openConfirmSheet } from './ui.js';
 import { logToTerminal } from './sync.js';
+import {
+  isVoiceEnabled, setVoiceEnabled, getVoiceThresholds, setVoiceThresholds,
+  speakAfterSet, speakRestTime, speakRestFinished, speakNextExercise, cancelVoice
+} from './voice_coach.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
 const STORAGE_KEY_TIMER_PREFS = 'gym_live_timer_prefs_v1';
@@ -175,9 +174,6 @@ function registerLiveModals() {
         syncRestTimerWithWallClock();
       },
       onClose: () => {
-        // ИНВАРИАНТ (Роль 7): showRecoveryBanner вызывается ТОЛЬКО если
-        // activeSession всё ещё существует. При финише activeSession=null
-        // присваивается ДО closeModal('liveWorkoutOverlay') — баннер не покажется.
         document.body.style.overflow = '';
         showRecoveryBanner();
       }
@@ -530,7 +526,7 @@ function beginNewLiveWorkoutSession(recipePayload) {
     currentExerciseIndex: 0,
     exercises: exercisesQueue,
     draftSet: initialDraft,
-    restState: { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false },
+    restState: { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false, spokenThresholds: [] },
     lastRestEndMs: 0,
     readinessPre: '🟢 Оптимум',
     sRPE: 8,
@@ -548,10 +544,6 @@ function beginNewLiveWorkoutSession(recipePayload) {
   announceToTalkBack(`Начата тренировка ${activeSession.title}. ${exercisesQueue.length} упражнений.`);
 }
 
-/**
- * V2.9.2: возвращает boolean — успешно ли сохранение в localStorage.
- * Нужно для BUG-3: _synced фиксируется только при успешном persist.
- */
 function persistActiveSession() {
   try {
     if (activeSession) {
@@ -583,6 +575,8 @@ function checkCrashRecoverySession() {
       if (typeof parsed.headerManuallyToggled !== 'boolean') parsed.headerManuallyToggled = false;
       if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') parsed.historyUiState = { warmupCollapsed: false, workCollapsed: false };
       if (typeof parsed.lastRestEndMs !== 'number') parsed.lastRestEndMs = 0;
+      if (!parsed.restState || typeof parsed.restState !== 'object') parsed.restState = { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false, spokenThresholds: [] };
+      if (!Array.isArray(parsed.restState.spokenThresholds)) parsed.restState.spokenThresholds = [];
 
       parsed.exercises.forEach(ex => {
         if (!ex.multiplier) ex.multiplier = getExerciseMultiplier(ex.name);
@@ -662,6 +656,7 @@ function minimizeLiveWorkoutOverlay() {
 
 function executeDiscardLiveWorkoutSession() {
   logToTerminal('LIVE_DISCARD', `Тренировка удалена без сохранения: ${activeSession ? activeSession.title : '—'}`, 'info');
+  cancelVoice();
   stopAllTimers();
   stopBigClock();
   releaseScreenWakeLock();
@@ -680,10 +675,6 @@ function stopAllTimers() {
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
 }
 
-/**
- * V2.9.2 (BUG-4): early return при !activeSession ДО setInterval.
- * Раньше интервал жил после финиша — утечка CPU, тикающая иконка в топбаре.
- */
 function startDurationTicker() {
   if (!activeSession) return;
   if (workoutDurationInterval) clearInterval(workoutDurationInterval);
@@ -2027,6 +2018,15 @@ function commitRecordedSet(partialSet) {
   const kindTxt = recordedSet.category === 'Разминка' ? 'Разминка' : 'Подход';
   announceToTalkBack(`${kindTxt} ${recordedSet.setNum} записан. Отдых ${restSeconds} секунд.`);
 
+  // Канал A: одна фраза — отдых + параметры следующего подхода.
+  // Задержка 500 мс — не конфликтует с анимацией "✓ ЗАПИСАНО" и TalkBack-анонсом.
+  setTimeout(() => {
+    if (!activeSession) return;
+    const exNow = activeSession.exercises[activeSession.currentExerciseIndex];
+    if (!exNow) return;
+    speakAfterSet(restSeconds, exNow.name, activeSession.draftSet, exNow);
+  }, 500);
+
   if (isModalOpen('liveBigClockOverlay')) {
     renderBigClockWidgets();
   }
@@ -2614,11 +2614,22 @@ function switchActiveExercise(newIndex) {
   persistActiveSession();
   renderLiveWorkoutScreen();
   announceToTalkBack(`Упражнение ${newIndex + 1}: ${ex.name}`);
+
+  // Канал D: озвучка первого подхода нового упражнения (без слова "Отдых").
+  if (isVoiceEnabled()) {
+    speakNextExercise(ex.name, activeSession.draftSet, ex);
+  }
 }
 
 function startRestTimer(seconds) {
   if (!activeSession) return;
-  activeSession.restState = { isActive: true, endsAtMs: Date.now() + (seconds * 1000), totalSeconds: seconds, notified10s: false };
+  activeSession.restState = {
+    isActive: true,
+    endsAtMs: Date.now() + (seconds * 1000),
+    totalSeconds: seconds,
+    notified10s: false,
+    spokenThresholds: []
+  };
   persistActiveSession();
   renderPAB();
   syncRestTimerWithWallClock();
@@ -2638,6 +2649,10 @@ function adjustRestTimer(deltaSeconds) {
 
 function stopRestTimer() {
   if (!activeSession) return;
+  const wasNatural = activeSession.restState && activeSession.restState.endsAtMs > 0
+    && Date.now() >= activeSession.restState.endsAtMs;
+  // При ручном пропуске — оборвать возможную озвучку, без фразы.
+  if (!wasNatural) cancelVoice();
   activeSession.restState.isActive = false;
   activeSession.restState.endsAtMs = 0;
   activeSession.lastRestEndMs = Date.now();
@@ -2648,10 +2663,6 @@ function stopRestTimer() {
   if (isModalOpen('liveBigClockOverlay')) startBigClockEngine();
 }
 
-/**
- * V2.9.2 (BUG-4): early return при !activeSession ДО setInterval.
- * Раньше интервал жил после финиша — утечка CPU.
- */
 function syncRestTimerWithWallClock() {
   if (!activeSession) return;
   if (!activeSession.restState || !activeSession.restState.isActive) {
@@ -2663,8 +2674,35 @@ function syncRestTimerWithWallClock() {
   const tick = () => {
     if (!activeSession || !activeSession.restState.isActive) return;
     const remainingSec = Math.ceil((activeSession.restState.endsAtMs - Date.now()) / 1000);
-    if (remainingSec <= 10 && remainingSec > 0 && !activeSession.restState.notified10s) { activeSession.restState.notified10s = true; triggerHaptic([150, 100, 150]); }
-    if (remainingSec <= 0) { triggerHaptic([400, 180, 400, 180, 400]); stopRestTimer(); return; }
+
+    if (remainingSec <= 10 && remainingSec > 0 && !activeSession.restState.notified10s) {
+      activeSession.restState.notified10s = true;
+      triggerHaptic([150, 100, 150]);
+    }
+
+    // Канал B: голосовые пороги (60/30/10). spokenThresholds — массив, чтобы
+    // корректно переживать +30 сек (порог может снова стать актуальным).
+    if (isVoiceEnabled() && remainingSec > 0) {
+      const thresholds = getVoiceThresholds();
+      const spoken = activeSession.restState.spokenThresholds || (activeSession.restState.spokenThresholds = []);
+      for (let i = 0; i < thresholds.length; i++) {
+        const t = thresholds[i];
+        if (t > 0 && remainingSec <= t && !spoken.includes(t)) {
+          spoken.push(t);
+          speakRestTime(t);
+          break; // один порог за тик — не спамим
+        }
+      }
+    }
+
+    if (remainingSec <= 0) {
+      triggerHaptic([400, 180, 400, 180, 400]);
+      // Канал C: естественное завершение отдыха — голос.
+      if (isVoiceEnabled()) speakRestFinished();
+      stopRestTimer();
+      return;
+    }
+
     const m = String(Math.floor(remainingSec / 60)).padStart(2, '0');
     const s = String(remainingSec % 60).padStart(2, '0');
     const countdownEl = document.getElementById('livePabRestCountdown');
@@ -2862,21 +2900,9 @@ function renderCloseoutSummaryBox() {
   `;
 }
 
-/**
- * V2.9.2: критический фикс «зависшего таймера после финиша».
- *
- * BUG-1 (P1): liveBigClockOverlay (z-index 1050) не закрывался, если был открыт.
- *   Цифры мигали при is-warning — визуально «тикало» после финиша.
- * BUG-2 (P1): setTimeout(280) < closingInProgress-таймаут (500) в modal_manager.js
- *   → closeModal('liveWorkoutOverlay') уходил в early return, overlay висел.
- * BUG-3 (P1): _synced=true фиксировался даже если persist упал с QuotaExceededError
- *   → crash-recovery терял флаг → дубли в Sheets.
- *
- * Решение: явное закрытие ВСЕХ live-модалок в правильном порядке, без setTimeout,
- * _synced — только после успешного persist, fallback resetAllModals().
- */
 async function finalizeAndSyncLiveWorkout() {
   if (!activeSession) return;
+  cancelVoice();
 
   // --- Ветка 1: уже синхронизировано (только верификация) ---
   if (activeSession._synced === true) {
@@ -2969,9 +2995,6 @@ async function finalizeAndSyncLiveWorkout() {
     await syncSetsToSheets(payload);
     const elapsed = Math.round(performance.now() - t0);
 
-    // V2.9.2 (BUG-3): _synced фиксируется ТОЛЬКО после успешного persist.
-    // Если persist упал с QuotaExceededError — флаг не сохранится, но данные
-    // уже в Sheets, повторный вызов в этой же сессии увидит _synced=true в памяти.
     if (activeSession) {
       activeSession._synced = true;
       const persistedOk = persistActiveSession();
@@ -3005,20 +3028,6 @@ async function finalizeAndSyncLiveWorkout() {
   }
 }
 
-/**
- * V2.9.2: единая точка закрытия ВСЕХ live-модалок после финиша.
- * Порядок важен: сначала верхние по z-index (bigClock 1050, closeout 1000,
- * finishSheet 1100), затем liveWorkoutOverlay (500).
- * Fallback: если стек остался непустым (аномалия / будущий регресс),
- * resetAllModals() очищает всё принудительно.
- *
- * НЕ использует setTimeout — прямой синхронный вызов closeModal.
- * Внутри modal_manager.js closeModal ставит closingInProgress=true,
- * но т.к. мы вызываем последовательно БЕЗ setTimeout между ними,
- * каждый closeModal уходит в history.back(), а popstate-обработчик
- * синхронно снимает верхний модал. После последнего closeModal
- * стек пуст → closingInProgress сбрасывается через 500мс сам.
- */
 function closeAllLiveModals() {
   const liveIds = ['liveBigClockOverlay', 'liveCloseoutModal', 'liveFinishSheet', 'liveWorkoutOverlay'];
   liveIds.forEach(id => {
@@ -3026,7 +3035,6 @@ function closeAllLiveModals() {
       try { closeModal(id); } catch (e) { console.warn('[LiveWorkout] closeModal failed for', id, e); }
     }
   });
-  // Fallback: если по какой-то причине стек не пуст — принудительная очистка.
   if (getTopModalId() !== null) {
     try { resetAllModals(); } catch (e) { console.warn('[LiveWorkout] resetAllModals failed:', e); }
   }
@@ -3347,6 +3355,28 @@ function bindLiveWorkoutDomEvents() {
       }
       openModal('metricHelpModal');
     };
+  }
+
+  // ---------- Голосовые подсказки ----------
+  const voiceToggle = document.getElementById('liveVoiceCoachToggle');
+  if (voiceToggle) {
+    voiceToggle.selected = isVoiceEnabled();
+    voiceToggle.addEventListener('change', () => {
+      setVoiceEnabled(Boolean(voiceToggle.selected));
+    });
+  }
+  const voiceThresholdInputs = ['liveVoiceThreshold1', 'liveVoiceThreshold2', 'liveVoiceThreshold3']
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+  if (voiceThresholdInputs.length === 3) {
+    const th = getVoiceThresholds();
+    voiceThresholdInputs.forEach((el, i) => {
+      el.value = th[i] !== undefined ? th[i] : [60, 30, 10][i];
+      el.addEventListener('change', () => {
+        const vals = voiceThresholdInputs.map(inp => Math.max(0, parseInt(inp.value, 10) || 0));
+        setVoiceThresholds(vals);
+      });
+    });
   }
 }
 
