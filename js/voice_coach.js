@@ -1,6 +1,6 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.1)
+ * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.3)
  * =========================================================================
  * Голосовое сопровождение LiveWorkout через Web Speech API.
  *
@@ -14,7 +14,7 @@
  * - При недоступности speechSynthesis — тихий console.warn, UI не падает.
  * - Никакой вибрации. Никакой предзаписи аудио.
  *
- * Каналы (см. план V1.0):
+ * Каналы:
  *   A. speakAfterSet()      — после записи подхода: отдых + вес след.
  *                             подхода + повторы + запас (RIR).
  *   B. speakRestTime()      — остаток отдыха на пороге 60/30/10.
@@ -26,8 +26,12 @@
  *   V1.0.0 — базовый модуль.
  *   V1.0.1 — канал A: убран exerciseName из фразы, добавлено
  *            «следующий вес подхода X»; RIR заменён на «запас N» /
- *            «до отказа» (TTS плохо читает «RIR»). Канал D (смена
- *            упражнения) сохраняет название упражнения.
+ *            «до отказа».
+ *   V1.0.2 — вес произносится словами (попытка убрать паузу на точке).
+ *   V1.0.3 — вес с дробной частью: «X килограмм Y грамм» (например,
+ *            82.5 → «82 килограмма 500 грамм»). Универсально для любой
+ *            дроби, TTS не спотыкается о точку. Шаг веса в проекте 2.5 кг
+ *            даёт чистые значения: 0 / 250 / 500 / 750 грамм.
  * =========================================================================
  */
 
@@ -107,12 +111,6 @@ function isSpeechSupported() {
   return _isSupported;
 }
 
-/**
- * Возвращает русский голос, если доступен. На Android Chrome getVoices()
- * может быть пустым до события voiceschanged — поэтому вызываем getVoices()
- * лениво, в момент speak(). Если русского голоса нет — вернём null,
- * utterance.lang='ru-RU' всё равно попросит движок говорить по-русски.
- */
 function pickRussianVoice() {
   try {
     const voices = window.speechSynthesis.getVoices();
@@ -127,14 +125,6 @@ function pickRussianVoice() {
 
 /* ---------- CORE SPEAK ---------- */
 
-/**
- * Единственная точка выхода в speechSynthesis.
- * Инварианты:
- *  1. cancel() перед speak() — очищает очередь.
- *  2. lang='ru-RU' — обязательно для Android Chrome.
- *  3. onerror — тихо, без падения.
- *  4. Дебаунс 300 мс — защита от частых вызовов.
- */
 function speakSafe(text, opts = {}) {
   if (!isSpeechSupported()) return;
   if (!isVoiceEnabled()) return;
@@ -205,10 +195,28 @@ export function formatSecondsRu(totalSeconds) {
   return `${minText} ${s} ${pluralRu(s, 'секунда', 'секунды', 'секунд')}`;
 }
 
+/**
+ * V1.0.3: вес произносится с разделением на килограммы и граммы.
+ * - 80    → «80 килограммов»
+ * - 80.5  → «80 килограммов 500 грамм»
+ * - 82.5  → «82 килограмма 500 грамм»
+ * - 81.25 → «81 килограмм 250 грамм»
+ * - 82.75 → «82 килограмма 750 грамм»
+ * Цифры без точки TTS читает чисто, паузы нет. Шаг веса в проекте 2.5 кг
+ * даёт чистые значения (0 / 250 / 500 / 750 г).
+ */
 function formatWeightRu(weight) {
   const w = Number(weight);
   if (!w || w <= 0) return '';
-  return `${w} ${pluralRu(Math.round(w), 'килограмм', 'килограмма', 'килограммов')}`;
+
+  const intPart = Math.floor(w);
+  const fracGrams = Math.round((w - intPart) * 1000);
+
+  const kgText = `${intPart} ${pluralRu(intPart, 'килограмм', 'килограмма', 'килограммов')}`;
+
+  if (fracGrams === 0) return kgText;
+
+  return `${kgText} ${fracGrams} ${pluralRu(fracGrams, 'грамм', 'грамма', 'грамм')}`;
 }
 
 function formatRepsRu(reps) {
@@ -217,10 +225,6 @@ function formatRepsRu(reps) {
   return `${r} ${pluralRu(r, 'повторение', 'повторения', 'повторений')}`;
 }
 
-/**
- * RIR заменяется на разговорное «запас N» — TTS плохо читает «RIR».
- * RIR 0 → «до отказа»; RIR 3+ → «запас 3 и больше».
- */
 function formatRirRu(rir) {
   const raw = String(rir || '').replace('+', '').trim();
   if (!raw) return '';
