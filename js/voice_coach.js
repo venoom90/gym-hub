@@ -1,6 +1,6 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.0)
+ * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.1)
  * =========================================================================
  * Голосовое сопровождение LiveWorkout через Web Speech API.
  *
@@ -15,11 +15,19 @@
  * - Никакой вибрации. Никакой предзаписи аудио.
  *
  * Каналы (см. план V1.0):
- *   A. speakAfterSet()      — после записи подхода: отдых + параметры след.
+ *   A. speakAfterSet()      — после записи подхода: отдых + вес след.
+ *                             подхода + повторы + запас (RIR).
  *   B. speakRestTime()      — остаток отдыха на пороге 60/30/10.
  *   C. speakRestFinished()  — естественное завершение отдыха.
- *   D. speakNextExercise()  — смена упражнения (без слова "Отдых").
+ *   D. speakNextExercise()  — смена упражнения (с названием упражнения).
  *   E. cancelVoice()        — ручной пропуск / финиш / выключение галки.
+ *
+ * История:
+ *   V1.0.0 — базовый модуль.
+ *   V1.0.1 — канал A: убран exerciseName из фразы, добавлено
+ *            «следующий вес подхода X»; RIR заменён на «запас N» /
+ *            «до отказа» (TTS плохо читает «RIR»). Канал D (смена
+ *            упражнения) сохраняет название упражнения.
  * =========================================================================
  */
 
@@ -209,10 +217,16 @@ function formatRepsRu(reps) {
   return `${r} ${pluralRu(r, 'повторение', 'повторения', 'повторений')}`;
 }
 
+/**
+ * RIR заменяется на разговорное «запас N» — TTS плохо читает «RIR».
+ * RIR 0 → «до отказа»; RIR 3+ → «запас 3 и больше».
+ */
 function formatRirRu(rir) {
   const raw = String(rir || '').replace('+', '').trim();
   if (!raw) return '';
-  return `RIR ${raw}`;
+  if (raw === '0') return 'до отказа';
+  if (raw === '3') return 'запас 3 и больше';
+  return `запас ${raw}`;
 }
 
 function formatMethodTailRu(draftSet, ex) {
@@ -227,8 +241,14 @@ function formatMethodTailRu(draftSet, ex) {
 
 /**
  * Канал A: после записи подхода.
- * Одна фраза объединяет отдых + параметры следующего подхода.
- * Пример: "Отдых 2 минуты 30 секунд, Жим лёжа, 80 килограммов, 8 повторений, RIR 2"
+ * Одна фраза — отдых + параметры следующего подхода, БЕЗ названия упражнения.
+ * Пример: "Отдых 2 минуты 30 секунд, следующий вес подхода 80 килограммов,
+ *          8 повторений, запас 2"
+ *
+ * @param {number} restSeconds   — длительность отдыха
+ * @param {string} exerciseName  — оставлен для совместимости сигнатуры, не используется
+ * @param {object} draftSet      — { weight, reps, rir, category, useSpecialMethod }
+ * @param {object} ex            — упражнение (isCluster / isDrop / isMyo)
  */
 export function speakAfterSet(restSeconds, exerciseName, draftSet, ex) {
   if (!isVoiceEnabled()) return;
@@ -236,12 +256,9 @@ export function speakAfterSet(restSeconds, exerciseName, draftSet, ex) {
   const restText = formatSecondsRu(restSeconds);
   if (restText) parts.push(`Отдых ${restText}`);
 
-  const exName = String(exerciseName || '').trim();
-  if (exName) parts.push(exName);
-
   if (draftSet) {
     const w = formatWeightRu(draftSet.weight);
-    if (w) parts.push(w);
+    if (w) parts.push(`следующий вес подхода ${w}`);
     const r = formatRepsRu(draftSet.reps);
     if (r) parts.push(r);
     if (draftSet.category !== 'Разминка') {
@@ -280,7 +297,8 @@ export function speakRestFinished() {
 
 /**
  * Канал D: смена упражнения (кнопка → или автоматический переход).
- * Без слова "Отдых".
+ * Без слова "Отдых", но С названием упражнения — атлету нужен контекст
+ * при смене упражнения.
  */
 export function speakNextExercise(exerciseName, draftSet, ex) {
   if (!isVoiceEnabled()) return;
