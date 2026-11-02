@@ -1,7 +1,20 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.3 Voice Coach Integration)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.4 Timer & Voice Fixes)
  * =========================================================================
+ * V2.9.4 (фиксы таймера и голоса):
+ * - FIX-1 (P1): выбор длительности отдыха после разминочного подхода теперь
+ *   смотрит на КАТЕГОРИЮ СЛЕДУЮЩЕГО сета (activeSession.draftSet.category),
+ *   а не предыдущего. Раньше после последнего разминочного сета перед первым
+ *   рабочим отдых был 60 сек (warmup) вместо 150/90 (рабочий). Теперь
+ *   переход «разминка → рабочий» даёт полноценный рабочий отдых.
+ * - FIX-2 (P1): startRestTimer предварительно заполняет spokenThresholds
+ *   порогами, которые >= длительности отдыха. Для 60-сек отдыха порог 60
+ *   больше не срабатывает (дублировал фразу speakAfterSet «Отдых 1 минута»).
+ * - FIX-4 (P2): для разминочного отдыха активен только наименьший порог
+ *   (по умолчанию 10 сек). Убирает двойное «30 секунд + 10 секунд» за
+ *   минуту разминки. Рабочий отдых не затронут — там все пороги работают.
+ *
  * V2.9.3 (голосовые подсказки через Web Speech API):
  * - Интеграция с js/voice_coach.js V1.0.0.
  * - Канал A: после записи подхода (setTimeout 500 мс) — одна фраза
@@ -14,7 +27,24 @@
  * - finalizeAndSyncLiveWorkout: cancelVoice() в начале.
  * - Настройки (галка + 3 порога) обрабатываются в bindLiveWorkoutDomEvents.
  *
- * V2.9.2 и ранее — сохранены полностью.
+ * V2.9.2 (фикс «зависшего таймера после финиша»):
+ * - BUG-1 (P1): finalizeAndSyncLiveWorkout теперь ЯВНО закрывает все live-
+ *   модалки (liveBigClockOverlay, liveCloseoutModal, liveFinishSheet,
+ *   liveWorkoutOverlay) в правильном порядке. Раньше liveBigClockOverlay
+ *   (z-index 1050) оставался поверх — цифры мигали при is-warning, визуально
+ *   «тикало» после финиша.
+ * - BUG-2 (P1): убран setTimeout(280) перед closeModal('liveWorkoutOverlay').
+ *   Причина: closeModal('liveCloseoutModal') ставит closingInProgress=true,
+ *   который сбрасывается через setTimeout(500). 280 < 500 → closeModal для
+ *   liveWorkoutOverlay уходил в early return. Overlay оставался открытым.
+ * - BUG-3 (P1): _synced = true ставится ТОЛЬКО после успешного
+ *   persistActiveSession(). При quota-error флаг не фиксировался в
+ *   localStorage → crash-recovery V2.9.0 терял _synced → дубли в Sheets.
+ * - BUG-4 (P2): startDurationTicker и syncRestTimerWithWallClock получили
+ *   early return при !activeSession ДО setInterval. Раньше интервал жил
+ *   после финиша (утечка CPU, тикающая иконка в топбаре).
+ * - Fallback: после явных closeModal — если стек не пуст, resetAllModals().
+ * - V2.9.1 (Myo-reps) и V2.9.0-фиксы полностью сохранены.
  * =========================================================================
  */
 
@@ -526,7 +556,7 @@ function beginNewLiveWorkoutSession(recipePayload) {
     currentExerciseIndex: 0,
     exercises: exercisesQueue,
     draftSet: initialDraft,
-    restState: { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false, spokenThresholds: [] },
+    restState: { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false, spokenThresholds: [], isWarmupRest: false },
     lastRestEndMs: 0,
     readinessPre: '🟢 Оптимум',
     sRPE: 8,
@@ -575,8 +605,9 @@ function checkCrashRecoverySession() {
       if (typeof parsed.headerManuallyToggled !== 'boolean') parsed.headerManuallyToggled = false;
       if (!parsed.historyUiState || typeof parsed.historyUiState !== 'object') parsed.historyUiState = { warmupCollapsed: false, workCollapsed: false };
       if (typeof parsed.lastRestEndMs !== 'number') parsed.lastRestEndMs = 0;
-      if (!parsed.restState || typeof parsed.restState !== 'object') parsed.restState = { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false, spokenThresholds: [] };
+      if (!parsed.restState || typeof parsed.restState !== 'object') parsed.restState = { isActive: false, endsAtMs: 0, totalSeconds: 150, notified10s: false, spokenThresholds: [], isWarmupRest: false };
       if (!Array.isArray(parsed.restState.spokenThresholds)) parsed.restState.spokenThresholds = [];
+      if (typeof parsed.restState.isWarmupRest !== 'boolean') parsed.restState.isWarmupRest = false;
 
       parsed.exercises.forEach(ex => {
         if (!ex.multiplier) ex.multiplier = getExerciseMultiplier(ex.name);
@@ -2007,11 +2038,17 @@ function commitRecordedSet(partialSet) {
   activeSession.draftSet = computeSmartDraftSetForExercise(currentEx);
   activeSession.lastRestEndMs = 0;
   const prefs = getTimerPrefs();
+  // FIX-1: длительность отдыха определяется по КАТЕГОРИИ СЛЕДУЮЩЕГО сета.
+  // После последнего разминочного сета следующий — рабочий → отдых
+  // рабочий (150/90), а не warmup (60). Иначе атлет идёт на первый
+  // тяжёлый подход после 60 сек — физиологически мало для компаунда.
+  const nextCategory = activeSession.draftSet.category;
+  const isWarmupRest = (nextCategory === 'Разминка');
   let restSeconds = prefs.compound;
-  if (recordedSet.category === 'Разминка') restSeconds = prefs.warmup;
+  if (isWarmupRest) restSeconds = prefs.warmup;
   else if (currentEx.order > 2) restSeconds = prefs.isolation;
 
-  startRestTimer(restSeconds);
+  startRestTimer(restSeconds, { isWarmupRest });
   persistActiveSession();
   renderLiveWorkoutScreen();
 
@@ -2621,14 +2658,37 @@ function switchActiveExercise(newIndex) {
   }
 }
 
-function startRestTimer(seconds) {
+function startRestTimer(seconds, options = {}) {
   if (!activeSession) return;
+  const isWarmupRest = options.isWarmupRest === true;
+  const thresholds = getVoiceThresholds();
+  const spoken = [];
+
+  // FIX-2: пороги >= длительности отдыха сразу считаются «произнесёнными».
+  // Для 60-сек отдыха порог 60 дублировал бы «Отдых 1 минута» из speakAfterSet.
+  thresholds.forEach(t => {
+    if (t > 0 && t >= seconds) spoken.push(t);
+  });
+
+  // FIX-4: для разминки активен только наименьший порог (по умолчанию 10 сек).
+  // Рабочий отдых не затронут — там срабатывают все три порога.
+  if (isWarmupRest) {
+    const activeThresholds = thresholds.filter(t => t > 0 && t < seconds);
+    if (activeThresholds.length > 1) {
+      const smallest = Math.min(...activeThresholds);
+      activeThresholds.forEach(t => {
+        if (t !== smallest) spoken.push(t);
+      });
+    }
+  }
+
   activeSession.restState = {
     isActive: true,
     endsAtMs: Date.now() + (seconds * 1000),
     totalSeconds: seconds,
     notified10s: false,
-    spokenThresholds: []
+    spokenThresholds: spoken,
+    isWarmupRest: isWarmupRest
   };
   persistActiveSession();
   renderPAB();
