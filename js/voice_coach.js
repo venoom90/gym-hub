@@ -1,6 +1,6 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.5)
+ * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.7)
  * =========================================================================
  * Голосовое сопровождение LiveWorkout через Web Speech API.
  *
@@ -33,12 +33,19 @@
  *   V1.0.4 — пунктуация: точки между крупными блоками фразы, запятая
  *            внутри блока «повторы + запас». Маркер перехода
  *            «Следующий подход рабочий» — между блоком отдыха и блоком
- *            веса, только при переходе с разминочного сета на рабочий
- *            (сигнатура speakAfterSet расширена параметром recordedCategory).
- *   V1.0.5 — экспериментальный audioSession: перед speak() устанавливается
- *            navigator.audioSession.type = 'transient' (может вызвать ducking
- *            музыки), после utterance — сброс в 'auto'. Progressive enhancement:
- *            если API нет, поведение не меняется.
+ *            веса, только при переходе с разминочного сета на рабочий.
+ *   V1.0.5 — экспериментальный navigator.audioSession.type = 'transient'
+ *            (для ducking музыки). В зале на Android Chrome проверено:
+ *            ducking не срабатывает — музыка просто накладывается. Код
+ *            откачен в V1.0.6.
+ *   V1.0.6 — убран audioSession (не работает). «финальный мио-репс» →
+ *            «финальный мио сет» (TTS читает «мио-репс» с паузой/криво
+ *            из-за дефиса).
+  *   V1.0.7 — скорость речи по умолчанию поднята с 1.0 до 1.15. Цель —
+ *            улучшить разборчивость на фоне музыки (короче фраза →
+ *            меньше наложения). Громкость utterance.volume = 1.0 — это
+ *            максимум, программно громче нельзя (ограничение спецификации
+ *            SpeechSynthesis: volume ∈ [0, 1]).
  * =========================================================================
  */
 
@@ -158,28 +165,10 @@ function speakSafe(text, opts = {}) {
       utterance.lang = 'ru-RU';
       const voice = pickRussianVoice();
       if (voice) utterance.voice = voice;
-      utterance.rate = opts.rate || 1.0;
+      utterance.rate = opts.rate || 1.15;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
-
-      // V1.0.5: экспериментальный audioSession для ducking.
-      // Устанавливаем "transient" только на время фразы.
-      // Если API нет или он не поддерживает ducking для SpeechSynthesis —
-      // поведение не изменится (progressive enhancement).
-      const supportsAudioSession = 'audioSession' in navigator;
-      if (supportsAudioSession) {
-        try { navigator.audioSession.type = 'transient'; } catch (e) {}
-      }
-
-      const restoreAudioSession = () => {
-        if (supportsAudioSession) {
-          try { navigator.audioSession.type = 'auto'; } catch (e) {}
-        }
-      };
-
-      utterance.onend = restoreAudioSession;
       utterance.onerror = (event) => {
-        restoreAudioSession();
         if (event && event.error && event.error !== 'interrupted' && event.error !== 'canceled') {
           console.warn('[VoiceCoach] SpeechSynthesis error:', event.error);
         }
@@ -195,11 +184,6 @@ export function cancelVoice() {
   if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
   if (!isSpeechSupported()) return;
   try { window.speechSynthesis.cancel(); } catch (e) {}
-  // V1.0.5: при отмене фразы onend/onerror могут не сработать —
-  // сбрасываем audioSession вручную.
-  if ('audioSession' in navigator) {
-    try { navigator.audioSession.type = 'auto'; } catch (e) {}
-  }
 }
 
 /* ---------- FORMATTERS ---------- */
@@ -265,7 +249,7 @@ function formatMethodTailRu(draftSet, ex) {
   if (!draftSet || !draftSet.useSpecialMethod) return '';
   if (ex && ex.isCluster) return 'финальный кластер';
   if (ex && ex.isDrop) return 'финальный дроп-сет';
-  if (ex && ex.isMyo) return 'финальный мио-репс';
+  if (ex && ex.isMyo) return 'финальный мио сет';
   return '';
 }
 
