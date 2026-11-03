@@ -1,12 +1,22 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.5 Timer & Voice Fixes)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.6 Voice Completion Fix)
  * =========================================================================
-  * V2.9.5 (голос, маркер перехода):
+ * V2.9.6 (фикс озвучки после последнего подхода упражнения):
+ * - BUG (P1): в commitRecordedSet после последнего запланированного
+ *   подхода speakAfterSet озвучивал параметры «следующего подхода»,
+ *   которого нет. Пользователь слышал «Отдых X. Вес Y. Z повторений»,
+ *   хотя упражнение уже завершено и PAB показывал «УПРАЖНЕНИЕ ЗАВЕРШЕНО».
+ * - FIX: если isCompleted и workDoneAfter >= targetSets — вместо voice A
+ *   вызывается speakExerciseFinished() («Упражнение завершено»).
+ *   Таймер отдыха стартует как обычно (служит паузой перед переходом).
+ *
+ * V2.9.5 (голос, маркер перехода):
  * - В commitRecordedSet вызов speakAfterSet дополнен 5-м аргументом
  *   recordedSet.category. voice_coach.js V1.0.4 сам определяет переход
  *   «разминка → рабочий» и вставляет маркер «Следующий подход рабочий»
  *   между блоком отдыха и блоком веса. Логика таймера не затронута.
+ *
  * V2.9.4 (фиксы таймера и голоса):
  * - FIX-1 (P1): выбор длительности отдыха после разминочного подхода теперь
  *   смотрит на КАТЕГОРИЮ СЛЕДУЮЩЕГО сета (activeSession.draftSet.category),
@@ -63,7 +73,7 @@ import { showErrorToast, showSuccessToast, showWarningToast, openConfirmSheet } 
 import { logToTerminal } from './sync.js';
 import {
   isVoiceEnabled, setVoiceEnabled, getVoiceThresholds, setVoiceThresholds,
-  speakAfterSet, speakRestTime, speakRestFinished, speakNextExercise, cancelVoice
+  speakAfterSet, speakRestTime, speakRestFinished, speakNextExercise, speakExerciseFinished, cancelVoice
 } from './voice_coach.js';
 
 const STORAGE_KEY_ACTIVE_SESSION = 'gym_active_live_workout_v1';
@@ -2053,21 +2063,35 @@ function commitRecordedSet(partialSet) {
   if (isWarmupRest) restSeconds = prefs.warmup;
   else if (currentEx.order > 2) restSeconds = prefs.isolation;
 
+  // V2.9.6 BUG-FIX (P1): после последнего запланированного подхода
+  // (isCompleted = true) НЕ озвучиваем параметры «следующего подхода» —
+  // его нет. Раньше speakAfterSet говорил «Отдых X. Вес Y. Z повторений»
+  // как будто атлет ещё не закончил упражнение. Теперь вместо этого —
+  // короткое «Упражнение завершено». Таймер отдыха стартует (он служит
+  // паузой перед переходом к следующему упражнению).
+  const isExerciseJustCompleted = currentEx.isCompleted
+    && workDoneAfter >= currentEx.targetSets;
+
   startRestTimer(restSeconds, { isWarmupRest });
   persistActiveSession();
   renderLiveWorkoutScreen();
 
   const kindTxt = recordedSet.category === 'Разминка' ? 'Разминка' : 'Подход';
-  announceToTalkBack(`${kindTxt} ${recordedSet.setNum} записан. Отдых ${restSeconds} секунд.`);
 
-  // Канал A: одна фраза — отдых + параметры следующего подхода.
-  // Задержка 500 мс — не конфликтует с анимацией "✓ ЗАПИСАНО" и TalkBack-анонсом.
+  if (isExerciseJustCompleted) {
+    announceToTalkBack(`${kindTxt} ${recordedSet.setNum} записан. Упражнение завершено.`);
+    speakExerciseFinished();
+  } else {
+    announceToTalkBack(`${kindTxt} ${recordedSet.setNum} записан. Отдых ${restSeconds} секунд.`);
+    // Канал A: одна фраза — отдых + параметры следующего подхода.
+    // Задержка 500 мс — не конфликтует с анимацией "✓ ЗАПИСАНО" и TalkBack-анонсом.
     setTimeout(() => {
-    if (!activeSession) return;
-    const exNow = activeSession.exercises[activeSession.currentExerciseIndex];
-    if (!exNow) return;
-    speakAfterSet(restSeconds, exNow.name, activeSession.draftSet, exNow, recordedSet.category);
-  }, 500);
+      if (!activeSession) return;
+      const exNow = activeSession.exercises[activeSession.currentExerciseIndex];
+      if (!exNow) return;
+      speakAfterSet(restSeconds, exNow.name, activeSession.draftSet, exNow, recordedSet.category);
+    }, 500);
+  }
 
   if (isModalOpen('liveBigClockOverlay')) {
     renderBigClockWidgets();

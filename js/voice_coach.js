@@ -1,6 +1,6 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.7)
+ * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.8)
  * =========================================================================
  * Голосовое сопровождение LiveWorkout через Web Speech API.
  *
@@ -19,6 +19,7 @@
  *                             «разминка → рабочий») + вес + повторы + запас.
  *   B. speakRestTime()      — остаток отдыха на пороге 60/30/10.
  *   C. speakRestFinished()  — естественное завершение отдыха.
+ *   C2. speakExerciseFinished() — последний подход упражнения записан.
  *   D. speakNextExercise()  — смена упражнения (с названием упражнения).
  *   E. cancelVoice()        — ручной пропуск / финиш / выключение галки.
  *
@@ -41,11 +42,16 @@
  *   V1.0.6 — убран audioSession (не работает). «финальный мио-репс» →
  *            «финальный мио сет» (TTS читает «мио-репс» с паузой/криво
  *            из-за дефиса).
-  *   V1.0.7 — скорость речи по умолчанию поднята с 1.0 до 1.15. Цель —
+ *   V1.0.7 — скорость речи по умолчанию поднята с 1.0 до 1.15. Цель —
  *            улучшить разборчивость на фоне музыки (короче фраза →
  *            меньше наложения). Громкость utterance.volume = 1.0 — это
  *            максимум, программно громче нельзя (ограничение спецификации
  *            SpeechSynthesis: volume ∈ [0, 1]).
+ *   V1.0.8 — добавлена speakExerciseFinished() — короткое «Упражнение
+ *            завершено». speakSafe получил опцию skipDebounce для
+ *            мгновенного воспроизведения (чтобы фраза успела прозвучать
+ *            до того, как пользователь нажмёт «Завершено» и speakNextExercise
+ *            перебьёт её).
  * =========================================================================
  */
 
@@ -157,8 +163,7 @@ function speakSafe(text, opts = {}) {
   _lastSpokenText = finalText;
   _lastSpokenAtMs = now;
 
-  if (_debounceTimer) clearTimeout(_debounceTimer);
-  _debounceTimer = setTimeout(() => {
+  const doSpeak = () => {
     try {
       window.speechSynthesis.cancel();
       const utterance = new window.SpeechSynthesisUtterance(finalText);
@@ -177,7 +182,14 @@ function speakSafe(text, opts = {}) {
     } catch (e) {
       console.warn('[VoiceCoach] speakSafe failed:', e);
     }
-  }, 300);
+  };
+
+  if (_debounceTimer) clearTimeout(_debounceTimer);
+  if (opts.skipDebounce) {
+    doSpeak();
+  } else {
+    _debounceTimer = setTimeout(doSpeak, 300);
+  }
 }
 
 export function cancelVoice() {
@@ -345,6 +357,17 @@ export function speakRestTime(secondsLeft) {
 export function speakRestFinished() {
   if (!isVoiceEnabled()) return;
   speakSafe('Отдых закончен');
+}
+
+/**
+ * Канал C2: упражнение завершено (последний запланированный подход).
+ * Воспроизводится сразу (skipDebounce), чтобы фраза успела прозвучать
+ * до того, как пользователь нажмёт «Завершено» и speakNextExercise
+ * объявит следующее упражнение.
+ */
+export function speakExerciseFinished() {
+  if (!isVoiceEnabled()) return;
+  speakSafe('Упражнение завершено', { skipDebounce: true });
 }
 
 /**
