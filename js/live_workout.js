@@ -1,7 +1,12 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.4 Timer & Voice Fixes)
+ * GYM ANALYTICS HUB — LIVE WORKOUT ENGINE (V2.9.5 Timer & Voice Fixes)
  * =========================================================================
+  * V2.9.5 (голос, маркер перехода):
+ * - В commitRecordedSet вызов speakAfterSet дополнен 5-м аргументом
+ *   recordedSet.category. voice_coach.js V1.0.4 сам определяет переход
+ *   «разминка → рабочий» и вставляет маркер «Следующий подход рабочий»
+ *   между блоком отдыха и блоком веса. Логика таймера не затронута.
  * V2.9.4 (фиксы таймера и голоса):
  * - FIX-1 (P1): выбор длительности отдыха после разминочного подхода теперь
  *   смотрит на КАТЕГОРИЮ СЛЕДУЮЩЕГО сета (activeSession.draftSet.category),
@@ -2057,11 +2062,11 @@ function commitRecordedSet(partialSet) {
 
   // Канал A: одна фраза — отдых + параметры следующего подхода.
   // Задержка 500 мс — не конфликтует с анимацией "✓ ЗАПИСАНО" и TalkBack-анонсом.
-  setTimeout(() => {
+    setTimeout(() => {
     if (!activeSession) return;
     const exNow = activeSession.exercises[activeSession.currentExerciseIndex];
     if (!exNow) return;
-    speakAfterSet(restSeconds, exNow.name, activeSession.draftSet, exNow);
+    speakAfterSet(restSeconds, exNow.name, activeSession.draftSet, exNow, recordedSet.category);
   }, 500);
 
   if (isModalOpen('liveBigClockOverlay')) {

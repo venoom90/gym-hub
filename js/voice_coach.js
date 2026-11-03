@@ -1,6 +1,6 @@
 /**
  * =========================================================================
- * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.3)
+ * GYM ANALYTICS HUB — VOICE COACH MODULE (V1.0.5)
  * =========================================================================
  * Голосовое сопровождение LiveWorkout через Web Speech API.
  *
@@ -15,8 +15,8 @@
  * - Никакой вибрации. Никакой предзаписи аудио.
  *
  * Каналы:
- *   A. speakAfterSet()      — после записи подхода: отдых + вес след.
- *                             подхода + повторы + запас (RIR).
+ *   A. speakAfterSet()      — после записи подхода: отдых + (маркер перехода
+ *                             «разминка → рабочий») + вес + повторы + запас.
  *   B. speakRestTime()      — остаток отдыха на пороге 60/30/10.
  *   C. speakRestFinished()  — естественное завершение отдыха.
  *   D. speakNextExercise()  — смена упражнения (с названием упражнения).
@@ -29,9 +29,16 @@
  *            «до отказа».
  *   V1.0.2 — вес произносится словами (попытка убрать паузу на точке).
  *   V1.0.3 — вес с дробной частью: «X килограмм Y грамм» (например,
- *            82.5 → «82 килограмма 500 грамм»). Универсально для любой
- *            дроби, TTS не спотыкается о точку. Шаг веса в проекте 2.5 кг
- *            даёт чистые значения: 0 / 250 / 500 / 750 грамм.
+ *            82.5 → «82 килограмма 500 грамм»).
+ *   V1.0.4 — пунктуация: точки между крупными блоками фразы, запятая
+ *            внутри блока «повторы + запас». Маркер перехода
+ *            «Следующий подход рабочий» — между блоком отдыха и блоком
+ *            веса, только при переходе с разминочного сета на рабочий
+ *            (сигнатура speakAfterSet расширена параметром recordedCategory).
+ *   V1.0.5 — экспериментальный audioSession: перед speak() устанавливается
+ *            navigator.audioSession.type = 'transient' (может вызвать ducking
+ *            музыки), после utterance — сброс в 'auto'. Progressive enhancement:
+ *            если API нет, поведение не меняется.
  * =========================================================================
  */
 
@@ -154,7 +161,25 @@ function speakSafe(text, opts = {}) {
       utterance.rate = opts.rate || 1.0;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
+
+      // V1.0.5: экспериментальный audioSession для ducking.
+      // Устанавливаем "transient" только на время фразы.
+      // Если API нет или он не поддерживает ducking для SpeechSynthesis —
+      // поведение не изменится (progressive enhancement).
+      const supportsAudioSession = 'audioSession' in navigator;
+      if (supportsAudioSession) {
+        try { navigator.audioSession.type = 'transient'; } catch (e) {}
+      }
+
+      const restoreAudioSession = () => {
+        if (supportsAudioSession) {
+          try { navigator.audioSession.type = 'auto'; } catch (e) {}
+        }
+      };
+
+      utterance.onend = restoreAudioSession;
       utterance.onerror = (event) => {
+        restoreAudioSession();
         if (event && event.error && event.error !== 'interrupted' && event.error !== 'canceled') {
           console.warn('[VoiceCoach] SpeechSynthesis error:', event.error);
         }
@@ -170,6 +195,11 @@ export function cancelVoice() {
   if (_debounceTimer) { clearTimeout(_debounceTimer); _debounceTimer = null; }
   if (!isSpeechSupported()) return;
   try { window.speechSynthesis.cancel(); } catch (e) {}
+  // V1.0.5: при отмене фразы onend/onerror могут не сработать —
+  // сбрасываем audioSession вручную.
+  if ('audioSession' in navigator) {
+    try { navigator.audioSession.type = 'auto'; } catch (e) {}
+  }
 }
 
 /* ---------- FORMATTERS ---------- */
@@ -201,9 +231,7 @@ export function formatSecondsRu(totalSeconds) {
  * - 80.5  → «80 килограммов 500 грамм»
  * - 82.5  → «82 килограмма 500 грамм»
  * - 81.25 → «81 килограмм 250 грамм»
- * - 82.75 → «82 килограмма 750 грамм»
- * Цифры без точки TTS читает чисто, паузы нет. Шаг веса в проекте 2.5 кг
- * даёт чистые значения (0 / 250 / 500 / 750 г).
+ * Цифры без точки TTS читает чисто, паузы нет.
  */
 function formatWeightRu(weight) {
   const w = Number(weight);
@@ -241,39 +269,75 @@ function formatMethodTailRu(draftSet, ex) {
   return '';
 }
 
+/**
+ * Собирает хвостовой блок «повторы, запас, метод» через запятую.
+ * Возвращает '' если нечего добавить.
+ */
+function buildTailBlockRu(draftSet, ex) {
+  if (!draftSet) return '';
+  const tailParts = [];
+  const repsText = formatRepsRu(draftSet.reps);
+  if (repsText) tailParts.push(repsText);
+  if (draftSet.category !== 'Разминка') {
+    const rirText = formatRirRu(draftSet.rir);
+    if (rirText) tailParts.push(rirText);
+  }
+  const methodTail = formatMethodTailRu(draftSet, ex);
+  if (methodTail) tailParts.push(methodTail);
+  return tailParts.join(', ');
+}
+
 /* ---------- PUBLIC API: ФРАЗЫ ---------- */
 
 /**
  * Канал A: после записи подхода.
- * Одна фраза — отдых + параметры следующего подхода, БЕЗ названия упражнения.
- * Пример: "Отдых 2 минуты 30 секунд, следующий вес подхода 80 килограммов,
- *          8 повторений, запас 2"
+ * Одна фраза — отдых + [маркер перехода] + вес + повторы, запас.
+ * Пунктуация: точки между крупными блоками, запятая внутри хвоста.
  *
- * @param {number} restSeconds   — длительность отдыха
- * @param {string} exerciseName  — оставлен для совместимости сигнатуры, не используется
- * @param {object} draftSet      — { weight, reps, rir, category, useSpecialMethod }
- * @param {object} ex            — упражнение (isCluster / isDrop / isMyo)
+ * Примеры:
+ *  - Warmup → Warmup:
+ *      "Отдых 1 минута. Вес 60 килограммов. 8 повторений."
+ *  - Warmup → Work (переход):
+ *      "Отдых 2 минуты 30 секунд. Следующий подход рабочий. Вес 80 килограммов. 8 повторений, запас 2."
+ *  - Work → Work:
+ *      "Отдых 2 минуты 30 секунд. Вес 80 килограммов. 8 повторений, запас 2."
+ *
+ * @param {number} restSeconds      — длительность отдыха
+ * @param {string} exerciseName     — оставлен для совместимости, не используется
+ * @param {object} draftSet         — { weight, reps, rir, category, useSpecialMethod }
+ * @param {object} ex               — упражнение (isCluster / isDrop / isMyo)
+ * @param {string} recordedCategory — категория ТОЛЬКО ЧТО записанного сета
+ *                                    ('Разминка' | 'Рабочий'). Нужна для
+ *                                    определения перехода разминка → рабочий.
+ *                                    Если undefined — считается, что перехода нет.
  */
-export function speakAfterSet(restSeconds, exerciseName, draftSet, ex) {
+export function speakAfterSet(restSeconds, exerciseName, draftSet, ex, recordedCategory) {
   if (!isVoiceEnabled()) return;
-  const parts = [];
-  const restText = formatSecondsRu(restSeconds);
-  if (restText) parts.push(`Отдых ${restText}`);
+  const blocks = [];
 
+  // Блок 1: отдых
+  const restText = formatSecondsRu(restSeconds);
+  if (restText) blocks.push(`Отдых ${restText}`);
+
+  // Блок 2 (опционально): маркер перехода «разминка → рабочий».
+  // Слово «Разминка закончена» не нужно — из фразы «следующий подход рабочий»
+  // и так понятно, что предыдущий был разминочный.
+  const isTransition = recordedCategory === 'Разминка'
+    && draftSet && draftSet.category === 'Рабочий';
+  if (isTransition) blocks.push('Следующий подход рабочий');
+
+  // Блок 3: вес отдельным блоком
   if (draftSet) {
-    const w = formatWeightRu(draftSet.weight);
-    if (w) parts.push(`следующий вес подхода ${w}`);
-    const r = formatRepsRu(draftSet.reps);
-    if (r) parts.push(r);
-    if (draftSet.category !== 'Разминка') {
-      const rir = formatRirRu(draftSet.rir);
-      if (rir) parts.push(rir);
-    }
-    const methodTail = formatMethodTailRu(draftSet, ex);
-    if (methodTail) parts.push(methodTail);
+    const weightText = formatWeightRu(draftSet.weight);
+    if (weightText) blocks.push(`Вес ${weightText}`);
+
+    // Блок 4: повторы + запас + метод
+    const tailBlock = buildTailBlockRu(draftSet, ex);
+    if (tailBlock) blocks.push(tailBlock);
   }
 
-  speakSafe(parts.join(', '));
+  if (blocks.length === 0) return;
+  speakSafe(blocks.join('. ') + '.');
 }
 
 /**
@@ -303,23 +367,24 @@ export function speakRestFinished() {
  * Канал D: смена упражнения (кнопка → или автоматический переход).
  * Без слова "Отдых", но С названием упражнения — атлету нужен контекст
  * при смене упражнения.
+ *
+ * Пример: "Приседания. 100 килограммов. 6 повторений, запас 1."
  */
 export function speakNextExercise(exerciseName, draftSet, ex) {
   if (!isVoiceEnabled()) return;
-  const parts = [];
+  const blocks = [];
+
   const exName = String(exerciseName || '').trim();
-  if (exName) parts.push(exName);
+  if (exName) blocks.push(exName);
+
   if (draftSet) {
-    const w = formatWeightRu(draftSet.weight);
-    if (w) parts.push(w);
-    const r = formatRepsRu(draftSet.reps);
-    if (r) parts.push(r);
-    if (draftSet.category !== 'Разминка') {
-      const rir = formatRirRu(draftSet.rir);
-      if (rir) parts.push(rir);
-    }
-    const methodTail = formatMethodTailRu(draftSet, ex);
-    if (methodTail) parts.push(methodTail);
+    const weightText = formatWeightRu(draftSet.weight);
+    if (weightText) blocks.push(weightText);
+
+    const tailBlock = buildTailBlockRu(draftSet, ex);
+    if (tailBlock) blocks.push(tailBlock);
   }
-  speakSafe(parts.join(', '));
+
+  if (blocks.length === 0) return;
+  speakSafe(blocks.join('. ') + '.');
 }
